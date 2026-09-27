@@ -6479,6 +6479,115 @@ a.nq-bento-surface:active {
   min-width: 46rem;
 }
 
+/* ── Khối "Ca còn thiếu người" ──
+   LƯỚI THẺ, không phải danh sách dọc. Bản cũ mỗi ca một hàng full-width
+   (nhãn ┃ select ┃ nút) cao ~90px, nên 5 ca là ~450px và đẩy cả trang dài quá
+   màn hình — đúng phản ánh "1 dãy dọc xuống, kéo dài tuốt cuối màn hình".
+
+   Lưới tự chia cột (2–3 cột ở màn phổ thông) nên số ca tăng theo BỀ NGANG,
+   không theo chiều dọc. `max-height` + cuộn NỘI BỘ chặn trường hợp xấu nhất:
+   ít ca vẫn gọn, nhiều ca thì khối tự cuộn chứ không kéo dài trang. */
+.nq-gap-panel {
+  border: 1px solid color-mix(in srgb, var(--nq-st-warn) 46%, var(--nq-line));
+  border-radius: var(--nq-radius-bubble);
+  background: var(--nq-st-warn-soft);
+  padding: var(--nq-s4) var(--nq-s5);
+  animation: nq-rise var(--nq-dur-t0) var(--nq-ease-out) both;
+}
+
+.nq-gap-panel__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--nq-s3);
+  margin-bottom: var(--nq-s4);
+}
+
+.nq-gap-panel__title {
+  display: flex;
+  align-items: center;
+  gap: var(--nq-s2);
+  margin: 0;
+  font-size: var(--nq-t-small);
+  font-weight: 700;
+  color: var(--nq-st-warn-ink-strong, var(--nq-ink));
+}
+
+.nq-gap-panel__count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.5rem;
+  padding: 0.05rem 0.4rem;
+  border-radius: var(--nq-radius-pill);
+  background: var(--nq-st-warn);
+  color: var(--nq-accent-ink);
+  font-family: var(--nq-font-mono);
+  font-size: var(--nq-t-micro);
+  font-variant-numeric: tabular-nums;
+}
+
+.nq-gap-panel__hint {
+  margin: 0.3rem 0 0;
+  font-size: var(--nq-t-caption);
+  line-height: 1.5;
+  color: var(--nq-ink-muted);
+  max-width: 60ch;
+}
+
+.nq-gap-grid {
+  display: grid;
+  gap: var(--nq-s3);
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 16rem), 1fr));
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  /* Chặn trường hợp xấu nhất: rất nhiều ca. Ở màn phổ thông 4–8 ca vừa trọn
+     trong 22rem; nhiều hơn thì cuộn trong khối, không kéo dài cả trang. */
+  max-height: 22rem;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+}
+
+.nq-gap-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--nq-s2);
+  min-width: 0;
+  padding: var(--nq-s3);
+  border: 1px solid color-mix(in srgb, var(--nq-st-warn) 34%, var(--nq-line));
+  border-radius: var(--nq-radius);
+  background: var(--nq-surface);
+}
+
+.nq-gap-card__ten {
+  margin: 0;
+  font-size: var(--nq-t-small);
+  font-weight: 700;
+  line-height: 1.3;
+  color: var(--nq-ink);
+  overflow-wrap: anywhere;
+}
+
+.nq-gap-card__meta {
+  margin: 0;
+  font-size: var(--nq-t-micro);
+  line-height: 1.45;
+  color: var(--nq-ink-muted);
+}
+
+.nq-gap-card__select {
+  width: 100%;
+  min-height: 2.5rem;
+  padding: 0 var(--nq-s2);
+  border: 1px solid var(--nq-line-strong);
+  border-radius: var(--nq-radius);
+  background: var(--nq-bg);
+  color: var(--nq-ink);
+  font-size: var(--nq-t-caption);
+}
+
 .nq-roster-caption {
   caption-side: top;
   text-align: left;
