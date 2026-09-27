@@ -19,9 +19,28 @@ export function todayHeroLine(treo: number, lifeState?: string): string {
   return `${life} · ${treo} việc treo`;
 }
 
-export function todayMetaLine(ngay: string, nguon?: string): string {
-  const src = nguon === "quan" ? "nguồn quán" : nguon ? `nguồn ${nguon}` : "nguồn quán";
-  return `Ngày ${ngay} · ${src}`;
+/**
+ * Dòng phụ của dải "Hôm nay": ngày + số ca, **chỉ những số KHÔNG trùng thẻ KPI**.
+ *
+ * Vì sao chỉ giữ `so_ca`: bản trước in cả câu brief sáng ở một dòng riêng giữa
+ * trang — "Brief sáng {ngày}: {so_ca} ca · {so_treo_mo} việc treo đang mở · tồn
+ * cảnh báo: …". Hai trong bốn số đó là số của thẻ KPI ngay bên dưới
+ * (`so_treo_mo` = thẻ "Việc treo", `ton_canh_bao` = thẻ "Cảnh báo tồn"), nên màn
+ * hình nói cùng một chuyện hai lần ở hai chỗ cách nhau vài chục pixel. `treo_dau`
+ * thì trùng khối "Việc treo gần nhất". Chỉ `so_ca` là thông tin chỉ có ở đây.
+ *
+ * `ngay` truyền vào là ngày ISO của máy chủ (`/api/v1/hom-nay`), KHÔNG phải ngày
+ * của brief: brief được worker ghi lúc 06:00 và giữ nguyên cả ngày, nên lấy ngày
+ * từ brief sẽ hiện sai ngày nếu worker chưa chạy hôm nay.
+ */
+export function todayMetaLine(ngay: string, soCa?: number | null): string {
+  const parts: string[] = [];
+  const d = (ngay || "").match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (d) parts.push(`Ngày ${d[3]}/${d[2]}`);
+  if (typeof soCa === "number" && Number.isFinite(soCa) && soCa > 0) {
+    parts.push(`${soCa} ca hôm nay`);
+  }
+  return parts.join(" · ");
 }
 
 export function todayTechnicalDetail(lich: {
