@@ -145,23 +145,39 @@ test.describe("Hao hụt — bảng theo nguyên liệu", () => {
     await loginAs(page);
     await page.goto("/hao-phi", { waitUntil: "networkidle" });
 
+    // Ba lối này nằm trong NỘI DUNG trang (3 nút cuối trang hao phí). KHÔNG
+    // assert sidebar: đó là accordion (commit 272e953) và nhóm không-active
+    // đóng mặc định → link trong panel `hidden` không "visible" dù tồn tại.
+    // Điều cần kiểm là trang có lối đi cho người dùng, không phải nav có mục.
+    const main = page.locator("main.nq-main, .nq-main").first();
     for (const href of ["/tieu-thu", "/menu", "/sop"]) {
-      await expect(page.locator(`a[href="${href}"]`).first()).toBeVisible();
+      await expect(main.locator(`a[href="${href}"]`).first()).toBeVisible();
     }
   });
 });
 
 test.describe("Trang liên kết trỏ về hao hụt", () => {
+  // Sidebar là accordion (commit 272e953): nhóm không chứa trang đang xem bị
+  // ĐÓNG mặc định nên link trong sidebar nằm trong `hidden` panel. Assert
+  // `a[href="/hao-phi"]` không giới hạn sẽ bắt `.first()` = link sidebar (đứng
+  // trước trong DOM) → báo hidden dù trang có lối đi thật.
+  //
+  // Vì vậy phải nhắm link TRONG NỘI DUNG trang (`main`), đúng thứ người dùng
+  // bấm được mà không cần mở sidebar. Đây cũng là điều plan phase 7 muốn:
+  // “nối trang”, không phải “có link trong nav”.
+  const mainLink = (page: import("@playwright/test").Page, href: string) =>
+    page.locator(`main a[href="${href}"], .nq-main a[href="${href}"]`).first();
+
   test("/tieu-thu có lối sang /hao-phi", async ({ page }) => {
     await loginAs(page);
     await page.goto("/tieu-thu", { waitUntil: "networkidle" });
-    await expect(page.locator('a[href="/hao-phi"]').first()).toBeVisible();
+    await expect(mainLink(page, "/hao-phi")).toBeVisible();
   });
 
   test("/menu (chủ quán) có lối sang /hao-phi", async ({ page }) => {
     await loginAs(page, "hung");
     await page.goto("/menu", { waitUntil: "networkidle" });
-    await expect(page.locator('a[href="/hao-phi"]').first()).toBeVisible();
+    await expect(mainLink(page, "/hao-phi")).toBeVisible();
   });
 
   test("/hom-nay nối được sang hao hụt", async ({ page }) => {
@@ -169,7 +185,7 @@ test.describe("Trang liên kết trỏ về hao hụt", () => {
     // thấy hao hụt sớm nhất, nên thiếu lối đi ở đây là thiếu chỗ quan trọng nhất.
     await loginAs(page);
     await page.goto("/hom-nay", { waitUntil: "networkidle" });
-    await expect(page.locator('a[href="/hao-phi"]').first()).toBeVisible();
+    await expect(mainLink(page, "/hao-phi")).toBeVisible();
   });
 
   test("/hom-nay không vỡ khi phần hao hụt lỗi", async ({ page }) => {
@@ -183,7 +199,7 @@ test.describe("Trang liên kết trỏ về hao hụt", () => {
       await route.fulfill({ response: res, json: body });
     });
     await page.goto("/hom-nay", { waitUntil: "networkidle" });
-    await expect(page.locator('a[href="/hao-phi"]').first()).toBeVisible();
+    await expect(mainLink(page, "/hao-phi")).toBeVisible();
   });
 });
 

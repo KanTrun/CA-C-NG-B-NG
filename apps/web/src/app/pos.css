@@ -18,6 +18,23 @@
   margin-top: var(--nq-s5);
 }
 
+/*
+  LƯỚI NGANG: mỗi món là một ô trong hàng, không phải một dòng dọc chiếm trọn
+  bề rộng. Bản cũ để `.nq-pos-menu` là `flex-direction: column` nên 40 món là 40
+  dòng — nhân viên phải cuộn rất sâu mới thấy hết nhóm.
+
+  Ngưỡng cột: `minmax(280px, 1fr)`. Bản thử 240px cho ra 4 cột ở 1366px, nhưng
+  bề rộng thật của một cột khi đó chỉ ~240px — không đủ cho ảnh 56px + tên món
+  tiếng Việt + giá + stepper nằm CÙNG HÀNG: tên bị cắt thành "Cà ph…", giá đè
+  lên nút "−". 280px là bề rộng tối thiểu để thẻ 2 tầng (thông tin trên, stepper
+  dưới) đọc được trọn vẹn; ở 1366px nó cho 3 cột thoáng thay vì 4 cột chật.
+*/
+.nq-pos-menu {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr));
+  gap: var(--nq-s3);
+}
+
 .nq-pos-nhom__head {
   display: flex;
   align-items: baseline;

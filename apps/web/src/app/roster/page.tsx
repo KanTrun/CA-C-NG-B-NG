@@ -565,21 +565,33 @@ export default function RosterPage() {
     [filterKhung, filterViTri, search, nhanVienEarly],
   );
 
+  /**
+   * Thống kê lịch để hiển thị 4 ô đếm.
+   *
+   * ĐẾM THEO TỪNG CA (`ca`), KHÔNG theo ô lưới `(thu, khung)`.
+   *
+   * Vì sao: một ô lưới gộp nhiều ca (một buổi có thể có ca pha chế, ca phục vụ,
+   * ca kho…). Bản cũ cộng `so_nguoi_toi_thieu` của MỌI ca trong ô rồi so với
+   * tổng người được phân, nên một ca THIẾU NGƯỜI vẫn có thể nằm trong ô báo
+   * "Đủ · 4/4" — và người dùng thấy màn hình tự mâu thuẫn: lưới nói đủ người
+   * nhưng khối "Ca còn thiếu người" lại liệt kê ca thiếu (khối đó tính theo ca).
+   *
+   * Nay hai chỗ dùng CÙNG một đơn vị đếm là ca, nên không thể lệch nhau nữa.
+   */
   const rosterStats = useMemo(() => {
     const phanCongEarly = data?.phan_cong ?? {};
-    const cells = new Map<string, { assigned: Set<string>; required: number }>();
+    let thieuDinhBien = 0;
+    let caCoNguoi = 0;
     for (const s of shiftsEarly) {
-      const key = `${s.thu}|${s.khung}`;
-      const cell = cells.get(key) ?? { assigned: new Set<string>(), required: 0 };
-      for (const id of phanCongEarly[s.id] ?? []) cell.assigned.add(id);
-      cell.required += Number(s.so_nguoi_toi_thieu ?? 1);
-      cells.set(key, cell);
+      const assigned = new Set(phanCongEarly[s.id] ?? []).size;
+      const required = Number(s.so_nguoi_toi_thieu ?? 1);
+      if (assigned < required) thieuDinhBien += 1;
+      if (assigned > 0) caCoNguoi += 1;
     }
-    const values = [...cells.values()];
     return {
-      slots: values.length,
-      staffed: values.filter((cell) => cell.assigned.size >= cell.required).length,
-      thin: values.filter((cell) => cell.assigned.size < cell.required).length,
+      slots: shiftsEarly.length,
+      staffed: caCoNguoi,
+      thin: thieuDinhBien,
     };
   }, [shiftsEarly, data?.phan_cong]);
 
@@ -625,9 +637,13 @@ export default function RosterPage() {
     if (byDay[dayKey]) byDay[dayKey].push({ ...s, thu: dayKey });
   }
 
+  /** Tên nhân sự theo id. KHÔNG bao giờ trả về mã thô (`nv_01`) cho người dùng:
+   *  tầng API đã lọc tham chiếu chết, nhưng nếu vì lý do nào đó còn sót thì trả
+   *  chuỗi rỗng để nơi gọi tự bỏ qua, thay vì in `nv_26` lên lịch. */
   function nvName(id: string): string {
     const found = (data?.nhan_vien ?? []).find((x) => x.id === id);
-    return found ? found.ten : id;
+    if (found) return found.ten;
+    return /^nv_\w+$/i.test(id) ? "" : id;
   }
 
   // Resolve employee ID from session (e.g. nv_03 for Minh, nv_01 for Lan...)
@@ -812,6 +828,16 @@ export default function RosterPage() {
                 type="button"
                 className={`nq-btn px-3 py-1 text-sm ${trangThai === "cho_duyet" ? "nq-btn-primary" : ""}`}
                 disabled={lifecycleBusy}
+                /* Cảnh báo TRƯỚC khi bấm: duyệt cần một lần xếp lịch chính thức
+                   (`schedule_runs`) khớp dữ liệu hiện tại. Không có thì API trả
+                   409 — nhưng nói trước vẫn hơn để người dùng bấm rồi mới biết.
+                   Không `disabled` để vẫn bấm được (đường duyệt hợp lệ khi có
+                   run), chỉ đổi nhãn cho đúng việc sắp xảy ra. */
+                title={
+                  trangThai === "cho_duyet" && !data?.schedule_run
+                    ? "Chưa có lần xếp lịch chính thức cho tuần này — bấm 'Xếp lịch tự động' trước."
+                    : undefined
+                }
                 onClick={() => void handleLifecycle(nextAction.next, currentDisplayWeek)}
               >
                 {lifecycleBusy ? "Đang lưu…" : nextAction.label}
@@ -1152,55 +1178,73 @@ export default function RosterPage() {
         <div className="space-y-4">
           <Summary
             cells={[
-              { n: rosterStats.slots, k: "Ô ca tuần" },
-              { n: rosterStats.staffed, k: "Đã có người", tone: "ok" },
-              { n: rosterStats.thin, k: "Thiếu định biên", tone: rosterStats.thin > 0 ? "warn" : "default" },
+              { n: rosterStats.slots, k: "Ca trong tuần" },
+              { n: rosterStats.staffed, k: "Ca đã có người", tone: "ok" },
+              { n: rosterStats.thin, k: "Ca thiếu người", tone: rosterStats.thin > 0 ? "warn" : "default" },
               { n: lifeLabel(trangThai), k: "Trạng thái lịch" },
             ]}
           />
 
           {canWrite && (data?.open_shifts?.length ?? 0) > 0 ? (
-            <section className="border border-[color-mix(in_srgb,var(--nq-st-warn)_46%,var(--nq-line))] bg-[var(--nq-st-warn-soft)] p-4">
-              <div className="mb-3">
-                <h3 className="text-sm font-bold text-[var(--nq-st-warn-ink)]">Ca còn thiếu người</h3>
-                <p className="mt-1 text-xs text-[var(--nq-ink-muted)]">
-                  Lịch chưa thể duyệt khi còn ca mở. Chọn một nhân sự phù hợp để ghim và chạy lại lịch.
-                </p>
+            /* Khối "ca thiếu người": LƯỚI THẺ, không phải danh sách dọc.
+               Bản cũ mỗi ca một hàng full-width (nhãn + select + nút) nên 5 ca
+               là 5 hàng cao ~90px, đẩy trang dài quá màn hình và trông nặng.
+               Nay mỗi ca là một THẺ trong lưới tự chia cột: quét bằng mắt một
+               khối, và số ca tăng vẫn không kéo dài trang vô hạn — `max-height`
+               + cuộn trong khối giữ phần còn lại của trang luôn thấy được. */
+            <section className="nq-gap-panel">
+              <div className="nq-gap-panel__head">
+                <div>
+                  <h3 className="nq-gap-panel__title">
+                    Ca còn thiếu người
+                    <span className="nq-gap-panel__count">{data?.open_shifts?.length}</span>
+                  </h3>
+                  <p className="nq-gap-panel__hint">
+                    Lịch chưa thể duyệt khi còn ca thiếu. Chọn nhân sự phù hợp rồi ghim để chạy lại.
+                  </p>
+                </div>
               </div>
-              <div className="space-y-2">
+              <ul className="nq-gap-grid">
                 {data?.open_shifts?.map((openShift) => {
                   const shift = shifts.find((item) => item.id === openShift.ca_id);
+                  const chon = gapStaff[openShift.id] ?? openShift.claimed_by ?? "";
                   return (
-                    <div key={openShift.id} className="grid gap-2 border-t border-[color-mix(in_srgb,var(--nq-st-warn)_46%,var(--nq-line))] pt-3 sm:grid-cols-[1fr_minmax(12rem,18rem)_auto] sm:items-center">
-                      <div>
-                        <p className="text-sm font-semibold text-[var(--nq-ink)]">
-                          {shift ? shiftRowLabel(shift, shift.khung, khungGio) : openShift.ca_id}
-                        </p>
-                        <p className="text-xs text-[var(--nq-ink-muted)]">Hạn nhận: {new Date(openShift.deadline_at).toLocaleString("vi-VN")}</p>
-                      </div>
+                    <li key={openShift.id} className="nq-gap-card">
+                      <p className="nq-gap-card__ten">
+                        {shift ? shiftRowLabel(shift, shift.khung, khungGio) : openShift.ca_id}
+                      </p>
+                      <p className="nq-gap-card__meta">
+                        {openShift.claimed_by
+                          ? "Đã có người nhận — chờ quản lý duyệt"
+                          : `Hạn nhận: ${new Date(openShift.deadline_at).toLocaleString("vi-VN")}`}
+                      </p>
                       <select
                         aria-label={`Nhân sự cho ${openShift.ca_id}`}
-                        value={gapStaff[openShift.id] ?? openShift.claimed_by ?? ""}
-                        onChange={(event) => setGapStaff((current) => ({ ...current, [openShift.id]: event.target.value }))}
-                        className="min-h-10 border border-[var(--nq-line)] bg-[var(--nq-bg)] px-3 text-sm text-[var(--nq-ink)]"
+                        value={chon}
+                        onChange={(event) =>
+                          setGapStaff((current) => ({ ...current, [openShift.id]: event.target.value }))
+                        }
+                        className="nq-gap-card__select"
                       >
                         <option value="">Chọn nhân sự</option>
                         {data?.nhan_vien?.map((employee) => (
-                          <option key={employee.id} value={employee.id}>{employee.ten}</option>
+                          <option key={employee.id} value={employee.id}>
+                            {employee.ten}
+                          </option>
                         ))}
                       </select>
-                      <button
-                        type="button"
-                        disabled={gapBusy !== null || !(gapStaff[openShift.id] ?? openShift.claimed_by) || !data?.schedule_run}
+                      <Btn
                         onClick={() => void resolveGap(openShift)}
-                        className="min-h-10 bg-[var(--nq-st-warn)] px-4 text-xs font-bold text-[var(--nq-accent-ink)] hover:bg-[var(--nq-st-warn)] disabled:opacity-50"
+                        busy={gapBusy === openShift.id}
+                        disabled={gapBusy !== null || !chon || !data?.schedule_run}
+                        block
                       >
-                        {gapBusy === openShift.id ? "Đang chạy…" : openShift.claimed_by ? "Duyệt và chạy lại" : "Ghim và chạy lại"}
-                      </button>
-                    </div>
+                        {openShift.claimed_by ? "Duyệt và chạy lại" : "Ghim và chạy lại"}
+                      </Btn>
+                    </li>
                   );
                 })}
-              </div>
+              </ul>
             </section>
           ) : null}
 

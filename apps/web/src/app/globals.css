@@ -55,16 +55,71 @@
   width: 100%;
 }
 
-/* Dãy avatar trong ô lịch.
-   Ô lịch rộng ~110px; một ca bar thường có 3–6 người. Bản cũ in tên đầy đủ rồi
-   cắt bằng `-webkit-line-clamp: 3`, nên từ người thứ ba trở đi biến mất sau dấu
-   "…" — người xếp lịch mất thông tin đúng lúc cần nhất. Viết tắt 2 ký tự luôn
-   vừa: 6 người vẫn đọc được, tên đầy đủ nằm ở tooltip và bảng chi tiết ngày. */
+/* Dãy chip nhân sự trong ô lịch.
+   Mỗi người là một chip có viền riêng (xem `.nq-roster-crew-chip`), nên khoảng
+   cách chỉ cần rất nhỏ — viền đã làm việc phân tách. Trước đây tên nằm trần và
+   khoảng cách 3px là ranh giới DUY NHẤT, nên chữ đọc ra như dính liền. */
 .nq-roster-slot-crew {
   display: flex;
   flex-wrap: wrap;
   gap: 3px;
+  width: 100%;
   margin-top: var(--nq-s1);
+}
+
+/* ── Tên nhân sự trong ô lịch: MỘT ô riêng cho mỗi người ──
+   Trước đây tên nằm trần, cạnh nhau, chỉ có dấu phân cách bằng khoảng trắng
+   nên chữ dính liền khi cột hẹp và người xếp lịch không đếm được ai với ai.
+   Nay mỗi người là một chip có viền + nền: ranh giới rõ, đếm được bằng mắt,
+   và tên dài được phép xuống dòng BÊN TRONG chip (`overflow-wrap: anywhere`)
+   thay vì bị `nowrap` đẩy tràn cột. */
+.nq-roster-crew-chip {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.05rem;
+  max-width: 100%;
+  padding: 0.15rem 0.4rem;
+  border: 1px solid color-mix(in srgb, var(--nq-line-strong) 70%, var(--nq-line));
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--nq-bg) 55%, var(--nq-surface-hi));
+  line-height: 1.2;
+}
+
+.nq-roster-crew-chip__who {
+  font-size: 0.76rem;
+  font-weight: 600;
+  color: var(--nq-ink);
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.nq-roster-crew-chip__role {
+  font-family: var(--nq-font-mono);
+  font-size: 0.6rem;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--nq-ink-muted);
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+/* Ghim ca là quyết định của quản lý — đánh dấu bằng accent, không bằng đỏ/vàng. */
+.nq-roster-crew-chip[data-pinned="1"] {
+  border-color: var(--nq-accent);
+  background: color-mix(in srgb, var(--nq-accent) 14%, transparent);
+}
+
+.nq-roster-crew-chip[data-pinned="1"] .nq-roster-crew-chip__who {
+  color: var(--nq-accent-ink-text);
+}
+
+.nq-roster-crew-chip--more {
+  background: transparent;
+  border-style: dashed;
+  color: var(--nq-ink-muted);
+  font-family: var(--nq-font-mono);
+  font-size: 0.68rem;
 }
 
 .nq-avatar {
@@ -1679,22 +1734,34 @@ a:focus-visible {
   }
 }
 
-.nq-pos-menu {
-  display: flex;
-  flex-direction: column;
-  gap: var(--nq-s3);
-}
+/* `.nq-pos-menu` chuyển sang pos.css (lưới ngang). Nguồn bố cục của khối quầy
+   nằm ở `pos.css` — file được nạp SAU globals.css — để phần quầy có vùng riêng.
+   Không khai lại `display: flex` ở đây, tránh hai nguồn sự thật chọi nhau. */
 
+/* Thẻ món ở quầy: HAI TẦNG, không phải ba cột nằm ngang.
+   Ba cột (ảnh ┃ tên+giá ┃ stepper) chỉ vừa khi ô rộng ≥ 300px. Trong lưới
+   nhiều cột, ô hẹp lại, và bố cục ngang lập tức vỡ: tên bị cắt ("Cà ph…"),
+   giá đè lên nút "−". Hai tầng thì bề rộng ô KHÔNG còn quyết định sự vỡ:
+   tầng trên là ảnh + tên + giá, tầng dưới là stepper căn trái. */
 .nq-pos-row {
   display: flex;
-  align-items: center;
-  gap: 1rem;
-  padding: 0.85rem 1rem;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.7rem 0.8rem;
   border: 1px solid var(--nq-line);
   border-radius: var(--nq-radius-bubble);
   background: color-mix(in srgb, var(--nq-bg-elevated) 88%, transparent);
   box-shadow: var(--nq-shadow-bubble), var(--nq-inner-hi);
   transition: border-color var(--nq-dur-t0);
+}
+
+/* Tầng trên: ảnh bên trái, tên + giá bên phải. `align-items: center` để ảnh và
+   khối chữ cân nhau khi tên món xuống 2 dòng. */
+.nq-pos-row__top {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  min-width: 0;
 }
 
 .nq-pos-row--on {
@@ -1709,14 +1776,24 @@ a:focus-visible {
 .nq-pos-row__name {
   display: block;
   font-weight: 700;
+  font-size: 0.92rem;
   line-height: 1.3;
+  /* Tên tiếng Việt dài được xuống dòng trong ô, không cắt bằng dấu "…" —
+     nhân viên đọc tên món để gọi, cắt tên là mất thông tin. */
+  overflow-wrap: anywhere;
 }
 
 .nq-pos-row__price {
   margin: 0.15rem 0 0;
   font-family: var(--nq-font-mono);
-  font-size: 0.82rem;
+  font-size: 0.8rem;
   color: var(--nq-ink-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Tầng dưới: stepper căn trái, vạch mảnh ngăn với phần thông tin. */
+.nq-pos-row .nq-stepper {
+  justify-content: flex-start;
 }
 
 .nq-pos-cart {
@@ -6665,13 +6742,21 @@ a.nq-bento-surface:active {
 }
 
 .nq-roster-wrap {
-  overflow-x: auto;
   border: 1px solid var(--nq-line);
   border-radius: var(--nq-radius);
   background: color-mix(in srgb, var(--nq-bg-elevated) 55%, transparent);
   animation: nq-rise var(--nq-dur-t0) var(--nq-ease-out) both;
-  max-height: min(70vh, 52rem);
-  overflow: auto;
+  /*
+    KHÔNG đặt `max-height`/`overflow: auto` ở đây (đã từng có
+    `max-height: min(70vh, 52rem)`). Mục tiêu của lưới tuần là đọc được TRỌN
+    tuần trong một khung: 3 ca × 7 ngày. Thanh cuộn dọc trong khung làm mất
+    đúng thứ người xếp lịch cần — thấy cả tuần cùng lúc.
+    Lưới co theo bề rộng (`table-layout: fixed`), và chiều cao chốt theo nội
+    dung nên 21 ô luôn nằm gọn trong khung ở màn hình vận hành (≥1280px).
+    `overflow-x: auto` chỉ còn là lưới an toàn cho màn hẹp, không phải cơ chế
+    chính.
+  */
+  overflow-x: auto;
 }
 
 .nq-roster-legend {
@@ -6751,6 +6836,126 @@ a.nq-bento-surface:active {
   font-size: 0.875rem;
 }
 
+/*
+  `table-layout: fixed` bắt 8 cột chia đều bề rộng khả dụng thay vì mỗi cột
+  tự đòi `min-width` của nội dung. Không có nó, 7 cột ngày × `min-width: 132px`
+  cộng cột Khung vượt cả màn 1440px → bảng tràn ngang và người dùng phải cuộn,
+  đúng lỗi "lịch phải scroll".
+*/
+.nq-roster-table--fit {
+  table-layout: fixed;
+  min-width: 46rem;
+}
+
+/* ── Khối "Ca còn thiếu người" ──
+   LƯỚI THẺ, không phải danh sách dọc. Bản cũ mỗi ca một hàng full-width
+   (nhãn ┃ select ┃ nút) cao ~90px, nên 5 ca là ~450px và đẩy cả trang dài quá
+   màn hình — đúng phản ánh "1 dãy dọc xuống, kéo dài tuốt cuối màn hình".
+
+   Lưới tự chia cột (2–3 cột ở màn phổ thông) nên số ca tăng theo BỀ NGANG,
+   không theo chiều dọc. `max-height` + cuộn NỘI BỘ chặn trường hợp xấu nhất:
+   ít ca vẫn gọn, nhiều ca thì khối tự cuộn chứ không kéo dài trang. */
+.nq-gap-panel {
+  border: 1px solid color-mix(in srgb, var(--nq-st-warn) 46%, var(--nq-line));
+  border-radius: var(--nq-radius-bubble);
+  background: var(--nq-st-warn-soft);
+  padding: var(--nq-s4) var(--nq-s5);
+  animation: nq-rise var(--nq-dur-t0) var(--nq-ease-out) both;
+}
+
+.nq-gap-panel__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--nq-s3);
+  margin-bottom: var(--nq-s4);
+}
+
+.nq-gap-panel__title {
+  display: flex;
+  align-items: center;
+  gap: var(--nq-s2);
+  margin: 0;
+  font-size: var(--nq-t-small);
+  font-weight: 700;
+  color: var(--nq-st-warn-ink-strong, var(--nq-ink));
+}
+
+.nq-gap-panel__count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.5rem;
+  padding: 0.05rem 0.4rem;
+  border-radius: var(--nq-radius-pill);
+  background: var(--nq-st-warn);
+  color: var(--nq-accent-ink);
+  font-family: var(--nq-font-mono);
+  font-size: var(--nq-t-micro);
+  font-variant-numeric: tabular-nums;
+}
+
+.nq-gap-panel__hint {
+  margin: 0.3rem 0 0;
+  font-size: var(--nq-t-caption);
+  line-height: 1.5;
+  color: var(--nq-ink-muted);
+  max-width: 60ch;
+}
+
+.nq-gap-grid {
+  display: grid;
+  gap: var(--nq-s3);
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 16rem), 1fr));
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  /* Chặn trường hợp xấu nhất: rất nhiều ca. Ở màn phổ thông 4–8 ca vừa trọn
+     trong 22rem; nhiều hơn thì cuộn trong khối, không kéo dài cả trang. */
+  max-height: 22rem;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+}
+
+.nq-gap-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--nq-s2);
+  min-width: 0;
+  padding: var(--nq-s3);
+  border: 1px solid color-mix(in srgb, var(--nq-st-warn) 34%, var(--nq-line));
+  border-radius: var(--nq-radius);
+  background: var(--nq-surface);
+}
+
+.nq-gap-card__ten {
+  margin: 0;
+  font-size: var(--nq-t-small);
+  font-weight: 700;
+  line-height: 1.3;
+  color: var(--nq-ink);
+  overflow-wrap: anywhere;
+}
+
+.nq-gap-card__meta {
+  margin: 0;
+  font-size: var(--nq-t-micro);
+  line-height: 1.45;
+  color: var(--nq-ink-muted);
+}
+
+.nq-gap-card__select {
+  width: 100%;
+  min-height: 2.5rem;
+  padding: 0 var(--nq-s2);
+  border: 1px solid var(--nq-line-strong);
+  border-radius: var(--nq-radius);
+  background: var(--nq-bg);
+  color: var(--nq-ink);
+  font-size: var(--nq-t-caption);
+}
+
 .nq-roster-caption {
   caption-side: top;
   text-align: left;
@@ -6765,7 +6970,10 @@ a.nq-bento-surface:active {
   border: 1px solid var(--nq-line);
   padding: 0.65rem 0.7rem;
   vertical-align: top;
-  min-width: 132px;
+  /* Ô lịch KHÔNG có `min-width` cứng: bề rộng do `table-layout: fixed` chia.
+     Giữ `min-width: 0` để nội dung dài (tên có dấu) được phép co và xuống
+     dòng bên trong ô thay vì đẩy cả bảng rộng ra. */
+  min-width: 0;
 }
 
 .nq-roster-table thead th {
@@ -6793,6 +7001,16 @@ a.nq-bento-surface:active {
   display: inline;
 }
 
+/* Hàng tiêu đề ngày: thứ + ngày tháng phải TÁCH nhau. Trước đây hai span nằm
+   inline trong một dòng nên "Thứ 2" dính liền "21/09" thành "Thứ 221/09". */
+.nq-roster-day-title-row {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.05rem;
+  line-height: 1.2;
+}
+
 .nq-roster-day-short {
   display: none;
   font-family: var(--nq-font-mono);
@@ -6818,6 +7036,29 @@ a.nq-bento-surface:active {
   color: var(--nq-ink);
   white-space: nowrap;
   background: color-mix(in srgb, var(--nq-bg-elevated) 90%, transparent);
+  /* Xếp DỌC tên khung và giờ, KHÔNG viết cạnh nhau: trước đây hai span nằm
+     inline nên "Ca sáng" dính liền "07:00 – 12:00" thành "Ca sáng07:00 – 12:00".
+     Dọc + gap tách hẳn hai dòng thông tin khác loại (TÊN khung vs GIỜ). */
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 0.15rem;
+}
+
+.nq-roster-row-label__title {
+  display: block;
+  line-height: 1.2;
+}
+
+.nq-roster-row-label__time {
+  display: block;
+  font-family: var(--nq-font-mono);
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: var(--nq-ink-muted);
+  font-variant-numeric: tabular-nums;
 }
 
 .nq-roster-cell {
@@ -6936,7 +7177,7 @@ a.nq-bento-surface:active {
 
 /* ── Roster compact grid (Approach A) ── */
 .nq-roster-table--compact .nq-roster-corner {
-  min-width: 8.5rem;
+  min-width: 0;
 }
 
 .nq-roster-day-head {
@@ -6991,22 +7232,25 @@ a.nq-bento-surface:active {
 }
 
 .nq-roster-slot {
-  padding: 0.35rem;
-  vertical-align: middle;
+  padding: 0.3rem;
+  vertical-align: top;
 }
 
 .nq-roster-slot--spot {
   box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--nq-accent) 55%, transparent);
 }
 
+/* Cột "Khung" cố định 9.5rem qua colgroup; các cột ngày chia đều phần còn lại.
+   `table-layout: fixed` (xem `.nq-roster-table--fit`) mới làm colgroup có tác
+   dụng — không có nó, `min-width` nội dung sẽ thắng bề rộng khai báo. */
 .nq-roster-slot-btn {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 0.2rem;
+  gap: 0.25rem;
   width: 100%;
-  min-height: 3.25rem;
-  padding: 0.45rem 0.5rem;
+  min-height: 3rem;
+  padding: 0.4rem 0.45rem;
   border: 1px solid var(--nq-line);
   border-radius: var(--nq-radius);
   background: color-mix(in srgb, var(--nq-bg) 70%, var(--nq-bg-elevated));
@@ -7113,6 +7357,213 @@ a.nq-bento-surface:active {
 
 .font-mono {
   font-family: var(--nq-font-mono);
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+   /ai-learning — Học từ phản hồi (khối giao diện riêng của trang)
+
+   KHÔI PHỤC: khối này do commit `99f3cec` thêm vào, rồi bị commit `9262206`
+   (một thay đổi về quầy/menu, KHÔNG liên quan) xoá mất 930 dòng của
+   `globals.css` — trong đó có trọn 30 rule `nq-ai-*`. Hậu quả: `page.tsx` vẫn
+   gọi 31 lớp `nq-ai-*` nhưng CSS không còn rule nào, nên trang render KHÔNG có
+   kiểu: thẻ chỉ số, thẻ nội dung, phần bên phải... đều trôi tự do.
+
+   Đây là bẫy tái diễn trong repo này: một commit "redesign"/"dọn dẹp" xoá CSS
+   của trang khác mà không ai thấy, vì lớp vẫn còn nguyên trong TSX.
+
+   Bản khôi phục lấy nguyên văn từ `9262206^:apps/web/src/app/globals.css`.
+   ══════════════════════════════════════════════════════════════════════════ */
+.nq-page--ai-learning {
+  /* Chừa chỗ nút chat nổi + mép an toàn — tránh đè thẻ chỉ số / CTA. */
+  padding-bottom: calc(var(--nq-s8) + 6.5rem);
+}
+.nq-page--ai-learning .nq-surface-block {
+  margin-bottom: var(--nq-s5);
+}
+.nq-page--ai-learning .nq-ai-split .nq-surface-block {
+  margin-bottom: 0;
+}
+.nq-ai-metrics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--nq-s4);
+  margin-bottom: var(--nq-s6);
+}
+@media (min-width: 900px) {
+  .nq-ai-metrics {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+.nq-ai-metric {
+  display: flex;
+  flex-direction: column;
+  gap: var(--nq-s2);
+  padding: var(--nq-s5);
+  border: 1px solid var(--nq-line);
+  border-radius: var(--nq-radius-bubble);
+  background: var(--nq-surface);
+  box-shadow: var(--nq-elev-1), var(--nq-inner-hi);
+  min-width: 0;
+  position: relative;
+  z-index: 0;
+  overflow: hidden;
+}
+.nq-ai-metric__label {
+  margin: 0;
+  font-family: var(--nq-font-mono);
+  font-size: var(--nq-t-caption);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--nq-ink-muted);
+}
+.nq-ai-metric__value {
+  margin: 0;
+  font-family: var(--nq-font-mono);
+  font-size: clamp(1.75rem, 3vw, 2.25rem);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--nq-accent-ink-text);
+  line-height: 1.1;
+}
+.nq-ai-copy {
+  margin: 0;
+  font-size: var(--nq-t-body);
+  color: var(--nq-ink-muted);
+  line-height: 1.55;
+  max-width: 62ch;
+}
+.nq-ai-copy--tight {
+  margin-top: var(--nq-s4);
+}
+.nq-ai-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--nq-s3);
+  margin-top: var(--nq-s4);
+}
+.nq-ai-section {
+  margin-bottom: var(--nq-s6);
+}
+.nq-ai-section__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--nq-s3);
+  margin-bottom: var(--nq-s4);
+}
+.nq-ai-section__kicker {
+  margin: 0;
+  font-family: var(--nq-font-mono);
+  font-size: var(--nq-t-caption);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--nq-accent-ink-text);
+}
+.nq-ai-section__title {
+  margin: 0.2rem 0 0;
+  font-size: var(--nq-t-h2);
+  font-weight: 700;
+  color: var(--nq-ink);
+}
+.nq-ai-section__count,
+.nq-ai-meta {
+  font-family: var(--nq-font-mono);
+  font-size: var(--nq-t-caption);
+  color: var(--nq-ink-muted);
+}
+.nq-ai-list {
+  display: grid;
+  gap: var(--nq-s3);
+}
+.nq-ai-card,
+.nq-ai-gen {
+  padding: var(--nq-s4);
+  border: 1px solid var(--nq-line);
+  border-radius: var(--nq-radius-bubble);
+  background: var(--nq-surface-2);
+}
+.nq-ai-gen {
+  border-left: 3px solid var(--nq-accent);
+}
+.nq-ai-card__top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--nq-s3);
+}
+.nq-ai-card__tags,
+.nq-ai-card__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--nq-s2);
+  align-items: center;
+}
+.nq-ai-card__body,
+.nq-ai-gen__title {
+  margin: var(--nq-s3) 0 var(--nq-s2);
+  font-weight: 600;
+  color: var(--nq-ink);
+}
+.nq-ai-gen__body {
+  margin: 0 0 var(--nq-s2);
+  font-size: var(--nq-t-small);
+  color: var(--nq-ink-muted);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.nq-ai-split {
+  display: grid;
+  gap: var(--nq-s5);
+  margin-bottom: var(--nq-s6);
+}
+@media (min-width: 960px) {
+  .nq-ai-split {
+    grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
+    align-items: start;
+  }
+}
+.nq-ai-flags {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  width: 100%;
+  min-width: 0;
+}
+.nq-ai-flag {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--nq-s3);
+  padding: var(--nq-s3) 0;
+  border-bottom: 1px solid var(--nq-line);
+  font-size: var(--nq-t-small);
+  color: var(--nq-ink);
+  width: 100%;
+  min-width: 0;
+}
+.nq-ai-flag__label {
+  flex: 1 1 auto;
+  min-width: 0;
+  /* Không break-all: từng ký tự xuống dòng khi thẻ bị ép hẹp (lỗi production). */
+  overflow-wrap: anywhere;
+  word-break: normal;
+  line-height: 1.35;
+}
+.nq-ai-flag .nq-chip {
+  flex: none;
+}
+.nq-ai-flag:last-child {
+  border-bottom: none;
+}
+/* Chặn nhầm dùng nq-surface-row (flex ngang) làm thẻ nội dung trên trang học AI. */
+.nq-page--ai-learning .nq-surface-row {
+  display: block;
+  width: 100%;
 }
 
 .nq-sop-answer {
@@ -9323,6 +9774,72 @@ a.nq-bento-surface:active {
   scrollbar-color: var(--nq-line-strong) transparent;
 }
 
+/* ── Tiêu đề nhóm: NÚT mở/thu ──
+   Trước đây là `<div>` tĩnh, nên 50 lối vào dàn hàng dọc không có cách nào
+   thu gọn. Nay là `<button>` thật: bấm để mở/thu nhóm đó, có `aria-expanded`
+   để trình đọc màn hình biết trạng thái. Nhóm chứa trang đang xem luôn mở. */
+.nq-side__group-btn {
+  display: flex;
+  align-items: center;
+  gap: var(--nq-s2);
+  width: 100%;
+  margin-top: var(--nq-s3);
+  padding: var(--nq-s2) var(--nq-s2) var(--nq-s1);
+  border: none;
+  background: transparent;
+  color: var(--nq-ink-muted);
+  cursor: pointer;
+  text-align: left;
+  font-family: var(--nq-font-mono);
+  font-size: var(--nq-t-micro);
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  transition: color var(--nq-beat-settle) var(--nq-ease-out);
+}
+
+.nq-side__group-btn:first-child {
+  margin-top: 0;
+}
+
+.nq-side__group-btn:hover {
+  color: var(--nq-ink);
+}
+
+.nq-side__group-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Mũi nhọn: xoay −90° khi nhóm đóng, về 0 khi mở. Chuyển động nhỏ, có chủ đích
+   — nó nói "nhóm này còn nội dung nữa" chứ không phải trang trí. */
+.nq-side__group-chevron {
+  flex: none;
+  margin-left: auto;
+  opacity: 0.7;
+  transform: rotate(-90deg);
+  transition: transform var(--nq-beat-settle) var(--nq-ease-out);
+}
+
+.nq-side__group-btn[data-open="1"] .nq-side__group-chevron {
+  transform: rotate(0deg);
+}
+
+/* Vùng chứa mục của một nhóm. `hidden` do React đặt theo trạng thái mở. */
+.nq-side__group-items {
+  display: flex;
+  flex-direction: column;
+  gap: var(--nq-s1);
+}
+
+.nq-side__group-items[hidden] {
+  display: none;
+}
+
+/* Giữ tương thích: nhãn nhóm cũ (`<div>` tĩnh) không còn được sinh ra, nhưng
+   vẫn khai báo để bản cũ trong cache không vỡ bố cục. */
 .nq-side__group {
   margin-top: var(--nq-s3);
   padding: var(--nq-s2) var(--nq-s2) var(--nq-s1);
@@ -9420,6 +9937,26 @@ a.nq-bento-surface:active {
   white-space: nowrap;
 }
 
+/* Nhãn thương hiệu trong đầu sidebar ("NHỊP QUÁN" + "Digital System").
+   Lỗi cũ: Logo đã gắn lớp `nq-side__brand-text` cho khối này nhưng
+   KHÔNG CÓ rule CSS nào dùng nó → khi thu gọn sidebar, `data-collapsed=1`
+   ẩn được `.nq-side__label` mà quên khối nhãn này, nên chữ thương hiệu vẫn
+   hiện chình ình cạnh logo trong khi sidebar chỉ rộng 68px. */
+.nq-side__brand-text {
+  min-width: 0;
+}
+
+.nq-side[data-collapsed="1"] .nq-side__brand-text {
+  display: none;
+}
+
+/* Đầu sidebar khi thu gọn: logo + nút mở rộng nằm chung một cột hẹp — canh
+   giữa để hai phần tử không bị đẩy lệch về hai mép. */
+.nq-side[data-collapsed="1"] .nq-side__head {
+  justify-content: center;
+  padding-inline: 0;
+}
+
 /* Vai trò đi kèm tên, tô accent để tách khỏi tên người — cùng quy ước với
    nhãn vai trò ở nơi khác trong hệ. */
 .nq-side__user-role {
@@ -9444,7 +9981,8 @@ a.nq-bento-surface:active {
   display: none;
 }
 
-.nq-side[data-collapsed="1"] .nq-side__group {
+.nq-side[data-collapsed="1"] .nq-side__group,
+.nq-side[data-collapsed="1"] .nq-side__group-btn {
   height: 1px;
   margin: var(--nq-s2) var(--nq-s3);
   padding: 0;
@@ -9452,6 +9990,21 @@ a.nq-bento-surface:active {
   font-size: 0;
   background: var(--nq-line);
   color: transparent;
+  cursor: default;
+  pointer-events: none;
+}
+
+/* Thu gọn thì accordion vô nghĩa (chỉ còn icon, không có chỗ bấm tiêu đề) —
+   ép mọi nhóm HIỆN, và vì `hidden` là thuộc tính DOM nên phải ghi đè bằng
+   `display` có độ ưu tiên cao hơn rule `[hidden]` ở trên. */
+.nq-side[data-collapsed="1"] .nq-side__group-items,
+.nq-side[data-collapsed="1"] .nq-side__group-items[hidden] {
+  display: flex;
+}
+
+.nq-side[data-collapsed="1"] .nq-side__group-chevron,
+.nq-side[data-collapsed="1"] .nq-side__group-label {
+  display: none;
 }
 
 .nq-side[data-collapsed="1"] .nq-side__link {
@@ -9566,7 +10119,8 @@ a.nq-bento-surface:active {
     display: revert;
   }
 
-  .nq-side[data-collapsed="1"] .nq-side__group {
+  .nq-side[data-collapsed="1"] .nq-side__group,
+  .nq-side[data-collapsed="1"] .nq-side__group-btn {
     height: auto;
     margin: var(--nq-s3) 0 0;
     padding: var(--nq-s2) var(--nq-s2) var(--nq-s1);
@@ -9574,6 +10128,16 @@ a.nq-bento-surface:active {
     font-size: var(--nq-t-micro);
     background: transparent;
     color: var(--nq-ink-muted);
+    cursor: pointer;
+    pointer-events: auto;
+  }
+
+  .nq-side[data-collapsed="1"] .nq-side__group-chevron {
+    display: revert;
+  }
+
+  .nq-side[data-collapsed="1"] .nq-side__group-label {
+    display: revert;
   }
 
   .nq-side[data-collapsed="1"] .nq-side__link {

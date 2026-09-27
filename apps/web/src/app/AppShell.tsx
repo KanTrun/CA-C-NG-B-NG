@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { Fragment, ReactNode, useCallback, useEffect, useRef, useState } from "react";
+import { Fragment, ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { apiGet } from "../lib/api";
 import { canAccess, clearSession, getName, getToken, isChuQuan, isManager, roleLabel } from "../lib/session";
 import { Icon, iconForHref } from "../ui/icons";
@@ -12,6 +12,8 @@ import { CopilotPane } from "../ui/copilot/CopilotPane";
 import { CommandPalette, flattenNavGroups } from "../ui/CommandPalette";
 
 const COLLAPSE_KEY = "nq_side_collapsed";
+/** Khoá lưu nhóm nào đang mở. Giá trị là JSON map `{ [groupId]: true }`. */
+const GROUPS_KEY = "nq_side_groups";
 
 /**
  * Một mục điều hướng.
@@ -22,6 +24,8 @@ const COLLAPSE_KEY = "nq_side_collapsed";
  */
 type LinkItem = { href: string; label: string; badge?: string };
 
+type NavGroup = { id: string; title: string; items: LinkItem[] };
+
 /**
  * Bốn nhóm theo CÁCH DÙNG, không theo thứ tự chữ cái.
  *
@@ -30,8 +34,9 @@ type LinkItem = { href: string; label: string; badge?: string };
  * như danh mục kỹ thuật — không có nhóm nào tên "Cấu hình" chứa lẫn lộn menu,
  * người dùng và hợp đồng dữ liệu.
  */
-const GROUPS: { title: string; items: LinkItem[] }[] = [
+const GROUPS: NavGroup[] = [
   {
+    id: "van-hanh",
     title: "Vận hành hằng ngày",
     items: [
       { href: "/hom-nay", label: "Hôm nay" },
@@ -45,6 +50,7 @@ const GROUPS: { title: string; items: LinkItem[] }[] = [
     ],
   },
   {
+    id: "lich-nhan-su",
     title: "Lịch & nhân sự",
     items: [
       { href: "/lich-tuan", label: "Lịch tuần" },
@@ -57,6 +63,7 @@ const GROUPS: { title: string; items: LinkItem[] }[] = [
     ],
   },
   {
+    id: "ai-tu-dong-hoa",
     title: "AI & tự động hoá",
     items: [
       { href: "/copilot", label: "Trợ lý điều hành" },
@@ -76,6 +83,7 @@ const GROUPS: { title: string; items: LinkItem[] }[] = [
     ],
   },
   {
+    id: "hang-hoa-chung-tu",
     title: "Hàng hoá & chứng từ",
     items: [
       { href: "/menu", label: "Menu & giá" },
@@ -90,6 +98,7 @@ const GROUPS: { title: string; items: LinkItem[] }[] = [
     ],
   },
   {
+    id: "he-thong",
     title: "Hệ thống",
     items: [
       { href: "/vet", label: "Vết hệ thống" },
@@ -133,6 +142,8 @@ export function AppShell({ children }: { children: ReactNode }) {
    *  độc lập: màn rộng thu gọn còn icon, màn hẹp đóng hẳn. */
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [cmdOpen, setCmdOpen] = useState(false);
+  /** Nhóm nào đang mở. `null` = chưa đọc localStorage (lần đầu). */
+  const [expandedGroups, setExpandedGroups] = useState<Record<string, boolean> | null>(null);
   const burgerRef = useRef<HTMLButtonElement>(null);
   const sideRef = useRef<HTMLElement>(null);
 
@@ -186,6 +197,64 @@ export function AppShell({ children }: { children: ReactNode }) {
       /* Chế độ riêng tư chặn localStorage — dùng mặc định, không sập trang. */
     }
   }, []);
+
+  /** Đọc trạng thái mở/đóng nhóm SAU khi gắn — cùng lý do với `collapsed`:
+   *  đọc localStorage lúc render đầu làm HTML máy chủ và máy khách lệch nhau. */
+  useEffect(() => {
+    let stored: Record<string, boolean> | null = null;
+    try {
+      const raw = localStorage.getItem(GROUPS_KEY);
+      if (raw) {
+        const parsed: unknown = JSON.parse(raw);
+        if (parsed && typeof parsed === "object") stored = parsed as Record<string, boolean>;
+      }
+    } catch {
+      /* JSON hỏng hoặc localStorage bị chặn — rơi về mặc định bên dưới. */
+    }
+    setExpandedGroups((current) => current ?? stored ?? {});
+  }, []);
+
+  /** Nhóm chứa trang đang xem — mặc định MỞ để mục đang dùng không bị giấu sau
+   *  một tiêu đề đóng. Fallback về nhóm đầu khi không nhóm nào khớp. */
+  const activeGroupId = useMemo(() => {
+    const hit = GROUPS.find((g) => g.items.some((l) => l.href === path));
+    return hit?.id ?? GROUPS[0]?.id ?? "";
+  }, [path]);
+
+  /** Nhóm CHƯA từng được người dùng bấm thì mở sẵn: nhóm đang xem và nhóm đầu.
+   *  `null` = chưa đọc localStorage (SSR + render đầu), cũng coi như mở hết để
+   *  lần vẽ đầu tiên có đủ lối vào và các cổng e2e tìm thấy link ngay. */
+  const defaultOpen = useCallback(
+    (id: string) => id === activeGroupId || id === GROUPS[0]?.id,
+    [activeGroupId],
+  );
+
+  /** Nhóm có đang mở không. Trạng thái người dùng đã chọn LUÔN thắng mặc định —
+   *  kể cả nhóm đang xem: bấm thu nhóm chứa trang hiện tại vẫn phải thu được,
+   *  nếu không thì nút tiêu đề nhóm thành nút chết. */
+  const isGroupOpen = useCallback(
+    (id: string) => {
+      if (expandedGroups) return expandedGroups[id] ?? defaultOpen(id);
+      return true;
+    },
+    [expandedGroups, defaultOpen],
+  );
+
+  const toggleGroup = useCallback(
+    (id: string) => {
+      setExpandedGroups((current) => {
+        const openNow = current ? (current[id] ?? defaultOpen(id)) : true;
+        const next = { ...(current ?? {}), [id]: !openNow };
+        try {
+          localStorage.setItem(GROUPS_KEY, JSON.stringify(next));
+        } catch {
+          /* Không lưu được thì thôi; trạng thái vẫn đúng trong phiên này. */
+        }
+        return next;
+      });
+    },
+    [defaultOpen],
+  );
 
   /** Đóng drawer mỗi khi đổi trang: người dùng vừa chọn xong một mục, giữ
    *  drawer mở nghĩa là nội dung mới bị che ngay sau cú bấm. */
@@ -308,30 +377,48 @@ export function AppShell({ children }: { children: ReactNode }) {
             // trống là tín hiệu sai về hệ thống.
             const allowed = g.items.filter((x) => canAccess(role, x.href));
             if (!allowed.length) return null;
+            const open = isGroupOpen(g.id);
+            const panelId = `nq-side-grp-${g.id}`;
             return (
-              <Fragment key={g.title}>
-                <div className="nq-side__group">{g.title}</div>
-                {allowed.map((l) => {
-                  const on = path === l.href;
-                  const exp = l.href.startsWith("/quanverse");
-                  return (
-                    <Link
-                      key={l.href}
-                      href={l.href}
-                      className="nq-side__link"
-                      data-tour={tourId(l.href)}
-                      aria-current={on ? "page" : undefined}
-                      /* `title` cho chế độ thu gọn: nhãn bị ẩn bằng CSS nhưng
-                         vẫn nằm trong DOM nên trình đọc màn hình đọc được;
-                         title phục vụ người dùng chuột khi chỉ thấy icon. */
-                      title={collapsed ? l.label : undefined}
-                    >
-                      <Icon name={exp ? "cube" : iconForHref(l.href)} size={18} />
-                      <span className="nq-side__label">{l.label}</span>
-                      {exp ? <span className="nq-side__dot" aria-hidden="true" /> : null}
-                    </Link>
-                  );
-                })}
+              <Fragment key={g.id}>
+                {/* Tiêu đề nhóm là NÚT: bấm để mở/thu nhóm đó. Nhóm chứa trang
+                    đang xem luôn mở (xem `isGroupOpen`) nên mục đang dùng không
+                    bao giờ bị giấu. */}
+                <button
+                  type="button"
+                  className="nq-side__group-btn"
+                  data-open={open ? "1" : "0"}
+                  onClick={() => toggleGroup(g.id)}
+                  aria-expanded={open}
+                  aria-controls={panelId}
+                  title={collapsed ? g.title : undefined}
+                >
+                  <span className="nq-side__group-label">{g.title}</span>
+                  <Icon name="chevron-down" size={14} className="nq-side__group-chevron" />
+                </button>
+                <div className="nq-side__group-items" id={panelId} hidden={!open}>
+                  {allowed.map((l) => {
+                    const on = path === l.href;
+                    const exp = l.href.startsWith("/quanverse");
+                    return (
+                      <Link
+                        key={l.href}
+                        href={l.href}
+                        className="nq-side__link"
+                        data-tour={tourId(l.href)}
+                        aria-current={on ? "page" : undefined}
+                        /* `title` cho chế độ thu gọn: nhãn bị ẩn bằng CSS nhưng
+                           vẫn nằm trong DOM nên trình đọc màn hình đọc được;
+                           title phục vụ người dùng chuột khi chỉ thấy icon. */
+                        title={collapsed ? l.label : undefined}
+                      >
+                        <Icon name={exp ? "cube" : iconForHref(l.href)} size={18} />
+                        <span className="nq-side__label">{l.label}</span>
+                        {exp ? <span className="nq-side__dot" aria-hidden="true" /> : null}
+                      </Link>
+                    );
+                  })}
+                </div>
               </Fragment>
             );
           })}
