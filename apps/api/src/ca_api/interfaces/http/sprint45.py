@@ -46,6 +46,7 @@ from ca_solver.fairness import AXES, update_debt_from_assignment, zero_debt
 from fastapi import APIRouter, Header, HTTPException, Query, Response
 from pydantic import BaseModel, Field
 
+from ca_api.context_providers import ngay_hom_nay_vn
 from ca_api.interfaces.http.sprint3 import (
     _known_ca,
     _known_nv,
@@ -1458,7 +1459,11 @@ def hom_nay(authorization: Annotated[str | None, Header()] = None) -> dict[str, 
                 }
             )
     return {
-        "ngay": datetime.now(UTC).date().isoformat(),
+        # Ngày theo giờ QUÁN (UTC+7) — phải khớp `ngay` mà worker ghi vào
+        # brief/tổng kết, và khớp `active_date` gửi agent. Trước đây dùng UTC
+        # nên sau 17:00 giờ VN, /hom-nay hiện "ngày mai" còn brief ghi hôm nay
+        # (bug QA đợt 4).
+        "ngay": ngay_hom_nay_vn(),
         "lich": life,
         "so_treo": len(treo_mo),
         "so_inbox_cho": cho,
