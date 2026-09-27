@@ -398,7 +398,8 @@ class TestModeAvailability:
         # miễn phí, không cần thẻ) và gợi ý chế độ chạy được ngay.
         assert "CLOUDFLARE_ACCOUNT_ID" in edit["ly_do"]
         assert "dash.cloudflare.com" in edit["ly_do"]
-        assert "Giữ nguyên ly nước" in edit["ly_do"] or "AI vẽ mới" in edit["ly_do"]
+        # Nhãn chế độ phải khớp UI hiện tại (chạy cho mọi bao bì, không riêng ly).
+        assert "Giữ nguyên sản phẩm" in edit["ly_do"] or "AI vẽ mới" in edit["ly_do"]
 
     def test_edit_photo_blocked_returns_422_with_reason(self) -> None:
         """Chọn chế độ thiếu khoá → 422 kèm lý do, KHÔNG gọi provider rồi mới lỗi."""
