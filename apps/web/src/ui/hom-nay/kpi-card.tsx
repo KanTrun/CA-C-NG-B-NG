@@ -80,21 +80,21 @@ export function KpiCard({
     ? {}
     : isHighlight
       ? {
-          initial: { opacity: 0, y: 10 },
-          animate: { opacity: 1, y: 0 },
-          transition: beat("focus", delay),
-          style: { rotateX: tilt.rotateX, rotateY: tilt.rotateY, transformPerspective: 900 },
-          onMouseMove: tilt.onMove,
-          onMouseLeave: tilt.onLeave,
-          whileHover: { scale: 1.015, transition: beat("settle") },
-          whileTap: { scale: 0.985 },
-        }
+        initial: { opacity: 0, y: 10 },
+        animate: { opacity: 1, y: 0 },
+        transition: beat("focus", delay),
+        style: { rotateX: tilt.rotateX, rotateY: tilt.rotateY, transformPerspective: 900 },
+        onMouseMove: tilt.onMove,
+        onMouseLeave: tilt.onLeave,
+        whileHover: { scale: 1.015, transition: beat("settle") },
+        whileTap: { scale: 0.985 },
+      }
       : {
-          initial: { opacity: 0, y: 10 },
-          animate: { opacity: 1, y: 0 },
-          transition: beat("focus", delay),
-          whileTap: { scale: 0.985 },
-        };
+        initial: { opacity: 0, y: 10 },
+        animate: { opacity: 1, y: 0 },
+        transition: beat("focus", delay),
+        whileTap: { scale: 0.985 },
+      };
 
   // `--hi` đổi KÍCH THƯỚC ô lưới, không chỉ hiệu ứng. Xem globals.css: khi một
   // thẻ được AI đánh dấu, nó chiếm nửa lưới (span 6) và ba thẻ còn lại chia nửa

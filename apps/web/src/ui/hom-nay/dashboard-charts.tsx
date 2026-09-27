@@ -21,10 +21,10 @@ function chartMotion(reduced: boolean) {
   return reduced
     ? { className: "" }
     : {
-        initial: { opacity: 0, y: 8 },
-        animate: { opacity: 1, y: 0 },
-        transition: beat("focus"),
-      };
+      initial: { opacity: 0, y: 8 },
+      animate: { opacity: 1, y: 0 },
+      transition: beat("focus"),
+    };
 }
 
 /**

@@ -202,12 +202,12 @@ export default function HomNayPage() {
   const soNgayLech =
     treoSeries && homNayICT
       ? Math.max(
-          0,
-          Math.round(
-            (Date.parse(`${homNayICT}T00:00:00Z`) - Date.parse(`${treoSeries.mocCuoi}T00:00:00Z`)) /
-              86_400_000,
-          ),
-        )
+        0,
+        Math.round(
+          (Date.parse(`${homNayICT}T00:00:00Z`) - Date.parse(`${treoSeries.mocCuoi}T00:00:00Z`)) /
+          86_400_000,
+        ),
+      )
       : 0;
 
   // Trạng thái của khối "Cảnh báo cần xử lý" — gom cả hai nguồn (tồn + hao hụt)

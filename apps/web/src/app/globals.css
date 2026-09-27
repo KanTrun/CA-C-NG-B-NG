@@ -29,7 +29,7 @@
   background: var(--nq-panel);
 }
 
-.nq-constraint-panel > summary {
+.nq-constraint-panel>summary {
   cursor: pointer;
   font-weight: 700;
   color: var(--nq-ink);
@@ -110,6 +110,7 @@
   color: var(--nq-st-warn);
   flex: none;
 }
+
 /* NHỊP QUÁN v3 Premium Ops — docs/design-guidelines.md */
 @tailwind base;
 @tailwind components;
@@ -120,25 +121,35 @@
      Ba trục: nền lạnh có chiều sâu, accent gold tiết chế cho "bấm được /
      thuộc về quán", màu trạng thái riêng cho "đang có chuyện gì".
      Nền KHÔNG phẳng: `--nq-bg` là mốc đáy; chiều sâu = gradient body + grain. */
-  --nq-bg: #070d12;                /* xanh đen trầm — mốc đáy */
-  --nq-bg-elevated: #0b141b;       /* vùng chuyển giữa nền và bề mặt */
-  --nq-surface: #0e1b22;           /* panel/card */
-  --nq-surface-2: #101f27;         /* ô trong panel, hàng hover */
-  --nq-surface-3: #142833;         /* overlay nội bộ / toolbar nổi trong panel */
-  --nq-panel: var(--nq-surface);   /* alias — mã cũ dùng --nq-panel */
+  --nq-bg: #070d12;
+  /* xanh đen trầm — mốc đáy */
+  --nq-bg-elevated: #0b141b;
+  /* vùng chuyển giữa nền và bề mặt */
+  --nq-surface: #0e1b22;
+  /* panel/card */
+  --nq-surface-2: #101f27;
+  /* ô trong panel, hàng hover */
+  --nq-surface-3: #142833;
+  /* overlay nội bộ / toolbar nổi trong panel */
+  --nq-panel: var(--nq-surface);
+  /* alias — mã cũ dùng --nq-panel */
   --nq-glass: rgba(14, 27, 34, 0.62);
-  --nq-ink: #e8eef4;               /* chữ chính — nâng nhẹ để AA trên surface */
+  --nq-ink: #e8eef4;
+  /* chữ chính — nâng nhẹ để AA trên surface */
   --nq-ink-muted: rgba(232, 238, 244, 0.64);
   --nq-line: rgba(232, 238, 244, 0.11);
-  --nq-border: var(--nq-line);     /* alias — mã cũ dùng --nq-border */
-  --nq-line-strong: rgba(196, 162, 58, 0.38); /* gold hairline — bớt chói */
+  --nq-border: var(--nq-line);
+  /* alias — mã cũ dùng --nq-border */
+  --nq-line-strong: rgba(196, 162, 58, 0.38);
+  /* gold hairline — bớt chói */
   /* Thang gold 50–900: CTA dùng 500, viền/chữ nhỏ dùng 300–400, hover 400 */
   --nq-accent-50: #faf6e8;
   --nq-accent-100: #f3e9c4;
   --nq-accent-200: #e8d48a;
   --nq-accent-300: #dcc56a;
   --nq-accent-400: #c9a84a;
-  --nq-accent-500: #b8942f;        /* gold đậm hơn — CTA bớt chói hơn #d4af37 cũ */
+  --nq-accent-500: #b8942f;
+  /* gold đậm hơn — CTA bớt chói hơn #d4af37 cũ */
   --nq-accent-600: #9a7a26;
   --nq-accent-700: #7a601e;
   --nq-accent-800: #574416;
@@ -154,7 +165,8 @@
   --nq-danger: #ef4444;
   --nq-ok: #22c55e;
   --nq-warn: #f59e0b;
-  --nq-focus: #e8d48a;             /* vòng tiêu điểm — phải thấy rõ trên nền kính */
+  --nq-focus: #e8d48a;
+  /* vòng tiêu điểm — phải thấy rõ trên nền kính */
   /* Alias dùng bởi redesign Awwwards (class Tailwind arbitrary values) */
   --nq-fg: var(--nq-ink);
   --nq-dim: var(--nq-ink-muted);
@@ -207,13 +219,20 @@
      `--nq-t-num-lg` KHÔNG phải bậc thứ bảy: nó là alias có `clamp()` của bậc
      `display` (cùng vai "con số lớn nhất trên màn hình"), giữ tên cũ để mã đang
      tham chiếu không vỡ. Alias không tính vào sáu bậc. */
-  --nq-t-display: clamp(1.9rem, 3.4vw, 2.6rem); /* mặt tiền — 1 lần/trang */
-  --nq-t-h1: clamp(1.5rem, 2.2vw, 1.85rem);     /* tiêu đề trang — 1 lần/trang */
-  --nq-t-h2: 1.25rem;                           /* tiêu đề khối */
-  --nq-t-h3: 1.0625rem;                         /* tiêu đề mục trong khối */
-  --nq-t-body: 0.9375rem;                       /* chữ đọc chính */
-  --nq-t-small: 0.84rem;                        /* phụ chú, dòng thứ hai */
-  --nq-t-caption: 0.75rem;                      /* nhãn, meta, đơn vị — nhỏ nhất */
+  --nq-t-display: clamp(1.9rem, 3.4vw, 2.6rem);
+  /* mặt tiền — 1 lần/trang */
+  --nq-t-h1: clamp(1.5rem, 2.2vw, 1.85rem);
+  /* tiêu đề trang — 1 lần/trang */
+  --nq-t-h2: 1.25rem;
+  /* tiêu đề khối */
+  --nq-t-h3: 1.0625rem;
+  /* tiêu đề mục trong khối */
+  --nq-t-body: 0.9375rem;
+  /* chữ đọc chính */
+  --nq-t-small: 0.84rem;
+  /* phụ chú, dòng thứ hai */
+  --nq-t-caption: 0.75rem;
+  /* nhãn, meta, đơn vị — nhỏ nhất */
   /* Alias tương thích — CÙNG giá trị với bậc ở trên, không phải bậc mới.
      `--nq-t-micro` gộp vào `caption` (lý do ở trên). `--nq-t-num-lg` gộp vào
      `display`; `--nq-t-num` gộp vào `h3` (số trong bảng đọc như tiêu đề mục). */
@@ -249,11 +268,16 @@
      thể quan trọng hơn — thứ tự ưu tiên thể hiện bằng vị trí và kích thước, không
      bằng độ chói. Vàng cảnh báo ở đây là vàng CAM (#f59e0b), tách hẳn khỏi bảng
      đồng đã gỡ — không còn chỗ nào đọc thành "màu thương hiệu". */
-  --nq-st-ok: var(--nq-ok);          /* đủ người, đúng hạn, đã xong */
-  --nq-st-warn: var(--nq-warn);      /* thiếu người, sắp hạn, chờ xử lý */
-  --nq-st-danger: var(--nq-danger);  /* trống ca, quá hạn, lỗi */
-  --nq-st-info: var(--nq-accent-2);  /* chờ xác nhận, đang xử lý — chưa xấu */
-  --nq-st-idle: var(--nq-ink-muted); /* chưa có gì, không tính là vấn đề */
+  --nq-st-ok: var(--nq-ok);
+  /* đủ người, đúng hạn, đã xong */
+  --nq-st-warn: var(--nq-warn);
+  /* thiếu người, sắp hạn, chờ xử lý */
+  --nq-st-danger: var(--nq-danger);
+  /* trống ca, quá hạn, lỗi */
+  --nq-st-info: var(--nq-accent-2);
+  /* chờ xác nhận, đang xử lý — chưa xấu */
+  --nq-st-idle: var(--nq-ink-muted);
+  /* chưa có gì, không tính là vấn đề */
   --nq-st-ok-soft: rgba(34, 197, 94, 0.14);
   --nq-st-warn-soft: rgba(245, 158, 11, 0.14);
   --nq-st-danger-soft: rgba(239, 68, 68, 0.14);
@@ -448,7 +472,7 @@ button.nq-ink-on-solid,
   color: var(--nq-accent-ink);
 }
 
-.nq-ink-on-solid > * {
+.nq-ink-on-solid>* {
   color: inherit;
 }
 
@@ -576,7 +600,8 @@ h4,
   font-weight: 700;
   font-size: var(--nq-t-micro);
   line-height: 1.4;
-  letter-spacing: 0.14em; /* chữ hoa cần giãn chữ; dấu tiếng Việt không chồng */
+  letter-spacing: 0.14em;
+  /* chữ hoa cần giãn chữ; dấu tiếng Việt không chồng */
   text-transform: uppercase;
   margin: 0 0 var(--nq-s2);
 }
@@ -1411,6 +1436,7 @@ a:focus-visible {
 }
 
 @media (prefers-reduced-motion: reduce) {
+
   .nq-confirm-overlay,
   .nq-confirm-panel {
     animation: none;
@@ -2366,6 +2392,7 @@ a:focus-visible {
 }
 
 @media (prefers-reduced-motion: reduce) {
+
   .nq-roster-dialog-panel,
   .nq-inbox-dialog-panel {
     animation: none;
@@ -2462,7 +2489,7 @@ a:focus-visible {
 
 .nq-booking-legend span,
 .nq-booking-table-meta span,
-.nq-booking-reservation-title > span,
+.nq-booking-reservation-title>span,
 .nq-booking-reservation-meta span,
 .nq-booking-assignee,
 .nq-booking-ai {
@@ -2482,11 +2509,19 @@ a:focus-visible {
 }
 
 .nq-booking-legend i[data-tone="ready"],
-.nq-booking-table[data-tone="ready"]::before { background: var(--nq-green); }
+.nq-booking-table[data-tone="ready"]::before {
+  background: var(--nq-green);
+}
+
 .nq-booking-legend i[data-tone="reserved"],
-.nq-booking-table[data-tone="reserved"]::before { background: var(--nq-accent); }
+.nq-booking-table[data-tone="reserved"]::before {
+  background: var(--nq-accent);
+}
+
 .nq-booking-legend i[data-tone="seated"],
-.nq-booking-table[data-tone="seated"]::before { background: var(--nq-red); }
+.nq-booking-table[data-tone="seated"]::before {
+  background: var(--nq-red);
+}
 
 .nq-booking-table-grid {
   display: grid;
@@ -2528,7 +2563,7 @@ a:focus-visible {
   font-size: 1.05rem;
 }
 
-.nq-booking-table-head > span {
+.nq-booking-table-head>span {
   padding: 0.25rem 0.45rem;
   border: 1px solid var(--nq-line);
   border-radius: var(--nq-radius-pill);
@@ -2674,7 +2709,7 @@ a:focus-visible {
   gap: var(--nq-s2);
 }
 
-.nq-booking-reservation-title > span,
+.nq-booking-reservation-title>span,
 .nq-booking-reservation-meta,
 .nq-booking-assignee {
   color: var(--nq-dim);
@@ -2689,7 +2724,9 @@ a:focus-visible {
 
 .nq-booking-reservation-meta .nq-icon,
 .nq-booking-assignee .nq-icon,
-.nq-booking-table-meta .nq-icon { color: var(--nq-accent); }
+.nq-booking-table-meta .nq-icon {
+  color: var(--nq-accent);
+}
 
 .nq-booking-assignee {
   margin-top: var(--nq-s2);
@@ -2708,6 +2745,7 @@ a:focus-visible {
 }
 
 @media (max-width: 720px) {
+
   .nq-booking-section-head,
   .nq-booking-reservation {
     align-items: flex-start;
@@ -2751,6 +2789,7 @@ a:focus-visible {
     opacity: 0;
     transform: translateY(12px);
   }
+
   to {
     opacity: 1;
     transform: translateY(0);
@@ -2803,13 +2842,11 @@ a:focus-visible {
   inset: 0;
   background:
     radial-gradient(circle at 85% 20%, var(--nq-accent-soft) 0%, transparent 45%),
-    repeating-linear-gradient(
-      105deg,
+    repeating-linear-gradient(105deg,
       transparent,
       transparent 48px,
       color-mix(in srgb, var(--nq-accent) 3%, transparent) 48px,
-      color-mix(in srgb, var(--nq-accent) 3%, transparent) 49px
-    );
+      color-mix(in srgb, var(--nq-accent) 3%, transparent) 49px);
   pointer-events: none;
   /* KHÔNG còn `animation: nq-glow-pulse ... infinite`. Quầng sáng này là nền tĩnh:
      nó không biểu diễn trạng thái nào của quán, nên nhịp thở 9 giây chỉ làm mắt
@@ -2822,6 +2859,7 @@ a:focus-visible {
     opacity: 0;
     transform: translateY(-10px);
   }
+
   to {
     opacity: 1;
     transform: translateY(0);
@@ -3055,7 +3093,7 @@ a:focus-visible {
   }
 }
 
-.nq-dash-hero > *:not(.nq-dash-hero__motif) {
+.nq-dash-hero>*:not(.nq-dash-hero__motif) {
   position: relative;
   z-index: 1;
 }
@@ -3219,6 +3257,7 @@ a:focus-visible {
   from {
     opacity: 0.45;
   }
+
   to {
     opacity: 0.85;
   }
@@ -3734,7 +3773,7 @@ a:focus-visible {
   box-shadow: var(--nq-elev-1);
 }
 
-.nq-dash-aside-block > .nq-block-title {
+.nq-dash-aside-block>.nq-block-title {
   margin: 0 0 var(--nq-s3);
 }
 
@@ -3905,7 +3944,7 @@ a:focus-visible {
   animation: nq-rise var(--nq-dur-t0) var(--nq-ease-out) both;
 }
 
-.nq-drawer-panel li + li {
+.nq-drawer-panel li+li {
   margin-top: 0.35rem;
 }
 
@@ -3953,7 +3992,7 @@ a:focus-visible {
   margin-bottom: var(--nq-s5);
 }
 
-.nq-field > span {
+.nq-field>span {
   display: block;
   margin-bottom: var(--nq-s2);
   font-size: 0.88rem;
@@ -4008,9 +4047,9 @@ a:focus-visible {
 }
 
 /* Mọi control trực tiếp trong Field đều full-width nếu chưa có class riêng */
-.nq-field > textarea,
-.nq-field > input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="hidden"]):not([type="range"]),
-.nq-field > select {
+.nq-field>textarea,
+.nq-field>input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="hidden"]):not([type="range"]),
+.nq-field>select {
   display: block;
   width: 100%;
   max-width: 100%;
@@ -4025,15 +4064,15 @@ a:focus-visible {
   line-height: 1.4;
 }
 
-.nq-field > textarea {
+.nq-field>textarea {
   min-height: 9rem;
   line-height: 1.55;
   resize: vertical;
 }
 
-.nq-field > textarea:focus,
-.nq-field > input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="hidden"]):not([type="range"]):focus,
-.nq-field > select:focus {
+.nq-field>textarea:focus,
+.nq-field>input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="hidden"]):not([type="range"]):focus,
+.nq-field>select:focus {
   outline: none;
   border-color: var(--nq-accent);
   box-shadow: 0 0 0 2px var(--nq-accent-soft);
@@ -4286,12 +4325,10 @@ a:focus-visible {
 }
 
 .nq-skeleton {
-  background: linear-gradient(
-    90deg,
-    var(--nq-surface) 0%,
-    color-mix(in srgb, var(--nq-accent-soft) 50%, var(--nq-surface)) 50%,
-    var(--nq-surface) 100%
-  );
+  background: linear-gradient(90deg,
+      var(--nq-surface) 0%,
+      color-mix(in srgb, var(--nq-accent-soft) 50%, var(--nq-surface)) 50%,
+      var(--nq-surface) 100%);
   background-size: 200% 100%;
   animation: nq-shimmer 1.6s var(--nq-ease-out) infinite;
   border-radius: var(--nq-radius);
@@ -4301,6 +4338,7 @@ a:focus-visible {
   0% {
     background-position: 200% 0;
   }
+
   100% {
     background-position: -200% 0;
   }
@@ -4333,7 +4371,7 @@ a:focus-visible {
   position: relative;
 }
 
-.nq-more > button {
+.nq-more>button {
   min-height: 40px;
   padding: 0.4rem 0.65rem;
   background: transparent;
@@ -4405,12 +4443,12 @@ a:focus-visible {
   transform: scale(var(--nq-press));
 }
 
-.nq-more > button {
+.nq-more>button {
   border-radius: var(--nq-radius-pill);
   transition: transform var(--nq-dur-press) var(--nq-ease-spring);
 }
 
-.nq-more > button:active {
+.nq-more>button:active {
   transform: scale(var(--nq-press));
 }
 
@@ -4418,6 +4456,7 @@ a:focus-visible {
   .nq-nav {
     display: none;
   }
+
   .nq-bottom {
     display: flex;
   }
@@ -4440,9 +4479,11 @@ a:focus-visible {
 .will-change-transform {
   will-change: transform;
 }
+
 .will-change-opacity {
   will-change: opacity;
 }
+
 .will-change-transform-opacity {
   will-change: transform, opacity;
 }
@@ -4574,15 +4615,43 @@ a:focus-visible {
   animation: nq-pulse-beat 2.4s var(--nq-ease-inout) infinite;
 }
 
-.nq-pulse span:nth-child(1) { height: 22px; animation-delay: 0ms; }
-.nq-pulse span:nth-child(2) { height: 34px; animation-delay: 180ms; }
-.nq-pulse span:nth-child(3) { height: 48px; animation-delay: 360ms; }
-.nq-pulse span:nth-child(4) { height: 34px; animation-delay: 540ms; }
-.nq-pulse span:nth-child(5) { height: 22px; animation-delay: 720ms; }
+.nq-pulse span:nth-child(1) {
+  height: 22px;
+  animation-delay: 0ms;
+}
+
+.nq-pulse span:nth-child(2) {
+  height: 34px;
+  animation-delay: 180ms;
+}
+
+.nq-pulse span:nth-child(3) {
+  height: 48px;
+  animation-delay: 360ms;
+}
+
+.nq-pulse span:nth-child(4) {
+  height: 34px;
+  animation-delay: 540ms;
+}
+
+.nq-pulse span:nth-child(5) {
+  height: 22px;
+  animation-delay: 720ms;
+}
 
 @keyframes nq-pulse-beat {
-  0%, 100% { transform: scaleY(0.55); opacity: 0.55; }
-  45% { transform: scaleY(1); opacity: 1; }
+
+  0%,
+  100% {
+    transform: scaleY(0.55);
+    opacity: 0.55;
+  }
+
+  45% {
+    transform: scaleY(1);
+    opacity: 1;
+  }
 }
 
 /* Số liệu thật của quán — điểm nhấn thị giác chính, thay cho trang trí.
@@ -4654,7 +4723,7 @@ a:focus-visible {
   transition: background var(--nq-beat-settle) var(--nq-ease-out);
 }
 
-.nq-capability__row + .nq-capability__row {
+.nq-capability__row+.nq-capability__row {
   border-top: 1px solid var(--nq-line);
 }
 
@@ -4861,7 +4930,7 @@ a:focus-visible {
   background: color-mix(in srgb, var(--nq-bg-elevated) 60%, transparent);
 }
 
-.nq-demo > summary {
+.nq-demo>summary {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -4875,11 +4944,11 @@ a:focus-visible {
   transition: color var(--nq-beat-settle) var(--nq-ease-out);
 }
 
-.nq-demo > summary:hover {
+.nq-demo>summary:hover {
   color: var(--nq-ink);
 }
 
-.nq-demo > summary::marker {
+.nq-demo>summary::marker {
   color: var(--nq-accent);
 }
 
@@ -4951,13 +5020,26 @@ a:focus-visible {
 }
 
 @keyframes nq-spin {
-  to { transform: rotate(360deg); }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .nq-pulse span { animation: none; transform: scaleY(0.8); opacity: 0.8; }
-  .nq-demo__pending { animation: none; }
-  .nq-chapter[data-enter="pending"] { opacity: 1; transform: none; }
+  .nq-pulse span {
+    animation: none;
+    transform: scaleY(0.8);
+    opacity: 0.8;
+  }
+
+  .nq-demo__pending {
+    animation: none;
+  }
+
+  .nq-chapter[data-enter="pending"] {
+    opacity: 1;
+    transform: none;
+  }
 }
 
 /* Khối tính năng của mặt tiền: dùng đúng bề mặt và bậc nổi của hệ thống.
@@ -5285,11 +5367,13 @@ a:focus-visible {
   }
 
   @keyframes nq-pending-pulse {
+
     0%,
     100% {
       opacity: 0.35;
       transform: scale(0.85);
     }
+
     50% {
       opacity: 1;
       transform: scale(1);
@@ -5414,13 +5498,33 @@ a:focus-visible {
     animation: nq-fade-in var(--nq-beat-focus) var(--nq-ease-out) both;
   }
 
-  .nq-table tbody tr:nth-child(2) { animation-delay: 40ms; }
-  .nq-table tbody tr:nth-child(3) { animation-delay: 80ms; }
-  .nq-table tbody tr:nth-child(4) { animation-delay: 120ms; }
-  .nq-table tbody tr:nth-child(5) { animation-delay: 160ms; }
-  .nq-table tbody tr:nth-child(6) { animation-delay: 200ms; }
-  .nq-table tbody tr:nth-child(7) { animation-delay: 240ms; }
-  .nq-table tbody tr:nth-child(8) { animation-delay: 280ms; }
+  .nq-table tbody tr:nth-child(2) {
+    animation-delay: 40ms;
+  }
+
+  .nq-table tbody tr:nth-child(3) {
+    animation-delay: 80ms;
+  }
+
+  .nq-table tbody tr:nth-child(4) {
+    animation-delay: 120ms;
+  }
+
+  .nq-table tbody tr:nth-child(5) {
+    animation-delay: 160ms;
+  }
+
+  .nq-table tbody tr:nth-child(6) {
+    animation-delay: 200ms;
+  }
+
+  .nq-table tbody tr:nth-child(7) {
+    animation-delay: 240ms;
+  }
+
+  .nq-table tbody tr:nth-child(8) {
+    animation-delay: 280ms;
+  }
 
   .nq-table tbody tr:hover {
     background-color: var(--nq-accent-soft);
@@ -5910,6 +6014,7 @@ a.nq-bento-surface:active {
     opacity: 0;
     transform: translateY(10px) scale(0.98);
   }
+
   to {
     opacity: 1;
     transform: none;
@@ -6368,9 +6473,17 @@ a.nq-bento-surface:active {
   flex: none;
 }
 
-.nq-treo-section-dot--danger { background: var(--nq-danger); }
-.nq-treo-section-dot--warn { background: var(--nq-warn); }
-.nq-treo-section-dot--ok { background: var(--nq-ok); }
+.nq-treo-section-dot--danger {
+  background: var(--nq-danger);
+}
+
+.nq-treo-section-dot--warn {
+  background: var(--nq-warn);
+}
+
+.nq-treo-section-dot--ok {
+  background: var(--nq-ok);
+}
 
 .nq-treo-section-count {
   font-family: var(--nq-font-mono);
@@ -6571,20 +6684,34 @@ a.nq-bento-surface:active {
   font-size: var(--nq-t-caption);
   color: var(--nq-ink-muted);
 }
+
 .nq-roster-legend li {
   display: inline-flex;
   align-items: center;
   gap: var(--nq-s2);
 }
+
 .nq-roster-legend__swatch {
   width: 0.75rem;
   height: 0.75rem;
   border-radius: 2px;
   border: 1px solid var(--nq-line);
 }
-.nq-roster-legend__swatch--ok { background: var(--nq-st-ok-soft); border-color: var(--nq-st-ok); }
-.nq-roster-legend__swatch--warn { background: var(--nq-st-warn-soft); border-color: var(--nq-st-warn); }
-.nq-roster-legend__swatch--danger { background: var(--nq-st-danger-soft); border-color: var(--nq-st-danger); }
+
+.nq-roster-legend__swatch--ok {
+  background: var(--nq-st-ok-soft);
+  border-color: var(--nq-st-ok);
+}
+
+.nq-roster-legend__swatch--warn {
+  background: var(--nq-st-warn-soft);
+  border-color: var(--nq-st-warn);
+}
+
+.nq-roster-legend__swatch--danger {
+  background: var(--nq-st-danger-soft);
+  border-color: var(--nq-st-danger);
+}
 
 .nq-side__cmd {
   display: flex;
@@ -6600,16 +6727,19 @@ a.nq-bento-surface:active {
   cursor: pointer;
   font-size: var(--nq-t-caption);
 }
+
 .nq-side__cmd:hover {
   border-color: var(--nq-line-strong);
   color: var(--nq-accent-ink-text);
 }
+
 .nq-side__kbd {
   margin-left: auto;
   font-family: var(--nq-font-mono);
   font-size: 0.65rem;
   opacity: 0.7;
 }
+
 .nq-app[data-collapsed="1"] .nq-side__kbd,
 .nq-app[data-collapsed="1"] .nq-side__cmd .nq-side__label {
   display: none;
@@ -6675,6 +6805,7 @@ a.nq-bento-surface:active {
   .nq-roster-day-full {
     display: none;
   }
+
   .nq-roster-day-short {
     display: inline;
   }
@@ -7070,7 +7201,7 @@ a.nq-bento-surface:active {
   margin-bottom: 0;
 }
 
-.nq-sop-copilot__field .nq-field > span:first-child {
+.nq-sop-copilot__field .nq-field>span:first-child {
   font-size: 0.65rem;
   margin-bottom: 0.45rem;
 }
@@ -7330,6 +7461,7 @@ a.nq-bento-surface:active {
 }
 
 @media (max-width: 820px) {
+
   /* Trên máy nhỏ có cả thanh điều hướng pill ở đáy: nâng thanh hành động của
      phiếu lên trên nó, để hai thanh không đè nhau. */
   .nq-fixed-bottom {
@@ -7358,13 +7490,13 @@ a.nq-bento-surface:active {
   opacity: 1;
 }
 
-.nq-more > button {
+.nq-more>button {
   display: inline-flex;
   align-items: center;
   gap: 0.45rem;
 }
 
-.nq-more > button:hover .nq-icon {
+.nq-more>button:hover .nq-icon {
   opacity: 1;
 }
 
@@ -7546,7 +7678,7 @@ a.nq-bento-surface:active {
   margin: 0;
 }
 
-.nq-group + .nq-group {
+.nq-group+.nq-group {
   margin-top: var(--nq-s6);
 }
 
@@ -7636,57 +7768,70 @@ a.nq-bento-surface:active {
 
 /* ── Stagger: 6 dòng đầu vào lệch nhau 40ms ──
    Quá 6 dòng thì độ trễ cộng dồn thành cảm giác chậm, nên dừng ở đó. */
-.nq-rows > .nq-row-line:nth-child(1) {
+.nq-rows>.nq-row-line:nth-child(1) {
   animation-delay: 0ms;
 }
-.nq-rows > .nq-row-line:nth-child(2) {
+
+.nq-rows>.nq-row-line:nth-child(2) {
   animation-delay: 40ms;
 }
-.nq-rows > .nq-row-line:nth-child(3) {
+
+.nq-rows>.nq-row-line:nth-child(3) {
   animation-delay: 80ms;
 }
-.nq-rows > .nq-row-line:nth-child(4) {
+
+.nq-rows>.nq-row-line:nth-child(4) {
   animation-delay: 120ms;
 }
-.nq-rows > .nq-row-line:nth-child(5) {
+
+.nq-rows>.nq-row-line:nth-child(5) {
   animation-delay: 160ms;
 }
-.nq-rows > .nq-row-line:nth-child(6) {
+
+.nq-rows>.nq-row-line:nth-child(6) {
   animation-delay: 200ms;
 }
 
-.nq-list > .nq-item:nth-child(2) {
+.nq-list>.nq-item:nth-child(2) {
   animation-delay: 40ms;
 }
-.nq-list > .nq-item:nth-child(3) {
+
+.nq-list>.nq-item:nth-child(3) {
   animation-delay: 80ms;
 }
-.nq-list > .nq-item:nth-child(4) {
+
+.nq-list>.nq-item:nth-child(4) {
   animation-delay: 120ms;
 }
-.nq-list > .nq-item:nth-child(5) {
+
+.nq-list>.nq-item:nth-child(5) {
   animation-delay: 160ms;
 }
-.nq-list > .nq-item:nth-child(6) {
+
+.nq-list>.nq-item:nth-child(6) {
   animation-delay: 200ms;
 }
 
-.nq-list > .nq-item {
+.nq-list>.nq-item {
   animation: nq-fade-in var(--nq-dur-t1) var(--nq-ease-out) both;
 }
 
 .nq-stat:nth-child(2) {
   animation-delay: 40ms;
 }
+
 .nq-stat:nth-child(3) {
   animation-delay: 80ms;
 }
+
 .nq-stat:nth-child(4) {
   animation-delay: 120ms;
 }
+
 .nq-stat:nth-child(5) {
   animation-delay: 160ms;
 }
+
 .nq-stat:nth-child(6) {
   animation-delay: 200ms;
 }
@@ -7696,6 +7841,7 @@ a.nq-bento-surface:active {
     opacity: 0;
     transform: translateY(6px);
   }
+
   to {
     opacity: 1;
     transform: translateY(0);
@@ -7784,7 +7930,7 @@ a.nq-bento-surface:active {
   background: color-mix(in srgb, var(--nq-bg-elevated) 60%, transparent);
 }
 
-.nq-skel-card + .nq-skel-card {
+.nq-skel-card+.nq-skel-card {
   margin-top: var(--nq-s7);
 }
 
@@ -7852,6 +7998,7 @@ a.nq-bento-surface:active {
   from {
     opacity: 0;
   }
+
   to {
     opacity: 1;
   }
@@ -7893,6 +8040,7 @@ a.nq-bento-surface:active {
     opacity: 0;
     transform: translate(-50%, 14px);
   }
+
   to {
     opacity: 1;
     transform: translate(-50%, 0);
@@ -8020,7 +8168,7 @@ a.nq-bento-surface:active {
   counter-reset: nq-flow;
 }
 
-.nq-flow > li {
+.nq-flow>li {
   counter-increment: nq-flow;
   position: relative;
   padding: 0 0 var(--nq-s6) var(--nq-s6);
@@ -8028,12 +8176,12 @@ a.nq-bento-surface:active {
   margin-left: var(--nq-s3);
 }
 
-.nq-flow > li:last-child {
+.nq-flow>li:last-child {
   border-left-color: transparent;
   padding-bottom: 0;
 }
 
-.nq-flow > li::before {
+.nq-flow>li::before {
   content: counter(nq-flow);
   position: absolute;
   left: -15px;
@@ -8175,10 +8323,11 @@ a.nq-bento-surface:active {
     transform var(--nq-dur-press) var(--nq-ease-spring);
 }
 
-.nq-picks > .nq-pick:nth-child(2) {
+.nq-picks>.nq-pick:nth-child(2) {
   animation-delay: 40ms;
 }
-.nq-picks > .nq-pick:nth-child(3) {
+
+.nq-picks>.nq-pick:nth-child(3) {
   animation-delay: 80ms;
 }
 
@@ -8244,7 +8393,7 @@ a.nq-bento-surface:active {
   animation: nq-fade-in var(--nq-dur-t1) var(--nq-ease-out) both;
 }
 
-.nq-rule + .nq-rule {
+.nq-rule+.nq-rule {
   margin-top: var(--nq-s4);
 }
 
@@ -8325,7 +8474,7 @@ a.nq-bento-surface:active {
   margin-top: var(--nq-s4);
 }
 
-.nq-src > summary {
+.nq-src>summary {
   cursor: pointer;
   min-height: 44px;
   display: flex;
@@ -8336,11 +8485,11 @@ a.nq-bento-surface:active {
   border-radius: var(--nq-radius-pill);
 }
 
-.nq-src > summary:hover {
+.nq-src>summary:hover {
   color: var(--nq-accent-hover);
 }
 
-.nq-src[open] > summary {
+.nq-src[open]>summary {
   margin-bottom: var(--nq-s3);
 }
 
@@ -8497,7 +8646,7 @@ a.nq-bento-surface:active {
 }
 
 /* ── Nhóm luật: mỗi nhóm là một khối có tiêu đề, cách nhau s7 ── */
-.nq-rule-group + .nq-rule-group {
+.nq-rule-group+.nq-rule-group {
   margin-top: var(--nq-s7);
 }
 
@@ -8620,7 +8769,7 @@ a.nq-bento-surface:active {
   opacity: 0.45;
 }
 
-.nq-map-guide > *:not(.nq-map-ambient) {
+.nq-map-guide>*:not(.nq-map-ambient) {
   position: relative;
   z-index: 1;
 }
@@ -8953,7 +9102,7 @@ a.nq-bento-surface:active {
   align-items: center;
 }
 
-.nq-map-flow-marker > span:first-child {
+.nq-map-flow-marker>span:first-child {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -9461,11 +9610,13 @@ a.nq-bento-surface:active {
   color: var(--nq-accent-ink-text);
   border: 1px solid var(--nq-line-strong);
 }
+
 .nq-btn-secondary:hover:not(:disabled) {
   background: var(--nq-accent-soft);
   border-color: var(--nq-accent);
   color: var(--nq-accent-hover);
 }
+
 .nq-btn-icon {
   width: 2.5rem;
   height: 2.5rem;
@@ -9474,12 +9625,14 @@ a.nq-bento-surface:active {
   display: inline-grid;
   place-items: center;
 }
+
 .nq-btn-sm {
   min-height: 2.25rem;
   padding: 0.35rem 0.9rem;
   font-size: var(--nq-t-caption);
   letter-spacing: 0.06em;
 }
+
 .nq-btn-icon.nq-btn-sm {
   width: 2.25rem;
   height: 2.25rem;
@@ -9497,16 +9650,19 @@ a.nq-bento-surface:active {
   -webkit-backdrop-filter: var(--nq-blur-2);
   animation: nq-fade-in var(--nq-beat-settle) var(--nq-ease-out) both;
 }
+
 .nq-dialog-overlay {
   display: grid;
   place-items: center;
   padding: var(--nq-s5);
 }
+
 .nq-drawer-overlay {
   z-index: var(--nq-z-drawer);
   display: flex;
   justify-content: flex-end;
 }
+
 .nq-dialog-panel {
   width: min(100%, 32rem);
   max-height: min(88vh, 40rem);
@@ -9518,6 +9674,7 @@ a.nq-bento-surface:active {
   box-shadow: var(--nq-elev-4), var(--nq-inner-hi);
   animation: nq-rise var(--nq-beat-focus) var(--nq-ease-out) both;
 }
+
 .nq-drawer-panel {
   width: min(100%, 26rem);
   height: 100%;
@@ -9528,6 +9685,7 @@ a.nq-bento-surface:active {
   box-shadow: var(--nq-elev-4);
   animation: nq-slide-in-right var(--nq-beat-focus) var(--nq-ease-out) both;
 }
+
 .nq-dialog-head,
 .nq-drawer-head {
   display: flex;
@@ -9537,6 +9695,7 @@ a.nq-bento-surface:active {
   padding: var(--nq-s4) var(--nq-s5);
   border-bottom: 1px solid var(--nq-line);
 }
+
 .nq-dialog-title,
 .nq-drawer-title {
   margin: 0;
@@ -9546,12 +9705,14 @@ a.nq-bento-surface:active {
   letter-spacing: 0.02em;
   color: var(--nq-ink);
 }
+
 .nq-dialog-body,
 .nq-drawer-body {
   padding: var(--nq-s5);
   overflow: auto;
   flex: 1;
 }
+
 .nq-dialog-footer {
   display: flex;
   justify-content: flex-end;
@@ -9565,6 +9726,7 @@ a.nq-bento-surface:active {
   gap: 0;
   margin: 0;
 }
+
 .nq-datalist__row {
   display: grid;
   grid-template-columns: minmax(7rem, 34%) 1fr;
@@ -9572,9 +9734,11 @@ a.nq-bento-surface:active {
   padding: var(--nq-s3) 0;
   border-bottom: 1px solid var(--nq-line);
 }
+
 .nq-datalist__row:last-child {
   border-bottom: none;
 }
+
 .nq-datalist__label {
   margin: 0;
   color: var(--nq-ink-muted);
@@ -9583,12 +9747,14 @@ a.nq-bento-surface:active {
   text-transform: uppercase;
   letter-spacing: 0.06em;
 }
+
 .nq-datalist__value {
   margin: 0;
   color: var(--nq-ink);
   font-size: var(--nq-t-body);
   word-break: break-word;
 }
+
 .nq-datalist .nq-datalist {
   margin-top: var(--nq-s2);
   padding-left: var(--nq-s3);
@@ -9610,6 +9776,7 @@ a.nq-bento-surface:active {
   border: 1px solid var(--nq-line);
   border-radius: var(--nq-radius);
 }
+
 .nq-prose-block--muted {
   color: var(--nq-ink-muted);
 }
@@ -9624,6 +9791,7 @@ a.nq-bento-surface:active {
   background: rgba(2, 6, 10, 0.55);
   backdrop-filter: var(--nq-blur-1);
 }
+
 .nq-cmdk {
   width: min(100%, 32rem);
   background: var(--nq-surface);
@@ -9632,6 +9800,7 @@ a.nq-bento-surface:active {
   box-shadow: var(--nq-elev-4);
   overflow: hidden;
 }
+
 .nq-cmdk__input {
   width: 100%;
   padding: var(--nq-s4) var(--nq-s5);
@@ -9642,6 +9811,7 @@ a.nq-bento-surface:active {
   font-size: var(--nq-t-body);
   outline: none;
 }
+
 .nq-cmdk__list {
   max-height: 20rem;
   overflow: auto;
@@ -9649,6 +9819,7 @@ a.nq-bento-surface:active {
   margin: 0;
   list-style: none;
 }
+
 .nq-cmdk__item {
   display: flex;
   align-items: center;
@@ -9663,11 +9834,13 @@ a.nq-bento-surface:active {
   cursor: pointer;
   font-size: var(--nq-t-small);
 }
+
 .nq-cmdk__item[data-active="1"],
 .nq-cmdk__item:hover {
   background: var(--nq-accent-soft);
   color: var(--nq-accent-ink-text);
 }
+
 .nq-cmdk__hint {
   margin-left: auto;
   color: var(--nq-ink-muted);
@@ -9676,8 +9849,15 @@ a.nq-bento-surface:active {
 }
 
 @keyframes nq-slide-in-right {
-  from { transform: translateX(12px); opacity: 0; }
-  to { transform: translateX(0); opacity: 1; }
+  from {
+    transform: translateX(12px);
+    opacity: 0;
+  }
+
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
 }
 
 /* ══════════════════════════════════════════════════════════════════════════
@@ -9687,6 +9867,7 @@ a.nq-bento-surface:active {
    với của bộ chọn `*` bên dưới, nên bật "giảm chuyển động" là trang đứng yên.
    ══════════════════════════════════════════════════════════════════════════ */
 @media (prefers-reduced-motion: reduce) {
+
   *,
   *::before,
   *::after {

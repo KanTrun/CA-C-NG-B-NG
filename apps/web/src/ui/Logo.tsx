@@ -80,10 +80,10 @@ export function Logo({ href = "/", className = "" }: { href?: string; className?
               reduced
                 ? {}
                 : {
-                    rotate: 180,
-                    strokeWidth: 4,
-                    transition: { duration: LOOP_PERIOD_S, ease: LINEAR, repeat: Infinity },
-                  },
+                  rotate: 180,
+                  strokeWidth: 4,
+                  transition: { duration: LOOP_PERIOD_S, ease: LINEAR, repeat: Infinity },
+                },
           }}
         />
         {/* Hình ly + nhịp tim.
