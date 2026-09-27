@@ -311,10 +311,14 @@ export default function QuayPage() {
                   const qty = cart[mon.id] ?? 0;
                   return (
                     <article key={mon.id} className={`nq-pos-row ${qty ? "nq-pos-row--on" : ""}`}>
-                      <PosThumb mon={mon} />
-                      <div className="nq-pos-row__info">
-                        <strong className="nq-pos-row__name">{mon.ten}</strong>
-                        <p className="nq-pos-row__price">{MONEY.format(mon.gia)}</p>
+                      {/* Tầng trên: ảnh + tên + giá. Tầng dưới: stepper. Tách hai
+                          tầng để ô hẹp trong lưới không làm stepper đè lên giá. */}
+                      <div className="nq-pos-row__top">
+                        <PosThumb mon={mon} />
+                        <div className="nq-pos-row__info">
+                          <strong className="nq-pos-row__name">{mon.ten}</strong>
+                          <p className="nq-pos-row__price">{MONEY.format(mon.gia)}</p>
+                        </div>
                       </div>
                       <QtyStepper
                         qty={qty}

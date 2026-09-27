@@ -40,6 +40,9 @@ htmlcov/
 # Local test/debug artifacts (không commit)
 _*.txt
 _*.log
+# Log lỗi của tiến trình dev (API/web) khi khởi động nền bằng `> _api.err`.
+# Trước đây thiếu mẫu này nên `_api.err` cứ hiện lại trong `git status`.
+_*.err
 
 # AgentKit / Kiro — công cụ trợ lý cục bộ, không phải mã sản phẩm.
 # .kiro/agentkit chứa bản export portable (1491 tệp) nên tuyệt đối không commit.
