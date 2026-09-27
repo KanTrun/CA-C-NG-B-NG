@@ -78,13 +78,19 @@ def _output_path() -> Path:
 
 
 def _current_week() -> str:
+    """Tuần đang hiệu lực.
+
+    Fallback cuối dùng tuần ISO HIỆN TẠI — trước đây hardcode `2026-W01` nên
+    khi KV trống (quán mới), solver giải SAI tuần (bug QA đợt 4).
+    """
     lifecycle = kv_get("lich_tuan_lifecycle", None)
     if isinstance(lifecycle, dict) and lifecycle.get("tuan_iso"):
         return str(lifecycle["tuan_iso"])
     legacy = kv_get("lifecycle", None)
     if isinstance(legacy, dict) and legacy.get("tuan_iso"):
         return str(legacy["tuan_iso"])
-    return "2026-W01"
+    iso = datetime.now(UTC).isocalendar()
+    return f"{iso.year}-W{iso.week:02d}"
 
 
 def _overlaps(start_a: str, end_a: str, start_b: str, end_b: str) -> bool:

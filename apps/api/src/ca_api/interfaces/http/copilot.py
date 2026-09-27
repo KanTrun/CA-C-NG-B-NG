@@ -41,6 +41,7 @@ from fastapi import (
 from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
+from ca_api.context_providers import ngay_hom_nay_vn
 from ca_api.persist import (
     copilot_audit_add,
     copilot_audit_list,
@@ -452,11 +453,13 @@ def copilot_message(
         effective_message = "Đã gửi tệp đính kèm"
 
     # Enforce verified identity from server session
+    # `active_date` phải theo giờ QUÁN (UTC+7), không phải UTC: sau 17:00 giờ VN
+    # thì UTC đã sang ngày mới → agent tưởng "hôm nay" là hôm sau (bug QA đợt 4).
     verified_context = {
         "store_id": user["store_id"],
         "user_id": user["user_id"],
         "user_role": user["role"],
-        "active_date": datetime.now(UTC).strftime("%Y-%m-%d"),
+        "active_date": ngay_hom_nay_vn(),
         "channel": body.channel,
         "recent_messages": body.recent_messages,
         "attachments": body.attachments,
@@ -511,7 +514,9 @@ def copilot_message_stream(
         "store_id": user["store_id"],
         "user_id": user["user_id"],
         "user_role": user["role"],
-        "active_date": datetime.now(UTC).strftime("%Y-%m-%d"),
+        # Ngày theo giờ VN (UTC+7), không phải UTC — nếu dùng UTC thì sau 17:00
+        # giờ VN agent nhận "ngày mai" (bug QA đợt 4: lệch ngày với /message).
+        "active_date": ngay_hom_nay_vn(),
         "channel": body.channel,
         "recent_messages": body.recent_messages,
         "attachments": body.attachments,

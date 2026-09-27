@@ -579,11 +579,24 @@ def quanverse_tour(
     tour_id: str,
     authorization: Annotated[str | None, Header()] = None,
 ) -> dict[str, Any]:
-    """Tour entry point — ủy quyền Phase 05 plan_tour (read-only)."""
-    _require_role(authorization)
-    from ca_agents.ag_spatial_memory.tour import plan_tour
+    """Tour entry point — ủy quyền Phase 05 plan_tour (read-only).
 
-    tour = plan_tour()
+    Trả 404 khi `tour_id` không có trong danh mục (trước đây bỏ qua tham số và
+    luôn trả tour mặc định — bug QA đợt 4).
+    """
+    _require_role(authorization)
+    from ca_agents.ag_spatial_memory.tour import danh_muc_tour, plan_tour
+
+    tour = plan_tour(tour_id=tour_id)
+    if tour is None:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "code": "tour_not_found",
+                "message": f"Không có tour '{tour_id}'.",
+                "hop_le": danh_muc_tour(),
+            },
+        )
     return cast(dict[str, Any], tour.model_dump(mode="json"))
 
 

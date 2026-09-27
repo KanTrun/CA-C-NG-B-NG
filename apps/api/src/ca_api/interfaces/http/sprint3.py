@@ -146,17 +146,32 @@ def _known_ca(ca_id: str) -> bool:
 
 
 def _known_nv(nv_id: str) -> bool:
+    """NV có tồn tại không — chỉ tính người THẬT trong pool đang xếp lịch.
+
+    Trước đây truyền `include_seed=True` nên chấp nhận cả `nv_20..nv_25` (mã chỉ
+    có trong seed fixture) → có thể ghim ca / phát QR cho người không tồn tại
+    (bug QA đợt 4). Phải khớp nguồn NV thật để validation đúng.
+    """
     from ca_api.nhan_vien import list_nhan_vien_ops
 
-    ids = {n["id"] for n in list_nhan_vien_ops(include_seed=True)}
+    ids = {n["id"] for n in list_nhan_vien_ops() if n.get("id")}
+    if not ids:
+        # DB rỗng (demo sạch) → chấp nhận seed để không chặn luồng demo.
+        ids = {n["id"] for n in list_nhan_vien_ops(include_seed=True) if n.get("id")}
     return nv_id in ids
 
 
 def _current_week() -> str:
+    """Tuần đang hiệu lực của quán.
+
+    Thứ tự: lifecycle thật → tuần ISO HIỆN TẠI (theo đồng hồ).
+    Trước đây fallback cứng `2026-W01` nên khi KV trống (quán mới/demo sạch)
+    mọi thao tác gắn vào tuần W01 — sai hẳn so với thực tế (bug QA đợt 4).
+    """
     life = kv_get("lich_tuan_lifecycle", {})
     if isinstance(life, dict) and life.get("tuan_iso"):
         return str(life["tuan_iso"])
-    return "2026-W01"
+    return _current_iso_week()
 
 
 def _phan_cong(tuan_iso: str | None = None) -> dict[str, list[str]]:
@@ -714,7 +729,10 @@ def msg_classify(
     authorization: Annotated[str | None, Header()] = None,
 ) -> dict[str, Any]:
     _require_role(authorization)
-    r = classify(body.text)
+    # Phải truyền tuần THẬT làm mốc; nếu để trống, `classify` mặc định
+    # "2026-W01" → "tuần sau" tính thành W02 bất kể hôm nay là tuần nào
+    # (bug QA đợt 4: mọi ràng buộc nghỉ/đổi ca rơi vào tuần sai).
+    r = classify(body.text, base_iso_week=_current_iso_week())
     port = get_port(body.backend)
     recipient = _nv_from_token(authorization) if authorization else "lan"
     sent = port.send(recipient, f"intent={r.intent}")
@@ -825,11 +843,6 @@ def tkb_confirm(
         if not any(u.get("id") == nv for u in users):
             raise HTTPException(status_code=403, detail="nhan_vien_khong_thuoc_cua_hang")
 
-    seed = json.loads(SEED.read_text(encoding="utf-8")) if SEED.exists() else {}
-    nv_ids = {n["id"] for n in seed.get("nhan_vien", [])}
-    if nv not in nv_ids and not nv.startswith("nv_"):
-        # Tài khoản đăng ký mới vẫn được lưu theo nv_id phiên.
-        pass
     khoang = _clean_khoang_api(body.khoang_ban)
     if not khoang:
         raise HTTPException(status_code=400, detail="khoang_rong")
@@ -1003,12 +1016,27 @@ def tkb_xep_lai(
 
 
 def _nhan_vien_map(store_id: str) -> dict[str, Any]:
-    """Map nv_id → tên để diff in ra TÊN người, không phải mã `nv_xx`."""
-    seed_doc = json.loads(SEED.read_text(encoding="utf-8")) if SEED.exists() else {}
+    """Map nv_id → tên để diff in ra TÊN người, không phải mã `nv_xx`.
+
+    Ưu tiên nguồn THẬT (`list_nhan_vien_ops` = users + seed) để nhân viên tự
+    đăng ký (chỉ có trong DB) cũng hiện tên; seed chỉ là fallback khi nguồn
+    thật rỗng (bug QA đợt 4: map cũ chỉ đọc seed nên NV mới hiện mã `nv_xx`).
+    """
     out: dict[str, Any] = {}
-    for n in seed_doc.get("nhan_vien", []):
-        if isinstance(n, dict) and n.get("id"):
-            out[str(n["id"])] = {"ten": str(n.get("ten") or n.get("ho_ten") or n["id"])}
+    try:
+        from ca_api.nhan_vien import list_nhan_vien_ops
+
+        for n in list_nhan_vien_ops():
+            nid = n.get("id") or n.get("nv_id")
+            if nid:
+                out[str(nid)] = {"ten": str(n.get("ten") or nid)}
+    except Exception:
+        out = {}
+    if not out:
+        seed_doc = json.loads(SEED.read_text(encoding="utf-8")) if SEED.exists() else {}
+        for n in seed_doc.get("nhan_vien", []):
+            if isinstance(n, dict) and n.get("id"):
+                out[str(n["id"])] = {"ten": str(n.get("ten") or n.get("ho_ten") or n["id"])}
     return out
 
 

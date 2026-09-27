@@ -70,11 +70,18 @@ def _now() -> str:
 
 
 def _get_staff_list() -> list[dict[str, Any]]:
-    """Retrieve staff list from users table merged with seed."""
+    """Danh sách NV để AG-MEETING gán người phụ trách.
+
+    Chỉ dùng NV CÓ THẬT (pool đang xếp lịch). Trước đây truyền
+    `include_seed=True` nên agent có thể gán việc cho `nv_20..nv_25` — mã chỉ
+    có trong seed fixture, không tồn tại trong DB (bug QA đợt 4).
+    """
     try:
         from ca_api.nhan_vien import list_nhan_vien_ops
 
-        return list_nhan_vien_ops(include_seed=True)
+        staff = [n for n in list_nhan_vien_ops() if n.get("id")]
+        if staff:
+            return staff
     except Exception:
         pass
     users = list_users()
@@ -86,11 +93,7 @@ def _get_staff_list() -> list[dict[str, Any]]:
             }
             for u in users
         ]
-    return [
-        {"id": "nv_01", "ten": "Lan"},
-        {"id": "nv_02", "ten": "Hùng"},
-        {"id": "nv_03", "ten": "Minh"},
-    ]
+    return []
 
 
 def _get_roster_data() -> tuple[dict[str, list[str]], list[dict[str, Any]]]:

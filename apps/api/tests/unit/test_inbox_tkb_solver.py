@@ -52,8 +52,9 @@ def test_duyet_xin_nghi_wires_into_solver_nghi_phep(monkeypatch: pytest.MonkeyPa
     assert res.status_code == 200
     assert res.json()["trang_thai"] == "duyet"
 
-    # Chạy solver
-    sol = _run_solver()
+    # Chạy solver — neo ĐÚNG tuần W01 mà ràng buộc trỏ tới. Không truyền tuần
+    # sẽ dùng tuần hiện tại theo đồng hồ (khác fixture W01) → nghỉ phép không khớp.
+    sol = _run_solver("2026-W01")
     assert sol["ok"] is True
 
     # Kiểm tra phân công: nv_01 không được xếp vào bất kỳ ca nào ngày T5
@@ -92,7 +93,9 @@ def test_duyet_cap_nhat_tkb_wires_into_solver_tkb(monkeypatch: pytest.MonkeyPatc
     )
     assert res.status_code == 200
 
-    sol = _run_solver()
+    # Ràng buộc trỏ W01 → chạy solver ĐÚNG tuần đó (không truyền tuần = tuần
+    # hiện tại theo đồng hồ, khác fixture W01 → ràng buộc không được nạp).
+    sol = _run_solver("2026-W01")
     assert sol["ok"] is True
 
     from ca_solver import build_lich_input
@@ -507,7 +510,9 @@ def test_infeasible_solver_returns_specific_conflicts(monkeypatch: pytest.Monkey
         )
     kv_set("inbox_rang_buoc", inbox_items)
 
-    sol = _run_solver()
+    # Ràng buộc trỏ W01 → phải chạy solver ĐÚNG tuần đó để nó nhận ràng buộc
+    # và trả INFEASIBLE (không truyền tuần = tuần hiện tại, khác fixture W01).
+    sol = _run_solver("2026-W01")
     assert sol["ok"] is False
     assert "INFEASIBLE" in sol["status"]
     assert len(sol["danh_sach_xung_dot"]) > 0

@@ -20,6 +20,7 @@ from ca_agents.ag_copilot.voice_session import (
 )
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 
+from ca_api.context_providers import ngay_hom_nay_vn
 from ca_api.persist import (
     audit_add,
     copilot_audit_add,
@@ -206,7 +207,7 @@ async def _receive_upstream(
                     "store_id": context.store_id,
                     "user_id": context.user_id,
                     "user_role": context.user_role,
-                    "active_date": datetime.now(UTC).strftime("%Y-%m-%d"),
+                    "active_date": ngay_hom_nay_vn(),
                     "channel": "voice",
                 },
             )

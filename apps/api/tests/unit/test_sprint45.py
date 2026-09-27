@@ -257,6 +257,20 @@ def test_handover_khong_bao_lech_khi_so_giong() -> None:
     assert body["vf_number_conflict"] == []
 
 
+def test_cong_bang_chi_tra_nv_co_that() -> None:
+    """Bug QA đợt 4: /cong-bang tra số dư cho nv_20..nv_25 (mã trong seed
+    fixture) dù DB chỉ có 19 người. Kết quả phải chỉ gồm NV đang xếp lịch.
+    """
+    cq = headers(client, "hung")  # /nguoi đòi quyền chu_quan
+    body = client.get("/api/v1/cong-bang", headers=cq).json()
+    so_du = body["so_du"]
+    items = client.get("/api/v1/nguoi", headers=cq).json()["items"]
+    nv_that = {u["nv_id"] for u in items if u["role"] != "ai_assistant"}
+    la = set(so_du.keys())
+    assert la <= nv_that, f"số dư có mã không tồn tại: {sorted(la - nv_that)}"
+    assert not any(k.startswith("nv_2") for k in la), f"còn mã ngoài DB: {sorted(la)}"
+
+
 def test_cam_nang_eight_steps_den_cho_chu_quan() -> None:
     """Chạy 8 bước trên lần sửa thật: luật suy tất định phải qua VF và chờ chủ quán.
 

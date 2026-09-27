@@ -46,6 +46,7 @@ from ca_solver.fairness import AXES, update_debt_from_assignment, zero_debt
 from fastapi import APIRouter, Header, HTTPException, Query, Response
 from pydantic import BaseModel, Field
 
+from ca_api.context_providers import ngay_hom_nay_vn
 from ca_api.interfaces.http.sprint3 import (
     _known_ca,
     _known_nv,
@@ -294,10 +295,17 @@ def _run_solver(
     )
 
 
+def _tuan_hien_tai_iso() -> str:
+    """Tuần ISO hiện tại theo đồng hồ thật (fallback khi KV chưa có lifecycle)."""
+    iso = datetime.now(UTC).isocalendar()
+    return f"{iso.year}-W{iso.week:02d}"
+
+
 def _life(tuan_iso: str | None = None, *, store_id: str = "quan_01") -> dict[str, Any]:
     """Trạng thái lịch tuần — SSOT là kv `lich_tuan_lifecycle` (giờ main.py,
     copilot và sprint45 cùng một nguồn). Fallback đọc kv `lifecycle` cũ cho
-    data trước khi nhất hóa; thiếu hẳn thì về máy-sinh tuần mặc định."""
+    data trước khi nhất hóa; thiếu hẳn thì về tuần ISO HIỆN TẠI (trước đây
+    hardcode `2026-W01` — bug QA đợt 4)."""
     requested = tuan_iso
     if requested:
         by_week = kv_get("lich_tuan_lifecycle_by_week", {})
@@ -306,14 +314,14 @@ def _life(tuan_iso: str | None = None, *, store_id: str = "quan_01") -> dict[str
             return cast(dict[str, Any], by_week[week_key])
         return {"tuan_iso": requested, "trang_thai": "nhap", "nguon": "quan"}
     if store_id != "quan_01":
-        return {"tuan_iso": "2026-W01", "trang_thai": "may_sinh", "nguon": "quan"}
+        return {"tuan_iso": _tuan_hien_tai_iso(), "trang_thai": "may_sinh", "nguon": "quan"}
     moi = kv_get("lich_tuan_lifecycle", None)
     if isinstance(moi, dict) and moi.get("trang_thai"):
         return cast(dict[str, Any], moi)
     cu = kv_get("lifecycle", None)
     if isinstance(cu, dict) and cu.get("trang_thai"):
         return cast(dict[str, Any], cu)
-    return {"tuan_iso": "2026-W01", "trang_thai": "may_sinh", "nguon": "quan"}
+    return {"tuan_iso": _tuan_hien_tai_iso(), "trang_thai": "may_sinh", "nguon": "quan"}
 
 
 def _save_life(doc: dict[str, Any], *, store_id: str = "quan_01") -> None:
@@ -322,7 +330,7 @@ def _save_life(doc: dict[str, Any], *, store_id: str = "quan_01") -> None:
     if store_id == "quan_01":
         kv_set("lich_tuan_lifecycle", doc)
         kv_set("lifecycle", doc)
-    week = str(doc.get("tuan_iso") or "2026-W01")
+    week = str(doc.get("tuan_iso") or _tuan_hien_tai_iso())
     _set_week_value(
         "lich_tuan_lifecycle_by_week",
         week if store_id == "quan_01" else f"{store_id}:{week}",
@@ -351,7 +359,7 @@ def _seed_inbox() -> list[dict[str, Any]]:
 
 
 def _phan(tuan_iso: str | None = None) -> dict[str, list[str]]:
-    week = tuan_iso or str(_life().get("tuan_iso") or "2026-W01")
+    week = tuan_iso or str(_life().get("tuan_iso") or _tuan_hien_tai_iso())
     stored = _week_value("phan_cong_by_week", week, None)
     if stored:
         return cast(dict[str, list[str]], stored)
@@ -871,7 +879,12 @@ def _get_swap_candidates_for_item(it: dict[str, Any]) -> list[dict[str, Any]]:
     shift_info = {"thu": thu, "khung": khung, "vi_tri": vi_tri}
 
     seed = json.loads(SEED.read_text(encoding="utf-8")) if SEED.exists() else {}
-    staff_list = seed.get("nhan_vien", [])
+    # Ứng viên thế ca phải là NV CÓ THẬT trong pool đang xếp lịch. Trước đây đọc
+    # `seed["nhan_vien"]` (25 mã nv_01..nv_25) nên xếp hạng cả người không tồn
+    # tại trong DB (bug QA đợt 4). Seed chỉ là fallback khi pool thật rỗng.
+    staff_list = list_nhan_vien_ops()
+    if not staff_list:
+        staff_list = seed.get("nhan_vien", [])
     raw_ca = seed.get("ca_mau_21", [])
     ca_list = []
     for c in raw_ca:
@@ -1243,7 +1256,13 @@ def cong_bang(authorization: Annotated[str | None, Header()] = None) -> dict[str
     if not s:
         raise HTTPException(status_code=401, detail="thieu_token")
     seed = json.loads(SEED.read_text(encoding="utf-8")) if SEED.exists() else {}
-    nvs = [n["id"] for n in seed.get("nhan_vien", [])]
+    # Danh sách NV lấy từ NGUỒN THẬT (pool đang xếp lịch), KHÔNG phải seed.
+    # Bug QA đợt 4: trước đây đọc thẳng `seed["nhan_vien"]` (25 mã nv_01..nv_25)
+    # nên báo cáo công bằng hiện số dư cho 6 người không tồn tại trong DB
+    # (DB thật có 19). Seed chỉ dùng làm fallback khi pool thật rỗng.
+    nvs = [str(n["id"]) for n in list_nhan_vien_ops() if n.get("id")]
+    if not nvs:
+        nvs = [str(n["id"]) for n in seed.get("nhan_vien", [])]
     meta = {
         c["id"]: {
             "thu": {1: "T2", 2: "T3", 3: "T4", 4: "T5", 5: "T6", 6: "T7", 7: "CN"}.get(
@@ -1256,6 +1275,12 @@ def cong_bang(authorization: Annotated[str | None, Header()] = None) -> dict[str
         for c in seed.get("ca_mau_21", [])
     }
     debt = update_debt_from_assignment(zero_debt(nvs), _phan(), meta)
+    # `update_debt_from_assignment` dùng `setdefault` nên TẠO key cho mã nhân sự
+    # có trong lịch phân công mà không có trong pool (`nvs`). Với dữ liệu fixture
+    # cũ, lịch có thể tham chiếu nv_20..nv_25 trong khi DB chỉ có 19 người — nếu
+    # giữ nguyên, báo cáo công bằng sẽ hiện số dư cho người không tồn tại. Lọc
+    # về đúng pool đang xếp lịch (bug QA đợt 4).
+    debt = {nv: debt[nv] for nv in nvs if nv in debt}
     means = {a: 0.0 for a in AXES}
     if nvs:
         for a in AXES:
@@ -1434,7 +1459,11 @@ def hom_nay(authorization: Annotated[str | None, Header()] = None) -> dict[str, 
                 }
             )
     return {
-        "ngay": datetime.now(UTC).date().isoformat(),
+        # Ngày theo giờ QUÁN (UTC+7) — phải khớp `ngay` mà worker ghi vào
+        # brief/tổng kết, và khớp `active_date` gửi agent. Trước đây dùng UTC
+        # nên sau 17:00 giờ VN, /hom-nay hiện "ngày mai" còn brief ghi hôm nay
+        # (bug QA đợt 4).
+        "ngay": ngay_hom_nay_vn(),
         "lich": life,
         "so_treo": len(treo_mo),
         "so_inbox_cho": cho,

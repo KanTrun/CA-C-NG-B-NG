@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from datetime import date
 from typing import TYPE_CHECKING, Any
 
 from ca_agents.llm import complete, parse_json_object
@@ -61,15 +62,30 @@ def _extract_tuan(t: str, base_iso_week: str | None = None) -> str:
     m = re.search(r"\b(?:202\d-w(\d{1,2})|w(\d{1,2}))\b", t, re.IGNORECASE)
     if m:
         w_num = int(m.group(1) or m.group(2))
-        return f"2026-W{w_num:02d}"
+        base_year = (base_iso_week or "2026-W01").split("-W")[0]
+        return f"{base_year}-W{w_num:02d}"
 
     base = base_iso_week or "2026-W01"
     base_m = re.search(r"(\d{4})-W(\d{1,2})", base)
     year = int(base_m.group(1)) if base_m else 2026
     current_w = int(base_m.group(2)) if base_m else 1
 
+    def _next_week(y: int, w: int) -> str:
+        """W+1 có xử lý tràn năm (W52/W53 → năm sau, W01).
+
+        Không xử lý tràn sẽ sinh "2026-W53" (không tồn tại) hoặc "2026-W54",
+        khiến ràng buộc ghi vào tuần vô nghĩa.
+        """
+        try:
+            last_week = date(y, 12, 28).isocalendar().week
+        except ValueError:
+            last_week = 52
+        if w >= last_week:
+            return f"{y + 1}-W01"
+        return f"{y}-W{w + 1:02d}"
+
     if any(k in t for k in ("tuần sau", "tuan sau", "tuần tới", "tuan toi")):
-        return f"{year}-W{current_w + 1:02d}"
+        return _next_week(year, current_w)
     if any(k in t for k in ("tuần này", "tuan nay")):
         return f"{year}-W{current_w:02d}"
     return base

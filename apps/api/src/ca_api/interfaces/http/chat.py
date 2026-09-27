@@ -28,6 +28,7 @@ except ImportError:
     from datetime import datetime, timezone
     UTC = timezone.utc
 
+from ca_api.context_providers import ngay_hom_nay_vn
 from ca_api.persist import (
     chat_conversation_create,
     chat_conversation_get,
@@ -290,7 +291,7 @@ async def _reply_copilot_bg(conv_id: str, prompt: str, sess: dict[str, Any]) -> 
             "store_id": sess.get("store_id", "quan_01"),
             "user_id": sess.get("nv_id", "system"),
             "user_role": sess.get("role", "nhan_vien"),
-            "active_date": datetime.now(UTC).strftime("%Y-%m-%d"),
+            "active_date": ngay_hom_nay_vn(),
             "channel": "chat",
             "recent_messages": [],
         }
