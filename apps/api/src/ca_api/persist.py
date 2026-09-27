@@ -940,7 +940,19 @@ def chat_get_or_create_scheduler_direct(store_id: str, nv_id: str) -> dict[str, 
                     (id, store_id, type, display_name, avatar_url, is_locked, created_at, updated_at)
                 VALUES (?,?,?,?,?,?,?,?) ON CONFLICT(id) DO NOTHING
                 """,
-                (conv_id, store_id, "direct", "AI Scheduler", "", 0, now, now),
+                (conv_id, store_id, "direct", "AI Scheduler", "", False, now, now),
+            )
+            # Migration 0008 khai `chat_participants.nv_id` có khoá ngoại tới
+            # `users.nv_id`. Trên Postgres, chèn participant `ai_scheduler` khi
+            # bot chưa có trong `users` sẽ vi phạm FK → HTTP 500. Bảo đảm bot
+            # tồn tại trước khi mời vào hội thoại.
+            cx.execute(
+                """
+                INSERT INTO users(username, password_sha, role, nv_id, display_name, store_id, status)
+                VALUES ('ai_scheduler', 'bot_internal', 'ai_assistant', 'ai_scheduler', 'Agent Xếp Lịch 📅', ?, 'active')
+                ON CONFLICT(username) DO NOTHING
+                """,
+                (store_id,),
             )
             for participant, role in ((nv_id, "member"), ("ai_scheduler", "admin")):
                 cx.execute(
@@ -4465,7 +4477,7 @@ def chat_conversation_mute(conv_id: str, nv_id: str, muted: bool = True) -> None
     with _conn() as cx:
         cx.execute(
             "UPDATE chat_participants SET muted = ? WHERE conversation_id = ? AND nv_id = ?",
-            (1 if muted else 0, conv_id, nv_id),
+            (bool(muted), conv_id, nv_id),
         )
 
 
