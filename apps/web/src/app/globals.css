@@ -2151,6 +2151,25 @@ a:focus-visible {
   overflow: hidden;
 }
 
+/* Cắt 2 dòng cho tiêu đề việc treo.
+   Vì sao cắt ở CSS chứ không `substring` ở JS: `/api/v1/hom-nay` đã cắt sẵn
+   `noi_dung[:120]` — cắt theo KÝ TỰ, nên tiêu đề dài bị đứt giữa từ ("…sữa tươi
+   hết hạn 3 hộp — đã tách riê"), đọc ra như lỗi chứ không như "còn nữa". Cắt theo
+   DÒNG thì luôn dừng ở ranh giới từ và có dấu "…" của trình duyệt.
+   `title=` giữ nguyên văn đầy đủ để rê chuột xem hết — cắt bằng JS thì thông tin
+   mất hẳn khỏi DOM, còn ở đây nó vẫn nằm trong `title` và trong trình đọc màn
+   hình (line-clamp chỉ ảnh hưởng hiển thị, không bỏ chữ khỏi DOM). */
+.nq-item-title.nq-clamp-2 {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  /* `overflow-wrap`: tiêu đề tiếng Việt có thể chứa số điện thoại hoặc mã dài
+     không có khoảng trắng — không có dòng này thì cả tiêu đề tràn ngang thay vì
+     xuống dòng, và line-clamp không cắt được gì. */
+  overflow-wrap: anywhere;
+}
+
 .nq-roster-table th,
 .nq-roster-table td {
   padding: 0.45rem 0.55rem;
@@ -2998,6 +3017,49 @@ a:focus-visible {
   min-height: 5.5rem;
 }
 
+/* Hoạ tiết nền hero: hạt cà phê + đường nhịp tim, rất nhạt.
+   Vì sao cần: hero trước chỉ có chữ trên một orb gradient — đúng khuôn "dashboard
+   AI chung chung" mà bất kỳ sản phẩm nào cũng dán được. Hoạ tiết này là thứ chỉ
+   quán cà phê mới có, nên nó nói được "đây là NHỊP QUÁN" mà không cần thêm chữ.
+
+   Ràng buộc để nó KHÔNG phá phần chữ:
+     - `position: absolute` + `z-index: 0` + `pointer-events: none`: nằm dưới,
+       không chắn cú bấm của thẻ KPI/ops-pulse.
+     - Màu lấy từ `--nq-accent` (gold của hệ), `opacity` rất thấp: hoạ tiết là
+       CHẤT LIỆU, không phải nội dung. Nhìn thấy khi để ý, không tranh chữ khi đọc.
+     - Không `animation`: đây là nền của trang mở đầu sau đăng nhập, mở cả ngày.
+       Nền động ở chỗ này là thứ người dùng không tắt được.
+     - `mask-image` làm mờ dần về phía phải để hoạ tiết không đụng vùng chữ của
+       dải trạng thái (dải nằm bên trái, ops-pulse bên phải). */
+.nq-dash-hero__motif {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  opacity: 0.5;
+  color: var(--nq-accent);
+  -webkit-mask-image: linear-gradient(105deg, transparent 0%, #000 22%, #000 62%, transparent 88%);
+  mask-image: linear-gradient(105deg, transparent 0%, #000 22%, #000 62%, transparent 88%);
+}
+
+.nq-dash-hero__motif svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* Ở màn hẹp hoạ tiết bị chữ đè gần hết; giữ lại chỉ tốn pixel mà không đọc ra. */
+@media (max-width: 767px) {
+  .nq-dash-hero__motif {
+    display: none;
+  }
+}
+
+.nq-dash-hero > *:not(.nq-dash-hero__motif) {
+  position: relative;
+  z-index: 1;
+}
+
 @media (min-width: 1024px) {
   .nq-dash-hero {
     grid-template-columns: minmax(0, 1fr) minmax(280px, 38%);
@@ -3270,6 +3332,56 @@ a:focus-visible {
   }
 }
 
+/* Thẻ được AI đánh dấu là việc gấp nhất (`.nq-dash-kpi-cell--hi`) đổi KÍCH THƯỚC
+   chứ không chỉ hiệu ứng.
+   Vì sao: bốn thẻ span 3 đều tăm tắp thì "thẻ nào quan trọng" chỉ đọc ra được khi
+   rê chuột vào đúng nó — tức là người dùng phải đoán trước rồi mới thấy. Nay thẻ
+   quan trọng chiếm nửa lưới (span 6) và ba thẻ còn lại chia nửa kia (span 2), nên
+   phân cấp đọc được ngay từ hình dáng, kể cả khi chuyển động đã bị tắt.
+
+   Dùng `:has()` trên CHÍNH lưới, không dùng `~` (anh em đứng sau): thẻ được đánh
+   dấu có thể là thẻ thứ 1, 2 hay 3 tuỳ `computeOpsPulse` trả về. Với `~` mà thẻ
+   nổi nằm giữa, tổng span thành 3 + 6 + 2 + 2 = 13 > 12 và lưới nhảy hàng — đúng
+   lỗi chỉ lộ ra ở vài trạng thái dữ liệu. `:has()` chọn được mọi thẻ bất kể thứ tự.
+
+   Không hỗ trợ `:has()` thì rơi về nguyên trạng span 3 — mất phân cấp kích thước
+   nhưng không vỡ bố cục, nên đây là cải tiến có thoái hoá an toàn.
+
+   Đánh đổi đã cân nhắc: ba thẻ thường hẹp hơn (2/12 ≈ 190px ở màn 1440) — nhãn
+   viết hoa cỡ micro xuống 2 dòng, chấp nhận được vì chúng là thẻ phụ.
+   Khi quán yên ổn, `computeOpsPulse` trả `highlightKpi: "ok"` và KHÔNG thẻ nào
+   nhận `--hi`: cả bốn về span 3 như cũ. Trạng thái "yên" đọc ra từ chính việc
+   không có thẻ nào phình to — kích thước trở thành một kênh thông tin thật. */
+@media (min-width: 768px) {
+  .nq-dash-kpis:has(.nq-dash-kpi-cell--hi) .nq-dash-kpi-cell {
+    grid-column: span 2;
+  }
+
+  .nq-dash-kpis:has(.nq-dash-kpi-cell--hi) .nq-dash-kpi-cell--hi {
+    grid-column: span 6;
+  }
+}
+
+/* Dưới 768px giữ nguyên 2×2 (mỗi thẻ span 6) kể cả khi có thẻ nổi: màn hẹp thì
+   6 cột không đủ chỗ cho ba thẻ phụ, và lưới 3 cột ở 375px sẽ ngắt nhãn thành 3
+   dòng. Ở đây phân cấp do viền `--pulse-hi` + hiệu ứng nghiêng đảm nhiệm. */
+
+/* Viền của thẻ nổi viết ở TẦNG CELL, không ở tầng thẻ.
+   Vì sao: `.nq-dash-kpi` (định nghĩa thẻ) nằm SAU khối này trong tệp — nếu đặt
+   `box-shadow` cho `.nq-dash-kpi--pulse-hi` ở đây thì nó bị luật sau ghi đè, và
+   thẻ nổi chỉ còn cái viền mảnh, đúng lỗi đã đo được (`shadow` giống hệt ba thẻ
+   kia). Đặt ở tầng `.nq-dash-kpi-cell--hi` — một lớp mới, không cạnh tranh độ
+   đặc hiệu với `.nq-dash-kpi` — nên bậc nổi luôn thắng bất kể thứ tự khai báo.
+   Đây là bậc nổi CAO NHẤT trong trang (`--nq-shadow-float`), trên cả hero strip
+   và các khối chart (`--nq-elev-1`): thẻ AI chọn là việc gấp nhất, phải đứng
+   trước mọi thứ khác về thị giác. */
+.nq-dash-kpi-cell--hi {
+  outline: 2px solid color-mix(in srgb, var(--nq-accent) 55%, transparent);
+  outline-offset: 2px;
+  border-radius: var(--nq-radius-bubble);
+  box-shadow: var(--nq-shadow-float);
+}
+
 .nq-dash-kpi {
   display: flex;
   flex-direction: column;
@@ -3355,7 +3467,49 @@ a:focus-visible {
   border: 1px solid var(--nq-line);
   border-radius: var(--nq-radius-bubble);
   padding: var(--nq-s4) var(--nq-s5);
-  box-shadow: var(--nq-shadow-bubble);
+  /* Bậc nổi HẠ XUỐNG elev-1 (trước là `--nq-shadow-bubble` = elev-2).
+     Vì sao: hero strip, ops-pulse và thẻ KPI cũng đang ở elev-2. Ba bậc nổi bằng
+     nhau đứng cạnh nhau thì mắt không biết khối nào quan trọng hơn — mọi thứ nổi
+     như nhau nghĩa là không có gì nổi. Khối biểu đồ là khối ĐỂ ĐỌC, không phải
+     khối cần hành động ngay, nên hạ một bậc. */
+  box-shadow: var(--nq-elev-1);
+}
+
+/* Tiêu đề khối biểu đồ dùng cùng cấp với `.nq-block-title` của các khối khác.
+   Bản trước là `<h3 class="nq-dash-chart-title">` (cỡ 0.72rem, chữ hoa, màu
+   accent) — cấp bậc thị giác thấp hơn hẳn "Việc treo gần nhất" nằm ngay dưới, nên
+   trang đọc ra như thể biểu đồ là phụ lục của danh sách. Trang này chỉ có một
+   tầng khối, nên mọi tiêu đề khối phải cùng một dạng. */
+.nq-dash-chart-title.nq-block-title {
+  margin: 0 0 var(--nq-s3);
+}
+
+/* Dòng "Xem chi tiết →" của từng khối — nhất quán với khối "Việc treo gần nhất"
+   (đã làm đúng từ trước), thay vì mỗi khối một kiểu liên kết ngầm. */
+.nq-block-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--nq-s2);
+  margin-top: var(--nq-s3);
+  padding-top: var(--nq-s3);
+  border-top: 1px solid var(--nq-line);
+}
+
+.nq-block-foot a {
+  font-size: 0.75rem;
+  color: var(--nq-accent-ink-text);
+  text-decoration: none;
+}
+
+.nq-block-foot a:hover {
+  text-decoration: underline;
+}
+
+.nq-block-foot__note {
+  font-size: var(--nq-t-caption);
+  color: var(--nq-ink-muted);
 }
 
 .nq-dash-chart-title {
@@ -3565,6 +3719,41 @@ a:focus-visible {
   gap: var(--nq-s4);
 }
 
+/* Khối con trong cột phụ.
+   Vì sao cần: bản trước cột phải là một `<aside>` chứa ba thứ KHÁC CHỦ ĐỀ mà
+   không có tiêu đề nào — cảnh báo tồn, hao hụt, và nhật ký sửa lịch. Đọc ra ba
+   mẩu rời rạc, và mắt không có chỗ bám để biết khối nào bắt đầu ở đâu. Nay mỗi
+   nhóm có `<h2 class="nq-block-title">` riêng và vỏ riêng.
+   Bậc nổi elev-1 (cùng khối biểu đồ): cột phụ là nơi TRA CỨU, không phải nơi
+   quyết định — nó không được nổi hơn thẻ KPI. */
+.nq-dash-aside-block {
+  border: 1px solid var(--nq-line);
+  border-radius: var(--nq-radius-bubble);
+  background: color-mix(in srgb, var(--nq-bg-elevated) 75%, transparent);
+  padding: var(--nq-s4);
+  box-shadow: var(--nq-elev-1);
+}
+
+.nq-dash-aside-block > .nq-block-title {
+  margin: 0 0 var(--nq-s3);
+}
+
+.nq-dash-aside-block__body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--nq-s3);
+}
+
+/* Trạng thái "không có gì" của khối cảnh báo. Cố ý KHÔNG dùng `.nq-alert`: đây
+   là tin tốt ("không có cảnh báo nào"), mà `.nq-alert` là hình dáng dành cho
+   chuyện cần chú ý. Nói "mọi thứ ổn" bằng khung cảnh báo là dạy người dùng bỏ qua
+   khung cảnh báo. */
+.nq-dash-aside-clear {
+  margin: 0;
+  font-size: var(--nq-t-small);
+  color: var(--nq-ink-muted);
+}
+
 .nq-dash-aside-note {
   margin: 0;
   font-size: 0.85rem;
@@ -3572,7 +3761,56 @@ a:focus-visible {
 
 .nq-dash-aside-link {
   font-size: 0.75rem;
-  color: var(--nq-accent);
+  color: var(--nq-accent-ink-text);
+}
+
+/* ── Sparkline xu hướng việc treo ── */
+.nq-spark {
+  display: block;
+  width: 100%;
+  height: auto;
+  overflow: visible;
+}
+
+.nq-spark__bar {
+  transition: opacity var(--nq-beat-settle) var(--nq-ease-out);
+}
+
+.nq-spark-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--nq-s4);
+  margin-bottom: var(--nq-s2);
+}
+
+.nq-spark-key {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--nq-s2);
+  font-size: var(--nq-t-caption);
+  color: var(--nq-ink-muted);
+}
+
+.nq-spark-key__swatch {
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+
+.nq-spark-axis {
+  display: flex;
+  justify-content: space-between;
+  margin-top: var(--nq-s2);
+  font-family: var(--nq-font-mono);
+  font-size: 0.62rem;
+  color: var(--nq-ink-muted);
+}
+
+.nq-spark-empty {
+  margin: 0;
+  font-size: var(--nq-t-small);
+  color: var(--nq-ink-muted);
 }
 
 .nq-dash-timeline-list {

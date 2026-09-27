@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { motion, useReducedMotion } from "framer-motion";
 import { useState } from "react";
 import { STAGGER_S, beat } from "../../lib/motion";
@@ -26,6 +27,24 @@ function chartMotion(reduced: boolean) {
       };
 }
 
+/**
+ * Chân khối: một dòng "Xem chi tiết →".
+ *
+ * Vì sao tách thành component: trước đây chỉ khối "Việc treo gần nhất" có lối đi
+ * rõ ràng, ba khối còn lại (hai biểu đồ, nhật ký sửa) không có gì — người dùng
+ * thấy số liệu mà không biết bấm vào đâu để xem đầy đủ, hoặc phải đoán qua menu
+ * bên trái. `note` để nói rõ phạm vi số liệu khi nó KHÔNG phải "hôm nay" (ví dụ
+ * sparkline neo vào mốc dữ liệu cũ nhất có thật).
+ */
+function BlockFoot({ href, label, note }: { href: string; label: string; note?: string }) {
+  return (
+    <div className="nq-block-foot">
+      {note ? <span className="nq-block-foot__note">{note}</span> : <span />}
+      <Link href={href}>{label} →</Link>
+    </div>
+  );
+}
+
 export function TonBarChart({ rows }: { rows: TonRow[] }) {
   const reduced = useReducedMotion() ?? false;
   const [hovered, setHovered] = useState<number | null>(null);
@@ -35,16 +54,20 @@ export function TonBarChart({ rows }: { rows: TonRow[] }) {
   if (data.length === 0) {
     return (
       <motion.div className="nq-dash-chart" {...chartMotion(reduced)}>
-        <h3 className="nq-dash-chart-title">Tồn kho hôm nay</h3>
+        <h2 className="nq-block-title nq-dash-chart-title">Kho &amp; tiêu thụ</h2>
         <p className="nq-dash-chart-empty">Chưa có dữ liệu tồn trong sổ tiêu thụ.</p>
+        <BlockFoot href="/tieu-thu" label="Mở sổ tiêu thụ" />
       </motion.div>
     );
   }
 
   return (
     <motion.div className="nq-dash-chart nq-dash-chart--interactive" {...chartMotion(reduced)}>
-      <h3 className="nq-dash-chart-title">Tồn kho hôm nay</h3>
-      <p className="nq-dash-chart-hint">Di chuột từng hàng để xem chi tiết</p>
+      <h2 className="nq-block-title nq-dash-chart-title">Kho &amp; tiêu thụ</h2>
+      {/* Tiêu đề khối nói PHẠM VI ("Kho & tiêu thụ"), không lặp lại tên hàng. Dòng
+          dưới nói CHÍNH XÁC đang vẽ gì — trước đây cả hai việc dồn vào một câu
+          "Tồn kho hôm nay" vừa trùng với nhãn trục vừa không nói số đang là gì. */}
+      <p className="nq-dash-chart-hint">Tồn ghi nhận gần nhất theo từng nguyên liệu · di chuột để xem đơn vị</p>
       <ul className="nq-dash-bars" role="list">
         {data.map((row, i) => {
           const qty = Number(row.so_luong) || 0;
@@ -80,6 +103,7 @@ export function TonBarChart({ rows }: { rows: TonRow[] }) {
           );
         })}
       </ul>
+      <BlockFoot href="/tieu-thu" label="Mở sổ tiêu thụ" />
     </motion.div>
   );
 }
@@ -111,7 +135,7 @@ export function TreoDonutChart({ breakdown, total }: { breakdown: TreoBreakdown[
 
   return (
     <motion.div className="nq-dash-chart nq-dash-chart--interactive" {...chartMotion(reduced)}>
-      <h3 className="nq-dash-chart-title">Việc treo theo trạng thái</h3>
+      <h2 className="nq-block-title nq-dash-chart-title">Việc treo theo trạng thái</h2>
       <p className="nq-dash-chart-hint">Bấm từng mục để làm nổi bật</p>
       <div className="nq-dash-donut-wrap">
         <svg viewBox="0 0 104 104" className="nq-dash-donut" role="img" aria-label={`${total} việc treo`}>
@@ -163,6 +187,7 @@ export function TreoDonutChart({ breakdown, total }: { breakdown: TreoBreakdown[
           {arcs.length === 0 ? <li className="nq-muted">Chưa có việc treo</li> : null}
         </ul>
       </div>
+      <BlockFoot href="/treo" label="Xem việc treo" />
     </motion.div>
   );
 }
@@ -178,7 +203,7 @@ export function SuaTimeline({ items, formatLuc, ghiNhanLabel, actorLabel }: {
 
   return (
     <motion.section className="nq-dash-timeline nq-dash-chart" {...chartMotion(reduced)}>
-      <h3 className="nq-dash-chart-title">Sửa lịch gần đây</h3>
+      <h2 className="nq-block-title nq-dash-chart-title">Sửa lịch gần đây</h2>
       <ol className="nq-dash-timeline-list">
         {items.map((g, i) => (
           <motion.li
@@ -199,6 +224,7 @@ export function SuaTimeline({ items, formatLuc, ghiNhanLabel, actorLabel }: {
           </motion.li>
         ))}
       </ol>
+      <BlockFoot href="/treo" label="Xem tab ghi nhận sửa" />
     </motion.section>
   );
 }

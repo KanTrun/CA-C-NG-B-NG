@@ -15,11 +15,12 @@ import {
   viError,
 } from "../../lib/present";
 import { getRole, getToken, isChuQuan, isManager } from "../../lib/session";
-import { todayHeroLine, todayTechnicalDetail } from "../../lib/status";
+import { todayHeroLine, todayMetaLine, todayTechnicalDetail } from "../../lib/status";
 import { SuaTimeline, TonBarChart, TreoDonutChart } from "../../ui/hom-nay/dashboard-charts";
 import { useActorName } from "../../ui/ops-pickers";
-import { KpiCard, StatusStrip } from "../../ui/hom-nay/kpi-card";
+import { HeroMotif, KpiCard, StatusStrip } from "../../ui/hom-nay/kpi-card";
 import { OpsPulseLite } from "../../ui/hom-nay/ops-pulse-lite";
+import { TreoTrendBlock, buildTreoSeries, dayKeyICT, type TreoTimeItem } from "../../ui/hom-nay/treo-trend";
 import { Alert, AuthGate, Btn, BtnLink, FixtureChip, Loading, PageActions, StatusChip, TechnicalDrawer } from "../../ui/kit";
 
 const OpsPulse3d = dynamic(() => import("../../ui/hom-nay/ops-pulse").then((m) => m.OpsPulse), {
@@ -27,7 +28,15 @@ const OpsPulse3d = dynamic(() => import("../../ui/hom-nay/ops-pulse").then((m) =
   loading: () => <div className="nq-ops-pulse nq-ops-pulse--loading" aria-busy="true" />,
 });
 
-type TreoPreview = { id: string; noi_dung: string; trang_thai?: string; nhan_vien?: string };
+type TreoPreview = {
+  id: string;
+  noi_dung?: string;
+  /** Hai khoá cùng nghĩa "nội dung" mà các nguồn ghi khác dùng — xem `tieuDeTreo`. */
+  mo_ta?: string;
+  tieu_de?: string;
+  trang_thai?: string;
+  nhan_vien?: string;
+};
 type SuaPreview = { loai?: string; luc?: string; ai?: string };
 type TonRow = { hang?: string; so_luong?: number; don_vi?: string; duoi_nguong?: boolean };
 type TreoBreakdown = { trang_thai: string; so_luong: number };
@@ -68,6 +77,27 @@ function soAnToan(v: unknown): number {
   return Number.isFinite(n) && n >= 0 ? n : 0;
 }
 
+/**
+ * Tiêu đề của một việc treo, chấp nhận CẢ BA tên khoá đang tồn tại trong store.
+ *
+ * Vì sao phải chấp nhận ba: có 9 chỗ ghi vào cùng danh sách `treo` và chúng không
+ * thống nhất tên khoá cho cùng một khái niệm —
+ *   `noi_dung`  sprint3 · chat · copilot · meeting · shift_rescue · war_room · fixture `treo_fx*`
+ *   `mo_ta`     channels.py, và `seed_19_staff.py` (4 việc treo demo)
+ *   `tieu_de`   `seed_19_staff.py` (phiếu)
+ * `apps/api` đọc **chỉ** `noi_dung` (`sprint45.py:1353`), nên với `make seed-demo`
+ * bốn việc treo của `seed_19_staff` hiện ra **tiêu đề TRỐNG** — một ô rỗng bấm
+ * được, trông như lỗi giao diện.
+ *
+ * Vá ở đây chứ không sửa `apps/api`: đọc thêm khoá là thay đổi thuần hiển thị,
+ * không đổi dữ liệu và không đổi contract. Việc chuẩn hoá 5 tên khoá (kèm
+ * `nhan_vien`/`nguoi_nhan`, `tao_luc`/`created_at`) là thay đổi ở tầng ghi — đã
+ * ghi thành đề xuất backend riêng trong `plans/260927-*` mục 6, chờ duyệt.
+ */
+function tieuDeTreo(v: TreoPreview): string {
+  return safeText(v.noi_dung || v.mo_ta || v.tieu_de, "(không có nội dung)");
+}
+
 function usePulse3d() {
   const [use3d, setUse3d] = useState(false);
   useEffect(() => {
@@ -84,6 +114,7 @@ export default function HomNayPage() {
   const [error, setError] = useState<string | null>(null);
   const [manager, setManager] = useState(false);
   const [chuQuan, setChuQuan] = useState(false);
+  const [treoHistory, setTreoHistory] = useState<TreoTimeItem[] | null>(null);
   const use3d = usePulse3d();
   const actorName = useActorName();
 
@@ -101,9 +132,30 @@ export default function HomNayPage() {
       .catch((e) => setError(viError(e, { doing: "đọc được bảng hôm nay" })));
   }, []);
 
+  // Lịch sử việc treo cho sparkline — GỌI RIÊNG, và hỏng thì im lặng.
+  //
+  // Vì sao không gộp vào `/api/v1/hom-nay`: endpoint đó chỉ trả 5 việc mới nhất
+  // (`treo_preview`) nên không đủ mốc để dựng chuỗi 7 ngày. `/api/v1/viec-treo` trả
+  // đủ danh sách, và mọi vai đều gọi được (`_require_role`), khác `/api/v1/audit`
+  // là endpoint chỉ `quan_ly`/`chu_quan` — dùng nhầm thì nhân viên thấy lỗi.
+  //
+  // Vì sao hỏng thì im lặng: đây là phần PHỤ của bảng Hôm nay, mà bảng Hôm nay là
+  // trang mở đầu sau đăng nhập — hỏng nó là hỏng cả ca làm việc. Cùng nguyên tắc
+  // `try/except` mà `sprint45.py` áp cho phần hao hụt. Khối sẽ tự hiện "chưa đủ
+  // dữ liệu" thay vì một thông báo lỗi đỏ.
+  const loadTreoHistory = useCallback(() => {
+    if (!getToken()) return;
+    apiGet<{ items: TreoTimeItem[] }>("/api/v1/viec-treo")
+      .then((r) => setTreoHistory(Array.isArray(r?.items) ? r.items : []))
+      .catch(() => setTreoHistory([]));
+  }, []);
+
   useEffect(() => {
-    if (token) load();
-  }, [token, load]);
+    if (token) {
+      load();
+      loadTreoHistory();
+    }
+  }, [token, load, loadTreoHistory]);
 
   const treo = soAnToan(data?.so_treo);
   const tonThapEarly = (data?.ton_tom_tat ?? []).filter((t) => t.duoi_nguong);
@@ -139,10 +191,35 @@ export default function HomNayPage() {
   const highlight = pulseModel?.highlightKpi;
   const haoHut = data?.hao_hut;
 
+  // Dòng phụ của dải trạng thái — CHỈ số không trùng thẻ KPI. Xem `todayMetaLine`.
+  const stripMeta = todayMetaLine(ngay, data?.brief_hom_nay?.so_ca ?? null);
+
+  // Chuỗi xu hướng việc treo. `null` = chưa đủ mốc để vẽ (không vẽ đường 0 giả).
+  const treoSeries = treoHistory ? buildTreoSeries(treoHistory) : null;
+  // Độ lệch giữa mốc mới nhất và hôm nay — để nhãn nói thật về phạm vi dữ liệu.
+  // So theo ICT cho khớp `dayKeyICT`; lệch 0/1 ngày là bình thường.
+  const homNayICT = dayKeyICT(new Date().toISOString());
+  const soNgayLech =
+    treoSeries && homNayICT
+      ? Math.max(
+          0,
+          Math.round(
+            (Date.parse(`${homNayICT}T00:00:00Z`) - Date.parse(`${treoSeries.mocCuoi}T00:00:00Z`)) /
+              86_400_000,
+          ),
+        )
+      : 0;
+
+  // Trạng thái của khối "Cảnh báo cần xử lý" — gom cả hai nguồn (tồn + hao hụt)
+  // vào MỘT khối vì chúng cùng trả lời một câu: "có gì cần tôi xử lý không".
+  const coCanhBaoTon = canhBao.length > 0 || tonThap.length > 0;
+  const haoHutCanXem = Boolean(haoHut?.co_du_lieu && ((haoHut.so_nghiem_trong ?? 0) || (haoHut.so_canh_bao ?? 0)));
+
   return (
     <div className="nq-page nq-page--dashboard">
       <div className="nq-dash-hero">
-        <StatusStrip status={hero} />
+        <HeroMotif />
+        <StatusStrip status={hero} meta={stripMeta} />
         {pulseModel ? use3d ? <OpsPulse3d model={pulseModel} /> : <OpsPulseLite model={pulseModel} /> : null}
       </div>
 
@@ -188,14 +265,12 @@ export default function HomNayPage() {
               </ul>
             </section>
           ) : null}
-          {data.brief_hom_nay ? (
-            <p className="nq-meta-line">
-              Brief sáng {data.brief_hom_nay.ngay}: {data.brief_hom_nay.so_ca} ca · {data.brief_hom_nay.so_treo_mo} việc treo đang mở
-              {data.brief_hom_nay.ton_canh_bao && data.brief_hom_nay.ton_canh_bao.length > 0
-                ? ` · tồn cảnh báo: ${data.brief_hom_nay.ton_canh_bao.join(", ")}`
-                : ""}
-            </p>
-          ) : null}
+          {/* Dòng "Brief sáng … : N ca · N việc treo đang mở · tồn cảnh báo: …" đã
+              BỎ khỏi đây. Hai trong bốn số của nó là số của thẻ KPI ngay bên dưới
+              (`so_treo_mo` = "Việc treo", `ton_canh_bao` = "Cảnh báo tồn") và
+              `treo_dau` trùng khối "Việc treo gần nhất" — màn hình nói cùng một
+              chuyện hai lần. Số còn lại (`so_ca`) nay nằm trong dòng phụ của dải
+              trạng thái, cạnh những gì nó thuộc về. */}
           <div className="nq-dash-kpis nq-bento">
             <KpiCard
               value={treo}
@@ -225,6 +300,11 @@ export default function HomNayPage() {
 
           <div className="nq-dash-body">
             <div className="nq-dash-main">
+              {/* Xu hướng theo ngày đứng TRƯỚC hai biểu đồ ảnh-chụp-một-thời-điểm:
+                  câu hỏi "đang đi lên hay xuống" quan trọng hơn "đang là bao nhiêu",
+                  nên nó là thứ đầu tiên mắt gặp trong vùng nội dung. */}
+              <TreoTrendBlock series={treoSeries} loading={treoHistory === null} soNgayLech={soNgayLech} />
+
               <div className="nq-dash-charts">
                 <TonBarChart rows={ton} />
                 <TreoDonutChart breakdown={treoBreakdown} total={treo} />
@@ -239,7 +319,13 @@ export default function HomNayPage() {
                   <div className="nq-list nq-dash-compact-list">
                     {preview.map((v) => (
                       <Link key={v.id} href="/treo" className="nq-item block hover:opacity-90">
-                        <p className="nq-item-title">{v.noi_dung}</p>
+                        {/* Cắt 2 DÒNG bằng CSS (xem `.nq-item-title.nq-clamp-2`), và
+                            `title` giữ nguyên văn để rê chuột xem hết. Không cắt
+                            bằng `substring` ở JS: cắt theo ký tự đứt giữa từ và
+                            thông tin mất hẳn khỏi DOM. */}
+                        <p className="nq-item-title nq-clamp-2" title={tieuDeTreo(v)}>
+                          {tieuDeTreo(v)}
+                        </p>
                         <p className="nq-item-sub">
                           <StatusChip tone={treoTone(v.trang_thai)}>{treoLabel(v.trang_thai)}</StatusChip>
                         </p>
@@ -250,55 +336,84 @@ export default function HomNayPage() {
               ) : null}
             </div>
 
+            {/* Cột phụ tách thành HAI khối có tiêu đề riêng.
+                Bản trước là một `<aside>` chứa ba thứ khác chủ đề mà không có
+                tiêu đề tổng nào — cảnh báo tồn, hao hụt, nhật ký sửa lịch. Đọc ra
+                ba mẩu rời rạc và mắt không có chỗ bám.
+                Cách chia: theo CÂU HỎI người dùng đang hỏi, không theo nguồn dữ
+                liệu. "Có gì cần tôi xử lý?" (tồn + hao hụt gộp lại — cùng một câu
+                hỏi, nên cùng một khối) và "Ai vừa đổi gì?" (nhật ký). */}
             <aside className="nq-dash-aside">
-              {canhBao.length > 0 || tonThap.length > 0 ? (
-                <Alert kind="info">
-                  Tồn dưới ngưỡng: {(canhBao.length ? canhBao : tonThap.map((t) => matHangLabel(t.hang))).join(", ")}.
-                  <BtnLink href="/tieu-thu" variant="ghost">
-                    Mở sổ tiêu thụ
-                  </BtnLink>
-                </Alert>
-              ) : (
-                <p className="nq-muted nq-dash-aside-note">Chưa có cảnh báo tồn từ sổ tiêu thụ.</p>
-              )}
+              <section className="nq-dash-aside-block">
+                <h2 className="nq-block-title">Cảnh báo cần xử lý</h2>
+                <div className="nq-dash-aside-block__body">
+                  {coCanhBaoTon ? (
+                    <Alert kind="info">
+                      Tồn dưới ngưỡng: {(canhBao.length ? canhBao : tonThap.map((t) => matHangLabel(t.hang))).join(", ")}.
+                      <BtnLink href="/tieu-thu" variant="ghost">
+                        Mở sổ tiêu thụ
+                      </BtnLink>
+                    </Alert>
+                  ) : null}
 
-              {/* Hao hụt: chỉ báo khi có chuyện. Dòng "chưa đủ dữ liệu" nói thẳng
-                  là chưa kết luận được, không im lặng coi như đạt. */}
-              {haoHut && haoHut.co_du_lieu ? (
-                haoHut.so_nghiem_trong || haoHut.so_canh_bao ? (
-                  <Alert kind="info">
-                    Hao hụt cần xem:{" "}
-                    {(haoHut.mat_hang_vuot ?? [])
-                      .map((x) => (x.ty_le === null ? x.ten : `${x.ten} ${x.ty_le}%`))
-                      .join(", ") || `${(haoHut.so_nghiem_trong ?? 0) + (haoHut.so_canh_bao ?? 0)} nguyên liệu`}
-                    .
-                    {haoHut.so_thieu_du_lieu ? (
-                      <span className="block mt-2">
-                        {haoHut.so_thieu_du_lieu} nguyên liệu chưa kết luận được vì thiếu một vế.
-                      </span>
-                    ) : null}
-                    <BtnLink href="/hao-phi" variant="ghost">
-                      Mở bảng hao hụt
-                    </BtnLink>
-                  </Alert>
-                ) : (
-                  <Link href="/hao-phi" className="nq-dash-aside-link">
-                    Hao hụt hôm nay trong ngưỡng — xem bảng →
-                  </Link>
-                )
-              ) : (
-                <Link href="/hao-phi" className="nq-dash-aside-link">
-                  Hao hụt: chưa đủ dữ liệu để đối chiếu — gõ phiếu kiểm kê →
-                </Link>
-              )}
+                  {/* Hao hụt: chỉ báo khi có chuyện. Dòng "chưa đủ dữ liệu" nói thẳng
+                      là chưa kết luận được, không im lặng coi như đạt. */}
+                  {haoHut && haoHut.co_du_lieu ? (
+                    haoHutCanXem ? (
+                      <Alert kind="info">
+                        Hao hụt cần xem:{" "}
+                        {(haoHut.mat_hang_vuot ?? [])
+                          .map((x) => (x.ty_le === null ? x.ten : `${x.ten} ${x.ty_le}%`))
+                          .join(", ") || `${(haoHut.so_nghiem_trong ?? 0) + (haoHut.so_canh_bao ?? 0)} nguyên liệu`}
+                        .
+                        {haoHut.so_thieu_du_lieu ? (
+                          <span className="block mt-2">
+                            {haoHut.so_thieu_du_lieu} nguyên liệu chưa kết luận được vì thiếu một vế.
+                          </span>
+                        ) : null}
+                        <BtnLink href="/hao-phi" variant="ghost">
+                          Mở bảng hao hụt
+                        </BtnLink>
+                      </Alert>
+                    ) : null
+                  ) : (
+                    <p className="nq-dash-aside-clear">
+                      Hao hụt chưa đủ dữ liệu để đối chiếu —{" "}
+                      <Link href="/hao-phi">gõ phiếu kiểm kê →</Link>
+                    </p>
+                  )}
 
-              <SuaTimeline items={sua} formatLuc={formatLuc} ghiNhanLabel={ghiNhanLabel} actorLabel={actorName} />
+                  {/* "Không có gì" cũng là một câu trả lời, nhưng chỉ nói khi thật
+                      sự không có gì. Trước đây trạng thái này bị bỏ trống nên khối
+                      trông như đang tải lỗi. */}
+                  {!coCanhBaoTon && haoHut && haoHut.co_du_lieu && !haoHutCanXem ? (
+                    <p className="nq-dash-aside-clear">
+                      Không có cảnh báo nào — tồn và hao hụt đang trong ngưỡng.
+                    </p>
+                  ) : null}
+                </div>
+              </section>
 
-              {sua.length > 0 ? (
-                <Link href="/treo" className="nq-dash-aside-link">
-                  Tab ghi nhận sửa →
-                </Link>
-              ) : null}
+              {/* Khối nhật ký LUÔN có mặt, kể cả khi chưa có bản ghi.
+                  Vì sao không ẩn khi rỗng: cột phụ được chia thành hai khối cố
+                  định ("có gì cần xử lý?" và "ai vừa đổi gì?"). Ẩn khối thứ hai
+                  khi rỗng thì lần đầu vào — hoặc trên store mới — cột phụ chỉ còn
+                  một khối, và người dùng không biết chỗ đó LẼ RA có gì. Trạng thái
+                  rỗng nói thẳng là rỗng (nhưng KHÔNG dùng dáng `.nq-alert`: đây
+                  không phải chuyện cần chú ý). */}
+              <section className="nq-dash-aside-block">
+                <h2 className="nq-block-title">Nhật ký thay đổi</h2>
+                <div className="nq-dash-aside-block__body">
+                  {sua.length > 0 ? (
+                    <SuaTimeline items={sua} formatLuc={formatLuc} ghiNhanLabel={ghiNhanLabel} actorLabel={actorName} />
+                  ) : (
+                    <p className="nq-dash-aside-clear">
+                      Chưa có ghi nhận sửa lịch nào —{" "}
+                      <Link href="/treo">xem tab ghi nhận sửa →</Link>
+                    </p>
+                  )}
+                </div>
+              </section>
             </aside>
           </div>
 
