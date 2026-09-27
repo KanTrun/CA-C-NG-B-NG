@@ -625,9 +625,13 @@ export default function RosterPage() {
     if (byDay[dayKey]) byDay[dayKey].push({ ...s, thu: dayKey });
   }
 
+  /** Tên nhân sự theo id. KHÔNG bao giờ trả về mã thô (`nv_01`) cho người dùng:
+   *  tầng API đã lọc tham chiếu chết, nhưng nếu vì lý do nào đó còn sót thì trả
+   *  chuỗi rỗng để nơi gọi tự bỏ qua, thay vì in `nv_26` lên lịch. */
   function nvName(id: string): string {
     const found = (data?.nhan_vien ?? []).find((x) => x.id === id);
-    return found ? found.ten : id;
+    if (found) return found.ten;
+    return /^nv_\w+$/i.test(id) ? "" : id;
   }
 
   // Resolve employee ID from session (e.g. nv_03 for Minh, nv_01 for Lan...)

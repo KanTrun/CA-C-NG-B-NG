@@ -698,6 +698,27 @@ def _detect_staff_availability(
     return chua_xac_nhan, du_bi, nv_status_map
 
 
+def _loc_phan_cong_theo_nhan_su(
+    phan_cong: dict[str, list[str]], nhan_vien: list[dict[str, Any]]
+) -> None:
+    """Bỏ mọi nv_id trong `phan_cong` không còn là nhân sự của quán (sửa tại chỗ).
+
+    Vì sao cần: `phan_cong` đến từ ẢNH CHỤP LƯU LẠI (solver, ghim) — ghi ở thời
+    điểm khác với lúc đọc. Nhân sự bị xoá sau đó vẫn nằm trong ảnh chụp, nên id
+    của họ (ví dụ `nv_26`…`nv_38` do `_nv_id_ke_tiep` cấp cho tài khoản đã đăng
+    ký rồi bị xoá) lọt ra giao diện và `nvName()` in nguyên chuỗi `nv_26`.
+
+    Nguồn sự thật về "ai đang làm ở quán" là `nhan_vien`, không phải ảnh chụp.
+    Lọc ở tầng dữ liệu (không ở giao diện) để số đếm nhân sự, chấm "đủ/thiếu" và
+    mọi bề mặt dùng chung đều đúng theo.
+
+    KHÔNG áp cho lịch sử seed: xem ghi chú ở `_build_lich_tuan_from_seed`.
+    """
+    hop_le = {str(nv.get("id")) for nv in nhan_vien}
+    for ca_id, nv_ids in phan_cong.items():
+        phan_cong[ca_id] = [nid for nid in nv_ids if str(nid) in hop_le]
+
+
 def _build_lich_tuan_from_seed(
     seed: dict[str, Any], tuan: str | None, so_tuan: int = 1
 ) -> dict[str, Any]:
@@ -721,6 +742,17 @@ def _build_lich_tuan_from_seed(
     week_decisions = status_store.get(tuan_iso, {}) if isinstance(status_store, dict) else {}
     for ca_id, nv_ids in phan_cong.items():
         phan_cong[ca_id] = [nid for nid in nv_ids if week_decisions.get(nid) not in {"du_bi", "bo_ca"}]
+
+    # KHÔNG lọc theo `nhan_vien` ở nhánh này.
+    #
+    # Nhánh này chỉ chạy khi CHƯA có kết quả solver, và nguồn lịch sử duy nhất là
+    # fixture demo (`data/seed/sample.json`) — dữ liệu tham chiếu được biên soạn
+    # tay, không phải ảnh chụp sinh tự động. Nhân sự trong đó (`nv_07`, `nv_19`…)
+    # KHÔNG nằm trong bảng `users` của môi trường test/demo, nên lọc theo
+    # `nhan_vien` sẽ xoá sạch lịch sử thật (test
+    # `test_lich_output_rong_fallback_phan_cong_seed_history` bắt đúng lỗi này).
+    #
+    # "Id ma" chỉ sinh ra từ ẢNH CHỤP SOLVER, nên chỉ nhánh solver cần chốt.
 
     chua_xac_nhan, du_bi, nv_status_map = _detect_staff_availability(tuan_iso, phan_cong, nhan_vien)
 
@@ -791,8 +823,13 @@ def get_lich_tuan(
         for ca_id, nv_ids in seeded_assignments.items():
             if str(ca_id) not in phan_cong:
                 phan_cong[str(ca_id)] = list(nv_ids)
+        # `tu_seed_lich_su` = lịch sử fixture biên soạn tay, KHÔNG phải ảnh chụp
+        # solver. Nhánh này lọc theo `nhan_vien` được, còn lịch sử seed thì không
+        # (xem ghi chú ở `_build_lich_tuan_from_seed`).
+        tu_seed_lich_su = False
         if not phan_cong:
             phan_cong = _seeded_history_assignments(seed, tuan_iso)
+            tu_seed_lich_su = bool(phan_cong)
         for (ca_id, nv_id), pinned in _pin_map(tuan_iso).items():
             if pinned and nv_id not in phan_cong.get(ca_id, []):
                 phan_cong.setdefault(ca_id, []).append(nv_id)
@@ -803,6 +840,18 @@ def get_lich_tuan(
             phan_cong[ca_id] = [nid for nid in nv_ids if week_decisions.get(nid) not in {"du_bi", "bo_ca"}]
 
         nhan_vien = list_nhan_vien_ops()
+
+        # CHỐT TOÀN VẸN THAM CHIẾU — chỉ cho dữ liệu từ ẢNH CHỤP.
+        #
+        # `phan_cong` ghép từ ảnh chụp solver + ghim, ghi ở thời điểm khác lúc đọc.
+        # Nhân sự bị xoá sau đó vẫn còn trong ảnh chụp → id lọt ra UI và `nvName()`
+        # in nguyên chuỗi `nv_26`. Xem `_loc_phan_cong_theo_nhan_su`.
+        #
+        # KHÔNG áp khi `phan_cong` đến từ lịch sử seed: nhân sự trong fixture demo
+        # không nằm trong bảng `users` của môi trường test, lọc sẽ xoá sạch lịch sử.
+        if not tu_seed_lich_su:
+            _loc_phan_cong_theo_nhan_su(phan_cong, nhan_vien)
+
         chua_xac_nhan, du_bi, nv_status_map = _detect_staff_availability(tuan_iso, phan_cong, nhan_vien)
 
         lifecycle = _week_value("lich_tuan_lifecycle_by_week", tuan_iso, {})
