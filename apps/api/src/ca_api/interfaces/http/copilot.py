@@ -514,7 +514,9 @@ def copilot_message_stream(
         "store_id": user["store_id"],
         "user_id": user["user_id"],
         "user_role": user["role"],
-        "active_date": datetime.now(UTC).strftime("%Y-%m-%d"),
+        # Ngày theo giờ VN (UTC+7), không phải UTC — nếu dùng UTC thì sau 17:00
+        # giờ VN agent nhận "ngày mai" (bug QA đợt 4: lệch ngày với /message).
+        "active_date": ngay_hom_nay_vn(),
         "channel": body.channel,
         "recent_messages": body.recent_messages,
         "attachments": body.attachments,
