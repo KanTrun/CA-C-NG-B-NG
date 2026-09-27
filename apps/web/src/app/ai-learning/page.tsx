@@ -37,6 +37,7 @@ type Proposal = {
   evidence_count: number;
   rule?: { text?: string; priority?: number };
   updated_at: string;
+  rejection_reason?: string | null;
 };
 
 type Summary = {
@@ -49,6 +50,10 @@ type Summary = {
 type OperationStatus = {
   flags: Record<string, boolean>;
   retention_days: number;
+  breakers?: {
+    gmail?: boolean;
+    facebook?: boolean;
+  };
 };
 
 const STATUS_LABEL: Record<string, string> = {
@@ -103,6 +108,7 @@ function policyLabel(code: string): string {
 }
 
 export default function AiLearningPage() {
+  const [mounted, setMounted] = useState(false);
   const [token, setToken] = useState("");
   const [manager, setManager] = useState(false);
   const [owner, setOwner] = useState(false);
@@ -119,6 +125,7 @@ export default function AiLearningPage() {
     setToken(getToken());
     setManager(isManager());
     setOwner(isChuQuan());
+    setMounted(true);
     if (!getToken()) setLoading(false);
   }, []);
 
@@ -150,10 +157,21 @@ export default function AiLearningPage() {
 
   async function act(id: string, path: string, success: string) {
     setBusy(`${id}:${path}`);
+    setError(null);
     setNotice(null);
     try {
-      await apiSend(path);
-      setNotice(success);
+      const res = await apiSend<{ ok?: boolean; reason?: string }>(path);
+      if (res && res.ok === false) {
+        if (res.reason === "rule_conflict") {
+          setError(
+            "Phát hiện xung đột với quy tắc hiện có. Đề xuất đã chuyển sang 'Xung đột — chờ duyệt'.",
+          );
+        } else {
+          setError(`Thao tác không thành công: ${res.reason || "Lỗi không xác định"}`);
+        }
+      } else {
+        setNotice(success);
+      }
       await load();
     } catch (cause) {
       setError(
@@ -169,6 +187,7 @@ export default function AiLearningPage() {
 
   async function runReflection() {
     setBusy("reflection");
+    setError(null);
     setNotice(null);
     try {
       const result = await apiSend<{ proposal_id?: string | null }>("/api/v1/ai/reflection/gmail/run");
@@ -185,17 +204,44 @@ export default function AiLearningPage() {
     }
   }
 
+  const isGmailBlocked = Boolean(operations?.breakers?.gmail);
+
   async function toggleBreaker() {
     setBusy("breaker");
+    setError(null);
     setNotice(null);
+    const nextOpen = !isGmailBlocked;
     try {
-      await apiSend("/api/v1/ai/operations/circuit-breaker", { channel: "gmail", open: true });
-      setNotice("Đã dừng gửi Gmail bằng AI. Các lệnh gửi mới sẽ bị chặn trước khi gửi đi.");
+      await apiSend("/api/v1/ai/operations/circuit-breaker", { channel: "gmail", open: nextOpen });
+      setNotice(
+        nextOpen
+          ? "Đã dừng gửi Gmail bằng AI. Các lệnh gửi mới sẽ bị chặn trước khi gửi đi."
+          : "Đã mở lại kênh gửi Gmail AI.",
+      );
+      await load();
     } catch (cause) {
-      setError(viError(cause, { doing: "dừng kênh Gmail", forbidden: "Chỉ chủ quán có thể dừng kênh." }));
+      setError(
+        viError(cause, {
+          doing: nextOpen ? "dừng kênh Gmail" : "mở lại kênh Gmail",
+          forbidden: "Chỉ chủ quán có thể thao tác ngắt mạch.",
+        }),
+      );
     } finally {
       setBusy(null);
     }
+  }
+
+  if (!mounted) {
+    return (
+      <div className="nq-page nq-page--ai-learning">
+        <PageHeader
+          kicker="Vòng học AI"
+          title="Học từ phản hồi"
+          meta="Theo dõi chất lượng vòng học và tạo đề xuất quy tắc từ phản hồi đã kiểm duyệt."
+        />
+        <Loading skeleton="stats">Đang tải dữ liệu học AI…</Loading>
+      </div>
+    );
   }
 
   if (!token) return <AuthGate />;
@@ -234,186 +280,285 @@ export default function AiLearningPage() {
       </Notice>
       {error ? <Alert>{error}</Alert> : null}
       {notice ? <Alert kind="ok">{notice}</Alert> : null}
-      {loading ? <Loading skeleton="stats">Đang tải dữ liệu học AI…</Loading> : null}
 
-      {!loading ? (
-        <PageGrid
-          main={
+      <PageGrid
+        main={
+          loading ? (
+            <Loading skeleton="stats">Đang tải dữ liệu học AI…</Loading>
+          ) : (
             <>
-          <section className="nq-ai-metrics" aria-label="Chỉ số vòng học">
-            <Metric label="Lần đánh giá" value={String(summary?.evaluation_count ?? 0)} />
-            <Metric label="Điểm trung bình" value={`${Math.round((summary?.average_score ?? 0) * 100)}%`} />
-            <Metric label="Đạt cổng chất lượng" value={String(summary?.passed_count ?? 0)} />
-            <Metric label="Phản hồi đã ghi" value={String(feedbackTotal)} />
-          </section>
+              <section className="nq-ai-metrics" aria-label="Chỉ số vòng học">
+                <Metric label="Lần đánh giá" value={String(summary?.evaluation_count ?? 0)} />
+                <Metric label="Điểm trung bình" value={`${Math.round((summary?.average_score ?? 0) * 100)}%`} />
+                <Metric label="Đạt cổng chất lượng" value={String(summary?.passed_count ?? 0)} />
+                <Metric label="Phản hồi đã ghi" value={String(feedbackTotal)} />
+              </section>
 
-          {noLearningData ? (
-            <OpsCard title="Bắt đầu vòng học" eyebrow="Chưa có dữ liệu">
-              <p className="nq-ai-copy">
-                Vòng học bắt đầu khi quản lý gửi email qua Trợ lý hoặc duyệt tin khách ở Hộp thư Fanpage.
-                Mỗi lần duyệt/sửa, hệ thống ghi lại bản sinh và phản hồi; lặp đủ 3 lần cùng kiểu, chạy
-                Phản chiếu sẽ sinh đề xuất quy tắc.
-              </p>
-              <div className="nq-ai-actions">
-                <BtnLink href="/copilot">Gửi mail qua Trợ lý</BtnLink>
-                <BtnLink href="/page-quan/fb-inbox" variant="ghost">
-                  Duyệt tin Fanpage
-                </BtnLink>
-              </div>
-            </OpsCard>
-          ) : null}
+              {noLearningData ? (
+                <OpsCard title="Bắt đầu vòng học" eyebrow="Chưa có dữ liệu">
+                  <p className="nq-ai-copy">
+                    Vòng học bắt đầu khi quản lý gửi email qua Trợ lý hoặc duyệt tin khách ở Hộp thư Fanpage.
+                    Mỗi lần duyệt/sửa, hệ thống ghi lại bản sinh và phản hồi; lặp đủ 3 lần cùng kiểu, chạy
+                    Phản chiếu sẽ sinh đề xuất quy tắc.
+                  </p>
+                  <div className="nq-ai-actions">
+                    <BtnLink href="/copilot">Gửi mail qua Trợ lý</BtnLink>
+                    <BtnLink href="/page-quan/fb-inbox" variant="ghost">
+                      Duyệt tin Fanpage
+                    </BtnLink>
+                  </div>
+                </OpsCard>
+              ) : null}
 
-          <OpsCard
-            title="Tạo đề xuất từ các lần sửa email"
-            eyebrow="Phản chiếu Gmail"
-            action={
-              <Btn onClick={runReflection} busy={busy === "reflection"}>
-                Chạy phản chiếu
-              </Btn>
-            }
-          >
-            <p className="nq-ai-copy">
-              Chỉ các mẫu có bằng chứng lặp lại mới trở thành đề xuất. Không có quy tắc nào tự được kích hoạt.
-            </p>
-          </OpsCard>
+              <OpsCard
+                title="Tạo đề xuất từ các lần sửa email"
+                eyebrow="Phản chiếu Gmail"
+                action={
+                  <Btn onClick={runReflection} busy={busy === "reflection"} disabled={Boolean(busy)}>
+                    Chạy phản chiếu
+                  </Btn>
+                }
+              >
+                <p className="nq-ai-copy">
+                  Chỉ các mẫu có bằng chứng lặp lại mới trở thành đề xuất. Không có quy tắc nào tự được kích hoạt.
+                </p>
+              </OpsCard>
 
-          <section className="nq-ai-section">
-            <header className="nq-ai-section__head">
-              <div>
-                <p className="nq-ai-section__kicker">Quy tắc</p>
-                <h2 className="nq-ai-section__title">Đề xuất và phiên bản đang dùng</h2>
-              </div>
-              <span className="nq-ai-section__count">{proposals.length} đề xuất</span>
-            </header>
-            {proposals.length === 0 ? (
-              <Empty title="Chưa có đề xuất">Chạy phản chiếu khi đã có các chỉnh sửa email lặp lại.</Empty>
-            ) : (
-              <div className="nq-ai-list">
-                {proposals.map((proposal) => (
-                  <article key={proposal.id} className="nq-ai-card">
-                    <div className="nq-ai-card__top">
-                      <div className="nq-ai-card__tags">
-                        <StatusChip tone={STATUS_TONE[proposal.status] ?? "default"}>
-                          {STATUS_LABEL[proposal.status] ?? fieldLabel(proposal.status)}
-                        </StatusChip>
-                        <StatusChip>{CHANNEL_LABEL[proposal.channel] ?? proposal.channel}</StatusChip>
-                        <span className="nq-ai-meta">{proposal.evidence_count} bằng chứng</span>
-                      </div>
-                      {owner ? (
-                        <div className="nq-ai-card__actions">
-                          {proposal.status === "pending" || proposal.status === "conflict_pending" ? (
-                            <Btn
-                              size="sm"
-                              onClick={() =>
-                                act(
-                                  proposal.id,
-                                  `/api/v1/ai/rules/proposals/${proposal.id}/approve`,
-                                  "Đã duyệt đề xuất.",
-                                )
-                              }
-                              busy={busy === `${proposal.id}:/api/v1/ai/rules/proposals/${proposal.id}/approve`}
-                            >
-                              Duyệt
-                            </Btn>
-                          ) : null}
-                          {proposal.status === "approved" ? (
-                            <Btn
-                              size="sm"
-                              onClick={() =>
-                                act(
-                                  proposal.id,
-                                  `/api/v1/ai/rules/proposals/${proposal.id}/activate`,
-                                  "Đã kích hoạt quy tắc.",
-                                )
-                              }
-                              busy={busy === `${proposal.id}:/api/v1/ai/rules/proposals/${proposal.id}/activate`}
-                            >
-                              Kích hoạt
-                            </Btn>
-                          ) : null}
-                          {proposal.status === "active" ? (
-                            <Btn
-                              size="sm"
-                              variant="ghost"
-                              onClick={() =>
-                                act(
-                                  proposal.id,
-                                  `/api/v1/ai/rules/${proposal.id}/pause`,
-                                  "Đã tạm dừng quy tắc.",
-                                )
-                              }
-                              busy={busy === `${proposal.id}:/api/v1/ai/rules/${proposal.id}/pause`}
-                            >
-                              Tạm dừng
-                            </Btn>
+              <OpsCard
+                title="Đề xuất và phiên bản đang dùng"
+                eyebrow="Quy tắc"
+                count={proposals.length}
+                countLabel="đề xuất"
+              >
+                {proposals.length === 0 ? (
+                  <Empty title="Chưa có đề xuất">Chạy phản chiếu khi đã có các chỉnh sửa email lặp lại.</Empty>
+                ) : (
+                  <div className="nq-ai-list">
+                    {proposals.map((proposal) => (
+                      <article key={proposal.id} className="nq-ai-card">
+                        <div className="nq-ai-card__top">
+                          <div className="nq-ai-card__tags">
+                            <StatusChip tone={STATUS_TONE[proposal.status] ?? "default"}>
+                              {STATUS_LABEL[proposal.status] ?? fieldLabel(proposal.status)}
+                            </StatusChip>
+                            <StatusChip>{CHANNEL_LABEL[proposal.channel] ?? proposal.channel}</StatusChip>
+                            <span className="nq-ai-meta">{proposal.evidence_count} bằng chứng</span>
+                          </div>
+                          {owner ? (
+                            <div className="nq-ai-card__actions">
+                              {proposal.status === "pending" || proposal.status === "conflict_pending" ? (
+                                <>
+                                  <Btn
+                                    size="sm"
+                                    onClick={() =>
+                                      act(
+                                        proposal.id,
+                                        `/api/v1/ai/rules/proposals/${proposal.id}/approve`,
+                                        "Đã duyệt đề xuất.",
+                                      )
+                                    }
+                                    busy={busy === `${proposal.id}:/api/v1/ai/rules/proposals/${proposal.id}/approve`}
+                                    disabled={Boolean(busy)}
+                                  >
+                                    Duyệt
+                                  </Btn>
+                                  <Btn
+                                    size="sm"
+                                    variant="ghost"
+                                    onClick={() =>
+                                      act(
+                                        proposal.id,
+                                        `/api/v1/ai/rules/proposals/${proposal.id}/reject`,
+                                        "Đã từ chối đề xuất.",
+                                      )
+                                    }
+                                    busy={busy === `${proposal.id}:/api/v1/ai/rules/proposals/${proposal.id}/reject`}
+                                    disabled={Boolean(busy)}
+                                  >
+                                    Từ chối
+                                  </Btn>
+                                </>
+                              ) : null}
+                              {proposal.status === "approved" ? (
+                                <>
+                                  <Btn
+                                    size="sm"
+                                    onClick={() =>
+                                      act(
+                                        proposal.id,
+                                        `/api/v1/ai/rules/proposals/${proposal.id}/activate`,
+                                        "Đã kích hoạt quy tắc.",
+                                      )
+                                    }
+                                    busy={busy === `${proposal.id}:/api/v1/ai/rules/proposals/${proposal.id}/activate`}
+                                    disabled={Boolean(busy)}
+                                  >
+                                    Kích hoạt
+                                  </Btn>
+                                  <Btn
+                                    size="sm"
+                                    variant="ghost"
+                                    onClick={() =>
+                                      act(
+                                        proposal.id,
+                                        `/api/v1/ai/rules/proposals/${proposal.id}/reject`,
+                                        "Đã từ chối đề xuất.",
+                                      )
+                                    }
+                                    busy={busy === `${proposal.id}:/api/v1/ai/rules/proposals/${proposal.id}/reject`}
+                                    disabled={Boolean(busy)}
+                                  >
+                                    Từ chối
+                                  </Btn>
+                                </>
+                              ) : null}
+                              {proposal.status === "active" ? (
+                                <>
+                                  <Btn
+                                    size="sm"
+                                    variant="ghost"
+                                    onClick={() =>
+                                      act(
+                                        proposal.id,
+                                        `/api/v1/ai/rules/${proposal.id}/pause`,
+                                        "Đã tạm dừng quy tắc.",
+                                      )
+                                    }
+                                    busy={busy === `${proposal.id}:/api/v1/ai/rules/${proposal.id}/pause`}
+                                    disabled={Boolean(busy)}
+                                  >
+                                    Tạm dừng
+                                  </Btn>
+                                  <Btn
+                                    size="sm"
+                                    variant="danger"
+                                    onClick={() =>
+                                      act(
+                                        proposal.id,
+                                        `/api/v1/ai/rules/${proposal.id}/rollback`,
+                                        "Đã hoàn tác quy tắc.",
+                                      )
+                                    }
+                                    busy={busy === `${proposal.id}:/api/v1/ai/rules/${proposal.id}/rollback`}
+                                    disabled={Boolean(busy)}
+                                  >
+                                    Hoàn tác
+                                  </Btn>
+                                </>
+                              ) : null}
+                              {proposal.status === "paused" ? (
+                                <>
+                                  <Btn
+                                    size="sm"
+                                    onClick={() =>
+                                      act(
+                                        proposal.id,
+                                        `/api/v1/ai/rules/proposals/${proposal.id}/activate`,
+                                        "Đã kích hoạt lại quy tắc.",
+                                      )
+                                    }
+                                    busy={busy === `${proposal.id}:/api/v1/ai/rules/proposals/${proposal.id}/activate`}
+                                    disabled={Boolean(busy)}
+                                  >
+                                    Kích hoạt lại
+                                  </Btn>
+                                  <Btn
+                                    size="sm"
+                                    variant="danger"
+                                    onClick={() =>
+                                      act(
+                                        proposal.id,
+                                        `/api/v1/ai/rules/${proposal.id}/rollback`,
+                                        "Đã hoàn tác quy tắc.",
+                                      )
+                                    }
+                                    busy={busy === `${proposal.id}:/api/v1/ai/rules/${proposal.id}/rollback`}
+                                    disabled={Boolean(busy)}
+                                  >
+                                    Hoàn tác
+                                  </Btn>
+                                </>
+                              ) : null}
+                            </div>
                           ) : null}
                         </div>
-                      ) : null}
-                    </div>
-                    <p className="nq-ai-card__body">{proposal.rule?.text ?? "Quy tắc không có nội dung"}</p>
-                    <p className="nq-ai-meta">
-                      Ưu tiên {proposal.rule?.priority ?? 0} · cập nhật{" "}
-                      {new Date(proposal.updated_at).toLocaleString("vi-VN")}
-                    </p>
-                  </article>
-                ))}
-              </div>
-            )}
-          </section>
-
-          <section className="nq-ai-split">
-            <OpsCard title="Bản sinh email gần đây" eyebrow="Gmail">
-              {generations.length === 0 ? (
-                <Empty title="Chưa có bản ghi">Email được kiểm duyệt sẽ xuất hiện tại đây.</Empty>
-              ) : (
-                <div className="nq-ai-list">
-                  {generations.slice(0, 8).map((generation) => (
-                    <article key={generation.id} className="nq-ai-gen">
-                      <p className="nq-ai-gen__title">{generation.draft?.subject ?? "Không có tiêu đề"}</p>
-                      <p className="nq-ai-gen__body">{generation.draft?.body ?? ""}</p>
-                      <p className="nq-ai-meta">
-                        {policyLabel(generation.policy_action)} · phiên bản quy tắc{" "}
-                        {generation.rule_version || "—"}
-                      </p>
-                    </article>
-                  ))}
-                </div>
-              )}
-            </OpsCard>
-
-            <OpsCard title="Lớp bảo vệ đang bật" eyebrow="Vận hành">
-              <div className="nq-ai-flags">
-                {Object.entries(operations?.flags ?? {}).map(([name, enabled]) => (
-                  <div key={name} className="nq-ai-flag">
-                    <span className="nq-ai-flag__label">
-                      {FLAG_LABEL[name] ?? fieldLabel(name.replace(/^NHIPQUAN_/, ""))}
-                    </span>
-                    <StatusChip tone={enabled ? "ok" : "default"}>{enabled ? "Bật" : "Tắt"}</StatusChip>
+                        <p className="nq-ai-card__body">{proposal.rule?.text ?? "Quy tắc không có nội dung"}</p>
+                        {proposal.rejection_reason ? (
+                          <p className="nq-ai-meta text-[var(--nq-st-danger-ink)]">
+                            Lý do từ chối: {proposal.rejection_reason}
+                          </p>
+                        ) : null}
+                        <p className="nq-ai-meta">
+                          Ưu tiên {proposal.rule?.priority ?? 0} · cập nhật{" "}
+                          {proposal.updated_at ? new Date(proposal.updated_at).toLocaleString("vi-VN") : "—"}
+                        </p>
+                      </article>
+                    ))}
                   </div>
-                ))}
-              </div>
-              <p className="nq-ai-copy nq-ai-copy--tight">
-                Giữ dữ liệu học {operations?.retention_days ?? 180} ngày. Chỉ chạy thử, không xóa tự động.
-              </p>
-              {owner ? (
-                <Btn variant="danger" onClick={toggleBreaker} busy={busy === "breaker"} className="mt-4">
-                  Dừng Gmail AI
-                </Btn>
-              ) : (
-                <p className="nq-ai-copy nq-ai-copy--tight">Chủ quán có thể dừng khẩn cấp kênh Gmail AI.</p>
-              )}
-            </OpsCard>
-          </section>
+                )}
+              </OpsCard>
+
+              <section className="nq-ai-split">
+                <OpsCard title="Bản sinh email gần đây" eyebrow="Gmail">
+                  {generations.length === 0 ? (
+                    <Empty title="Chưa có bản ghi">Email được kiểm duyệt sẽ xuất hiện tại đây.</Empty>
+                  ) : (
+                    <div className="nq-ai-list">
+                      {generations.slice(0, 8).map((generation) => (
+                        <article key={generation.id} className="nq-ai-gen">
+                          <p className="nq-ai-gen__title">{generation.draft?.subject ?? "Không có tiêu đề"}</p>
+                          <p className="nq-ai-gen__body">{generation.draft?.body ?? ""}</p>
+                          <p className="nq-ai-meta">
+                            {policyLabel(generation.policy_action)} · phiên bản quy tắc{" "}
+                            {generation.rule_version || "—"}
+                          </p>
+                        </article>
+                      ))}
+                    </div>
+                  )}
+                </OpsCard>
+
+                <OpsCard title="Lớp bảo vệ đang bật" eyebrow="Vận hành">
+                  <div className="nq-ai-flags">
+                    {Object.entries(operations?.flags ?? {}).map(([name, enabled]) => (
+                      <div key={name} className="nq-ai-flag">
+                        <span className="nq-ai-flag__label">
+                          {FLAG_LABEL[name] ?? fieldLabel(name.replace(/^NHIPQUAN_/, ""))}
+                        </span>
+                        <StatusChip tone={enabled ? "ok" : "default"}>{enabled ? "Bật" : "Tắt"}</StatusChip>
+                      </div>
+                    ))}
+                  </div>
+                  <p className="nq-ai-copy nq-ai-copy--tight">
+                    Giữ dữ liệu học {operations?.retention_days ?? 180} ngày. Chỉ chạy thử, không xóa tự động.
+                  </p>
+                  {owner ? (
+                    <div className="mt-4 flex flex-wrap items-center gap-3">
+                      <Btn
+                        variant={isGmailBlocked ? "primary" : "danger"}
+                        onClick={toggleBreaker}
+                        busy={busy === "breaker"}
+                        disabled={Boolean(busy)}
+                      >
+                        {isGmailBlocked ? "Mở lại Gmail AI" : "Dừng Gmail AI"}
+                      </Btn>
+                      {isGmailBlocked ? <StatusChip tone="danger">Đang ngắt mạch</StatusChip> : null}
+                    </div>
+                  ) : (
+                    <p className="nq-ai-copy nq-ai-copy--tight">Chủ quán có thể dừng khẩn cấp kênh Gmail AI.</p>
+                  )}
+                </OpsCard>
+              </section>
             </>
-          }
-          aside={
-            <>
-              <AiInsightPanel page="ai-learning" />
-              <AskAiBox page="ai-learning" />
-            </>
-          }
-        />
-      ) : null}
+          )
+        }
+        aside={
+          <>
+            <AiInsightPanel page="ai-learning" />
+            <AskAiBox page="ai-learning" />
+          </>
+        }
+      />
     </div>
   );
 }

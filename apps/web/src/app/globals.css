@@ -9690,6 +9690,311 @@ a.nq-bento-surface:active {
   to { transform: translateX(0); opacity: 1; }
 }
 
+/* ── Trợ lý full-page: flex đơn giản — tin cuộn, composer luôn thấy ── */
+.nq-app:has(.nq-copilot-page) .nq-main {
+  /* Chỉ bỏ padding thừa; KHÔNG khóa height/overflow ở đây (đó là nguyên nhân cắt khung). */
+  padding-top: 0.75rem;
+  padding-bottom: 0.75rem;
+}
+.nq-copilot-page {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: calc(100dvh - 1.5rem);
+  max-height: calc(100dvh - 1.5rem);
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  gap: 0.5rem;
+  overflow: hidden;
+}
+.nq-copilot-page--loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--nq-ink-muted);
+  font-size: var(--nq-t-small);
+}
+.nq-copilot-page__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem 1rem;
+  flex: 0 0 auto;
+}
+.nq-copilot-page__kicker {
+  margin: 0;
+  font-family: var(--nq-font-mono);
+  font-size: var(--nq-t-caption);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--nq-accent-ink-text);
+}
+.nq-copilot-page__title {
+  margin: 0.1rem 0 0;
+  font-family: var(--nq-font-display);
+  font-size: 1.1rem;
+  font-weight: 700;
+  color: var(--nq-ink);
+  line-height: 1.25;
+}
+.nq-copilot-page__meta {
+  display: none;
+}
+.nq-copilot-page__frame {
+  flex: 1 1 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--nq-line-strong);
+  border-radius: var(--nq-radius-bubble);
+  background: var(--nq-surface);
+  box-shadow: var(--nq-elev-2), var(--nq-inner-hi);
+}
+/* Thân chat = cột flex: header | messages(cuộn) | composer */
+.nq-copilot-body {
+  display: flex;
+  flex-direction: column;
+  flex: 1 1 0;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--nq-bg);
+  color: var(--nq-fg);
+}
+.nq-copilot-body__head {
+  flex: 0 0 auto;
+}
+.nq-copilot-messages {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  padding: 0.85rem 1rem;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  align-content: flex-start;
+  gap: 0.75rem;
+}
+.nq-copilot-messages > * {
+  flex: 0 0 auto;
+}
+.nq-copilot-composer {
+  flex: 0 0 auto;
+  border-top: 1px solid var(--nq-line);
+  background: var(--nq-surface);
+}
+.nq-copilot-prompts {
+  flex: 0 0 auto;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  max-height: 3.25rem;
+  overflow-y: auto;
+  padding: 0.45rem 0.85rem;
+  border-top: 1px solid var(--nq-line);
+  background: var(--nq-surface);
+}
+
+.nq-page--ai-learning {
+  /* Chừa chỗ nút chat nổi + mép an toàn — tránh đè thẻ chỉ số / CTA. */
+  padding-bottom: calc(var(--nq-s8) + 6.5rem);
+}
+.nq-page--ai-learning .nq-surface-block {
+  margin-bottom: var(--nq-s5);
+}
+.nq-page--ai-learning .nq-ai-split .nq-surface-block {
+  margin-bottom: 0;
+}
+.nq-ai-metrics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--nq-s4);
+  margin-bottom: var(--nq-s6);
+}
+@media (min-width: 900px) {
+  .nq-ai-metrics {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+.nq-ai-metric {
+  display: flex;
+  flex-direction: column;
+  gap: var(--nq-s2);
+  padding: var(--nq-s5);
+  border: 1px solid var(--nq-line);
+  border-radius: var(--nq-radius-bubble);
+  background: var(--nq-surface);
+  box-shadow: var(--nq-elev-1), var(--nq-inner-hi);
+  min-width: 0;
+  position: relative;
+  z-index: 0;
+  overflow: hidden;
+}
+.nq-ai-metric__label {
+  margin: 0;
+  font-family: var(--nq-font-mono);
+  font-size: var(--nq-t-caption);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--nq-ink-muted);
+}
+.nq-ai-metric__value {
+  margin: 0;
+  font-family: var(--nq-font-mono);
+  font-size: clamp(1.75rem, 3vw, 2.25rem);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--nq-accent-ink-text);
+  line-height: 1.1;
+}
+.nq-ai-copy {
+  margin: 0;
+  font-size: var(--nq-t-body);
+  color: var(--nq-ink-muted);
+  line-height: 1.55;
+  max-width: 62ch;
+}
+.nq-ai-copy--tight {
+  margin-top: var(--nq-s4);
+}
+.nq-ai-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--nq-s3);
+  margin-top: var(--nq-s4);
+}
+.nq-ai-section {
+  margin-bottom: var(--nq-s6);
+}
+.nq-ai-section__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--nq-s3);
+  margin-bottom: var(--nq-s4);
+}
+.nq-ai-section__kicker {
+  margin: 0;
+  font-family: var(--nq-font-mono);
+  font-size: var(--nq-t-caption);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--nq-accent-ink-text);
+}
+.nq-ai-section__title {
+  margin: 0.2rem 0 0;
+  font-size: var(--nq-t-h2);
+  font-weight: 700;
+  color: var(--nq-ink);
+}
+.nq-ai-section__count,
+.nq-ai-meta {
+  font-family: var(--nq-font-mono);
+  font-size: var(--nq-t-caption);
+  color: var(--nq-ink-muted);
+}
+.nq-ai-list {
+  display: grid;
+  gap: var(--nq-s3);
+}
+.nq-ai-card,
+.nq-ai-gen {
+  padding: var(--nq-s4);
+  border: 1px solid var(--nq-line);
+  border-radius: var(--nq-radius-bubble);
+  background: var(--nq-surface-2);
+}
+.nq-ai-gen {
+  border-left: 3px solid var(--nq-accent);
+}
+.nq-ai-card__top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--nq-s3);
+}
+.nq-ai-card__tags,
+.nq-ai-card__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--nq-s2);
+  align-items: center;
+}
+.nq-ai-card__body,
+.nq-ai-gen__title {
+  margin: var(--nq-s3) 0 var(--nq-s2);
+  font-weight: 600;
+  color: var(--nq-ink);
+}
+.nq-ai-gen__body {
+  margin: 0 0 var(--nq-s2);
+  font-size: var(--nq-t-small);
+  color: var(--nq-ink-muted);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.nq-ai-split {
+  display: grid;
+  gap: var(--nq-s5);
+  margin-bottom: var(--nq-s6);
+}
+@media (min-width: 960px) {
+  .nq-ai-split {
+    grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
+    align-items: start;
+  }
+}
+.nq-ai-flags {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  width: 100%;
+  min-width: 0;
+}
+.nq-ai-flag {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--nq-s3);
+  padding: var(--nq-s3) 0;
+  border-bottom: 1px solid var(--nq-line);
+  font-size: var(--nq-t-small);
+  color: var(--nq-ink);
+  width: 100%;
+  min-width: 0;
+}
+.nq-ai-flag__label {
+  flex: 1 1 auto;
+  min-width: 0;
+  /* Không break-all: từng ký tự xuống dòng khi thẻ bị ép hẹp (lỗi production). */
+  overflow-wrap: anywhere;
+  word-break: normal;
+  line-height: 1.35;
+}
+.nq-ai-flag .nq-chip {
+  flex: none;
+}
+.nq-ai-flag:last-child {
+  border-bottom: none;
+}
+/* Chặn nhầm dùng nq-surface-row (flex ngang) làm thẻ nội dung trên trang học AI. */
+.nq-page--ai-learning .nq-surface-row {
+  display: block;
+  width: 100%;
+  min-width: 0;
+}
+
 /* ══════════════════════════════════════════════════════════════════════════
    prefers-reduced-motion — PHẢI là khối cuối file.
    Đặt cuối để không quy tắc animation nào phía sau ghi đè lên nó. Mọi hiệu ứng
