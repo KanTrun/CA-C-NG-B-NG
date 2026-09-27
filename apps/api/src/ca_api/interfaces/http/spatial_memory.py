@@ -261,7 +261,9 @@ def tour_start(
     _role_of(authorization)
     repo = _get_repo()
     memories = repo.all_memories()
+    # Không truyền `tour_id` → luôn dùng route mặc định, không bao giờ None.
     tour = plan_tour(memories=memories)
+    assert tour is not None
     return cast(dict[str, Any], tour.model_dump(mode="json"))
 
 
