@@ -816,6 +816,16 @@ export default function RosterPage() {
                 type="button"
                 className={`nq-btn px-3 py-1 text-sm ${trangThai === "cho_duyet" ? "nq-btn-primary" : ""}`}
                 disabled={lifecycleBusy}
+                /* Cảnh báo TRƯỚC khi bấm: duyệt cần một lần xếp lịch chính thức
+                   (`schedule_runs`) khớp dữ liệu hiện tại. Không có thì API trả
+                   409 — nhưng nói trước vẫn hơn để người dùng bấm rồi mới biết.
+                   Không `disabled` để vẫn bấm được (đường duyệt hợp lệ khi có
+                   run), chỉ đổi nhãn cho đúng việc sắp xảy ra. */
+                title={
+                  trangThai === "cho_duyet" && !data?.schedule_run
+                    ? "Chưa có lần xếp lịch chính thức cho tuần này — bấm 'Xếp lịch tự động' trước."
+                    : undefined
+                }
                 onClick={() => void handleLifecycle(nextAction.next, currentDisplayWeek)}
               >
                 {lifecycleBusy ? "Đang lưu…" : nextAction.label}

@@ -302,16 +302,41 @@ def _tuan_hien_tai_iso() -> str:
 
 
 def _life(tuan_iso: str | None = None, *, store_id: str = "quan_01") -> dict[str, Any]:
-    """Trạng thái lịch tuần — SSOT là kv `lich_tuan_lifecycle` (giờ main.py,
-    copilot và sprint45 cùng một nguồn). Fallback đọc kv `lifecycle` cũ cho
-    data trước khi nhất hóa; thiếu hẳn thì về tuần ISO HIỆN TẠI (trước đây
-    hardcode `2026-W01` — bug QA đợt 4)."""
+    """Trạng thái lịch tuần — SSOT là kv `lich_tuan_lifecycle_by_week`; fallback
+    đọc kv `lich_tuan_lifecycle` (toàn cục) khi tuần TRÙNG, rồi `lifecycle` cũ;
+    thiếu hẳn thì về tuần ISO HIỆN TẠI (trước đây hardcode `2026-W01`)."""
     requested = tuan_iso
     if requested:
         by_week = kv_get("lich_tuan_lifecycle_by_week", {})
         week_key = requested if store_id == "quan_01" else f"{store_id}:{requested}"
         if isinstance(by_week, dict) and isinstance(by_week.get(week_key), dict):
             return cast(dict[str, Any], by_week[week_key])
+
+        # FALLBACK QUAN TRỌNG — nếu thiếu, KHÔNG DUYỆT ĐƯỢC LỊCH.
+        #
+        # Khoá theo tuần CÓ THỂ RỖNG dù tuần đó đã được duyệt từ trước: đường
+        # duyệt cũ (`copilot_duyet`, và `main.py` trước khi nhất hoá) chỉ ghi
+        # `lich_tuan_lifecycle` — khoá TOÀN CỤC — mà không ghi bản theo tuần.
+        #
+        # Hệ quả THẬT đã gặp: màn lịch đọc khoá toàn cục nên hiện `da_duyet`,
+        # nhưng `_life("2026-W40")` rơi vào nhánh `nhap` cứng bên dưới → phép
+        # chuyển `cho_duyet -> da_duyet` thành `nhap -> da_duyet` → API trả
+        # 409 `illegal:nhap->da_duyet` → quản lý bấm "Duyệt và công bố" không
+        # có tác dụng.
+        #
+        # CHỈ nhận fallback khi khoá toàn cục mô tả ĐÚNG tuần đang hỏi. Nếu nó
+        # thuộc tuần khác thì bỏ qua — không mượn trạng thái tuần khác (đúng
+        # lỗi mà `_week_value` từng mắc: tuần mới thừa hưởng trạng thái tuần cũ).
+        if store_id == "quan_01":
+            for key in ("lich_tuan_lifecycle", "lifecycle"):
+                doc = kv_get(key, None)
+                if (
+                    isinstance(doc, dict)
+                    and doc.get("trang_thai")
+                    and str(doc.get("tuan_iso") or "") == requested
+                ):
+                    return cast(dict[str, Any], doc)
+
         return {"tuan_iso": requested, "trang_thai": "nhap", "nguon": "quan"}
     if store_id != "quan_01":
         return {"tuan_iso": _tuan_hien_tai_iso(), "trang_thai": "may_sinh", "nguon": "quan"}
