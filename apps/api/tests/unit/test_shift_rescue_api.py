@@ -255,3 +255,26 @@ def test_confirm_employee_forbidden() -> None:
         headers=headers(client, "minh"),
     )
     assert r.status_code == 403
+
+
+def test_options_dung_du_lieu_that_khi_co_lich_tuan() -> None:
+    """Có lịch tuần thật → cứu ca lấy ca/người THẬT, không dùng fixture."""
+    from ca_api.persist import kv_set
+
+    week = "2026-W40"
+    # 2 ca thật có người, dựa trên seed `ca_mau_21` (w1_c01..).
+    kv_set("phan_cong_by_week", {week: {"w1_c01": ["nv_that_01", "nv_that_02"], "w1_c04": ["nv_that_03"]}})
+    kv_set("lich_tuan_lifecycle_by_week", {week: {"tuan_iso": week, "trang_thai": "nhap"}})
+
+    r = client.get(
+        "/api/v1/experience/shift-rescue/options", headers=headers(client, "lan")
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["nguon"] == "lich_tuan", "phải dùng dữ liệu thật khi có lịch tuần"
+    assert body["replayable"] is False
+    ids = {s["shift_id"] for s in body["shifts"]}
+    assert {"w1_c01", "w1_c04"} <= ids, "phải thấy đúng ca thật từ phân công"
+    for shift in body["shifts"]:
+        for person in shift["assigned"]:
+            assert person["nv_id"].startswith("nv_that_"), "người phải là người thật trong ca"

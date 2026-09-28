@@ -1464,6 +1464,13 @@
 }
 .nq-war__actions, .nq-rules__actions { display: flex; gap: var(--nq-s2); flex-wrap: wrap; }
 .nq-rescue__case { display: grid; gap: var(--nq-s3); }
+.nq-rescue__nguon {
+  margin: 0.35rem 0 0;
+  font-size: 0.78rem;
+  color: var(--nq-dim);
+  border-left: 2px solid var(--nq-accent);
+  padding-left: 0.5rem;
+}
 .nq-drawer__risk { margin: 0; color: var(--nq-dim); font-size: 0.88rem; line-height: 1.55; }
 .nq-drawer__risk::first-letter { text-transform: uppercase; }
 

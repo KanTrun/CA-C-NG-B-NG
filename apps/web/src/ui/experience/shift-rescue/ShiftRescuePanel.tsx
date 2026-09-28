@@ -101,6 +101,7 @@ export default function ShiftRescuePanel() {
   const [absenceNvId, setAbsenceNvId] = useState("");
   const [reason, setReason] = useState("Ốm đột xuất");
   const [optionsError, setOptionsError] = useState<unknown>(null);
+  const [nguon, setNguon] = useState<"lich_tuan" | "fixture" | "">("");
 
   const api = useCallback(
     async <T,>(path: string, body?: unknown, method = "POST"): Promise<T> => {
@@ -126,10 +127,11 @@ export default function ShiftRescuePanel() {
   // Nạp ca + người đang được phân ca để màn báo vắng có lựa chọn thật.
   useEffect(() => {
     let cancelled = false;
-    api<{ shifts: ShiftOption[] }>("/experience/shift-rescue/options", undefined, "GET")
+    api<{ shifts: ShiftOption[]; nguon?: string }>("/experience/shift-rescue/options", undefined, "GET")
       .then((res) => {
         if (cancelled) return;
         setShifts(res.shifts ?? []);
+        setNguon(res.nguon === "lich_tuan" ? "lich_tuan" : "fixture");
         const first = res.shifts?.[0];
         if (first) {
           setShiftId((cur) => cur || first.shift_id);
@@ -270,6 +272,13 @@ export default function ShiftRescuePanel() {
           Báo vắng đột xuất → danh sách người thay an toàn theo ràng buộc thật →
           mời → phản hồi → chốt. Không ai bị đưa vào ca mà không được hỏi.
         </p>
+        {nguon ? (
+          <p className="nq-rescue__nguon" role="note">
+            {nguon === "lich_tuan"
+              ? "Dữ liệu: ca & người THẬT từ lịch tuần đang áp dụng."
+              : "Dữ liệu: mẫu demo (chưa có lịch tuần thật cho tuần này)."}
+          </p>
+        ) : null}
       </header>
 
       {error ? (
