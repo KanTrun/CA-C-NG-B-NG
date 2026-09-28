@@ -262,6 +262,10 @@ def tour_start(
     repo = _get_repo()
     memories = repo.all_memories()
     tour = plan_tour(memories=memories)
+    if tour is None:
+        # `plan_tour` trả None khi tour_id không hợp lệ; ở đây dùng route mặc
+        # định nên không xảy ra — chặn rõ ràng thay vì crash `union-attr`.
+        raise HTTPException(status_code=404, detail="tour_not_found")
     payload = tour.model_dump(mode="json")
     # Diễn đạt lại lời dẫn khi có LLM (live); replay giữ nguyên bản tất định.
     # Bước/anchor/ký ức KHÔNG đổi — chỉ câu chữ. Lỗi ở đây không làm hỏng tour.
