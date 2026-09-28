@@ -92,17 +92,55 @@ def test_scrape_threads_google_bridge_end_to_end():
     with patch("urllib.request.urlopen", return_value=mock_resp):
         items = scrape_threads_google_bridge(keyword="matcha", count=5)
         assert len(items) == 2
-        
+
         item = items[0]
         assert item.nguon_goc == "threads_vn"
         assert item.loai_xu_huong == "breaking_vn_24h"
         assert item.danh_muc == "am_thuc_fnb"
-        assert "THREADS REALTIME" in item.tieu_de
+        # Có link threads.net THẬT → nhãn Threads thật (không phải "Báo chí").
+        assert "[THREADS]" in item.tieu_de
+        assert "TÍN HIỆU BÁO CHÍ" not in item.tieu_de
+        assert item.nen_tang_lan_toa == ["Meta Threads"]
         assert "https://www.threads.net/@saigon_foodie/post/123456789" == item.link_goc
         # ADR-008: RSS không trả số liệu tương tác/comment thật → is_live_scraped=False
         # và binh_luan_that_tiktok rỗng (không bịa dữ liệu).
         assert item.is_live_scraped is False
         assert item.binh_luan_that_tiktok == []
+
+
+def test_scrape_threads_google_bridge_labels_news_honestly():
+    """RSS trả BÀI BÁO (không có link threads.net) → nhãn phải nói đúng sự thật.
+
+    Đo live 2026-09-25: Google KHÔNG index nội dung Threads (`site:threads.net`
+    trả 0–1 item; 4/4 biến thể query cho 0 link threads.net thật). Nếu vẫn gắn
+    "[THREADS REALTIME]" thì người dùng tưởng đây là trend thật từ Threads.
+    """
+    news_xml = """<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <item>
+      <title>Nhìn kìa, mọi người đều đang lên Threads bán hàng vì nó miễn phí</title>
+      <link>https://kenh14.vn/moi-nguoi-len-threads-ban-hang-215260923.htm</link>
+      <pubDate>Wed, 24 Sep 2026 03:30:00 GMT</pubDate>
+      <description>&lt;p&gt;Bài báo nói về trào lưu bán hàng trên Threads.&lt;/p&gt;</description>
+    </item>
+  </channel>
+</rss>
+"""
+    mock_resp = MagicMock()
+    mock_resp.read.return_value = news_xml.encode("utf-8")
+    mock_resp.__enter__.return_value = mock_resp
+
+    with patch("urllib.request.urlopen", return_value=mock_resp):
+        items = scrape_threads_google_bridge(keyword="threads", count=3)
+
+    assert len(items) == 1, "vẫn trả item (dữ liệu báo chí thật, không bịa)"
+    item = items[0]
+    assert "TÍN HIỆU BÁO CHÍ" in item.tieu_de, "phải nói rõ KHÔNG phải bài Threads"
+    assert "[THREADS]" not in item.tieu_de
+    assert item.nen_tang_lan_toa == ["Báo chí (Google News — chưa index được Threads)"]
+    assert item.link_goc == "", "bài báo không phải link Threads → để rỗng (đã sửa bug bịa link)"
+    assert item.is_live_scraped is False
 
 
 def test_scrape_threads_smart_prioritizes_google_bridge():

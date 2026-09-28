@@ -184,12 +184,18 @@ def _attempt_once(
     Gọi __enter__/__exit__ thủ công thay vì `with` để lỗi extractor không
     rơi vào nhánh classify launch — browser vẫn luôn đóng trong finally.
     """
+    # Camoufox 0.5.x BẮT BUỘC dùng `persistent_context=True` khi truyền
+    # `user_data_dir` — nếu chỉ truyền `user_data_dir` thì Playwright raise
+    # `TypeError: BrowserType.launch() got an unexpected keyword argument
+    # 'user_data_dir'` (đo thực tế 2026-09-26). Thiếu cờ này khiến MỌI tầng cần
+    # profile đăng nhập (Threads Trending Now) chết ngay từ lúc launch.
     launch_kwargs: dict[str, Any] = {
         "headless": _is_headless(),
         "geoip": True,
         "humanize": True,
     }
     if user_data_dir:
+        launch_kwargs["persistent_context"] = True
         launch_kwargs["user_data_dir"] = user_data_dir
 
     try:
