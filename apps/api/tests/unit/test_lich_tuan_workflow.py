@@ -78,6 +78,38 @@ def test_khong_hien_ca_thieu_cua_lan_xep_cu(
     assert str(res["schedule_run"]["id"]) == str(new_run["id"])
     assert res["open_shifts"] == [], "ca thiếu của lần xếp cũ phải bị ẩn"
 
+    # Chợ đổi ca dùng endpoint KHÁC (`/api/v1/open-shifts`) — phải cùng luật,
+    # không thì chợ vẫn hiện hàng trăm ca hết hạn dù lịch đã đủ người.
+    cho = client.get(f"/api/v1/open-shifts?tuan_iso={week}", headers=headers(client, "lan")).json()
+    assert cho["items"] == [], "chợ cũng phải ẩn ca thiếu của lần xếp cũ"
+
+
+def test_ca_thieu_that_van_hien_tren_cho(
+    _du_nhan_vien_xep_lich: None, _xac_nhan_kha_dung_tuan: None
+) -> None:
+    """Ca thiếu THẬT (thuộc lần xếp gần nhất, chưa đủ người) vẫn phải hiện."""
+    from ca_api.persist import open_shift_create
+    from ca_api.services.scheduling_service import run_authoritative_schedule
+
+    week = "2026-W44"
+    run = run_authoritative_schedule(
+        store_id="quan_01", tuan_iso=week, actor_id="lan", idempotency_key="real-gap-test",
+    )
+    # Môi trường test đủ 12 NV nên lần xếp thường OPTIMAL (không có ca thiếu).
+    # Khi đó tự tạo một ca thiếu GẮN VÀO run gần nhất để kiểm luật hiển thị.
+    if not run.get("result", {}).get("danh_sach_xung_dot"):
+        open_shift_create(
+            store_id="quan_01", schedule_run_id=str(run["id"]), tuan_iso=week,
+            ca_id="w1_c01", deadline_at="2026-11-01T00:00:00Z",
+        )
+
+    items = client.get(
+        f"/api/v1/open-shifts?tuan_iso={week}", headers=headers(client, "lan")
+    ).json()["items"]
+    assert any(str(i["schedule_run_id"]) == str(run["id"]) for i in items), (
+        "ca thiếu của lần xếp gần nhất phải hiện"
+    )
+
 
 def test_manager_can_export_xlsx_and_pdf_for_selected_week() -> None:
     week = "2026-W42"

@@ -101,6 +101,49 @@ def _gap_ca_id(gap: str) -> str | None:
     return value or None
 
 
+def current_open_shifts(
+    store_id: str, tuan_iso: str, *,
+    phan_cong: dict[str, list[str]] | None = None,
+    ca_list: list[dict[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
+    """Ca thiếu người THẬT của tuần: chỉ thuộc lần xếp gần nhất và CHƯA được lấp.
+
+    `open_shifts` là bảng SQLite TÍCH LUỸ: ca thiếu của lần xếp thất bại cũ vẫn
+    nằm ở trạng thái "open" dù lần xếp sau đã đủ người (đường vá chỉ chạy khi
+    lần xếp đạt). Không lọc thì mọi bề mặt (lịch tuần, chợ đổi ca) hiện hàng
+    trăm ca "thiếu" không còn đúng sự thật, bắt người dùng xử lý vô nghĩa.
+
+    Hai luật:
+    1. Chỉ giữ ca của `schedule_run` MỚI NHẤT (lần xếp đang hiển thị).
+    2. Nếu có `phan_cong` + `ca_list`: bỏ ca đã ĐỦ người (đã ghim thủ công hoặc
+       lần xếp sau đã lấp) — ca không còn thiếu thì không còn là việc phải làm.
+    """
+    from ca_api.persist import open_shift_list, schedule_run_latest
+
+    items = [
+        *open_shift_list(store_id, tuan_iso=tuan_iso),
+        *open_shift_list(store_id, tuan_iso=tuan_iso, status="claimed"),
+    ]
+    if not items:
+        return []
+    run = schedule_run_latest(store_id, tuan_iso)
+    if not run:
+        return []
+    run_id = str(run.get("id") or "")
+    items = [s for s in items if str(s.get("schedule_run_id") or "") == run_id]
+    if phan_cong and ca_list:
+        toi_thieu = {
+            str(shift.get("id")): int(shift.get("so_nguoi_toi_thieu") or 1)
+            for shift in ca_list
+        }
+        items = [
+            s for s in items
+            if len(set(phan_cong.get(str(s.get("ca_id") or ""), [])))
+            < toi_thieu.get(str(s.get("ca_id") or ""), 1)
+        ]
+    return items
+
+
 def resolve_schedule_gaps(
     *, store_id: str, tuan_iso: str, actor_id: str, schedule_run_id: str,
     expected_fingerprint: str, idempotency_key: str,

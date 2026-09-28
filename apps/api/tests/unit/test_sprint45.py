@@ -738,25 +738,34 @@ def test_publication_guard_blocks_claimed_shifts(_du_nhan_vien_xep_lich: None, _
         headers=ql,
     )
     assert r.status_code == 409
-    assert r.json()["detail"] == "schedule_has_open_shifts"
+    # Ca thiếu CÒN THẬT (thuộc run gần nhất, chưa đủ người) → chặn công bố.
+    assert r.json()["detail"] == "schedule_has_unresolved_gaps"
 
 
 def test_manager_sees_claimed_shifts_employee_does_not(_du_nhan_vien_xep_lich: None, _xac_nhan_kha_dung_tuan: None) -> None:
     """Manager sees both open and claimed shifts; employee sees only open."""
-    from ca_api.persist import open_shift_create, shift_application_claim_first
-    
+    from ca_api.persist import open_shift_create, schedule_run_create, shift_application_claim_first
+
     week = "2026-W44"
     ql = headers(client, "lan")
     nv = headers(client, "minh")
-    
-    # Create two open shifts
+
+    # Ca thiếu chỉ thuộc LẦN XẾP GẦN NHẤT mới được hiện (xem
+    # `current_open_shifts`), nên phải neo vào một run THẬT.
+    run = schedule_run_create(
+        store_id="quan_01", tuan_iso=week, input_snapshot={}, fingerprint="fp-vis",
+        idempotency_key="vis-run-test", created_by="lan", status="needs_gap_resolution",
+    )
+    run_id = str(run["id"])
+
+    # Create two open shifts on the latest run
     shift1 = open_shift_create(
-        store_id="quan_01", schedule_run_id="vis-test-1", tuan_iso=week,
+        store_id="quan_01", schedule_run_id=run_id, tuan_iso=week,
         ca_id="w1_c01", deadline_at="2026-11-01T00:00:00Z",
     )
     # Ca thứ 2 chỉ để tạo dữ liệu cho test đếm (không cần giữ id).
     open_shift_create(
-        store_id="quan_01", schedule_run_id="vis-test-2", tuan_iso=week,
+        store_id="quan_01", schedule_run_id=run_id, tuan_iso=week,
         ca_id="w1_c02", deadline_at="2026-11-01T00:00:00Z",
     )
     

@@ -526,7 +526,10 @@ async def lich_transition(
 
 def _guard_authoritative_lifecycle(week: str, target: str, store_id: str) -> dict[str, Any]:
     from ca_api.persist import schedule_run_latest
-    from ca_api.services.scheduling_service import authoritative_input_fingerprint
+    from ca_api.services.scheduling_service import (
+        authoritative_input_fingerprint,
+        current_open_shifts,
+    )
 
     run = schedule_run_latest(store_id, week)
     if not run:
@@ -534,17 +537,13 @@ def _guard_authoritative_lifecycle(week: str, target: str, store_id: str) -> dic
     _, current_fingerprint = authoritative_input_fingerprint(store_id, week)
     if run.get("fingerprint") != current_fingerprint:
         raise HTTPException(status_code=409, detail="stale_schedule_run")
-    if target == "da_cong_bo" and run.get("status") != "computed":
+    # Ca thiếu THẬT = ca của lần xếp gần nhất CHƯA đủ người (xem
+    # `current_open_shifts`). Dùng nó thay cho `run.status` đóng băng + bảng
+    # `open_shifts` tích luỹ: nếu không, một run cũ `needs_gap_resolution` khoá
+    # công bố MÃI MÃI dù lịch đã đủ người — đúng lỗi "bấm duyệt không được gì".
+    real_gaps = current_open_shifts(store_id, week)
+    if target in {"da_cong_bo", "da_duyet"} and real_gaps:
         raise HTTPException(status_code=409, detail="schedule_has_unresolved_gaps")
-    if target == "da_duyet" and run.get("status") != "computed":
-        raise HTTPException(status_code=409, detail="invalid_schedule_run")
-    if target == "da_cong_bo":
-        from ca_api.persist import open_shift_list
-        if (
-            open_shift_list(store_id, tuan_iso=week)
-            or open_shift_list(store_id, tuan_iso=week, status="claimed")
-        ):
-            raise HTTPException(status_code=409, detail="schedule_has_open_shifts")
     return run
 
 
@@ -660,9 +659,20 @@ def list_open_shifts(
 ) -> dict[str, Any]:
     role = _require_role(authorization)
     store_id = str((auth_session(authorization) or {}).get("store_id") or "quan_01")
-    items = open_shift_list(store_id, tuan_iso=tuan_iso)
-    if role in {"quan_ly", "chu_quan"}:
-        items.extend(open_shift_list(store_id, tuan_iso=tuan_iso, status="claimed"))
+    if not tuan_iso:
+        items = open_shift_list(store_id)
+        if role in {"quan_ly", "chu_quan"}:
+            items.extend(open_shift_list(store_id, status="claimed"))
+        return {"items": items}
+    # Chỉ ca thiếu THẬT của tuần: lọc theo lần xếp gần nhất + bỏ ca đã đủ người
+    # (xem `current_open_shifts`). Không lọc thì chợ đổi ca hiện hàng trăm ca cũ
+    # đã hết hạn trong khi lịch thực đã đủ người.
+    from ca_api.services.scheduling_service import current_open_shifts
+
+    items = current_open_shifts(store_id, tuan_iso)
+    if role not in {"quan_ly", "chu_quan"}:
+        # Nhân viên chỉ thấy ca CHƯA ai nhận để xin nhận.
+        items = [s for s in items if s.get("status") != "claimed"]
     return {"items": items}
 
 
