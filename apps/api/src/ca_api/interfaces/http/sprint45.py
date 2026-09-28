@@ -1059,13 +1059,27 @@ def _decide_inbox_item(
                         }
                     elif y == "xin_nghi":
                         thu = rb.get("thu", "")
-                        it["hieu_luc"] = {
+                        start = str(rb.get("start") or "")
+                        end = str(rb.get("end") or "")
+                        hl_xn: dict[str, Any] = {
                             "loai": "rang_buoc_cho_solver",
-                            "ghi": f"Đã duyệt nghỉ phép {thu} ({tuan_id}) — áp vào lượt xếp lịch tới",
                             "nv_id": it.get("nv_id"),
                             "thu": thu,
                             "tuan_id": tuan_id,
                         }
+                        if start and end:
+                            # Nghỉ ĐÚNG một ca — giữ khung giờ để solver chỉ chặn ca đó,
+                            # KHÔNG xoá cả ngày (sửa lỗi "bận 1 ca thành nghỉ cả ngày").
+                            hl_xn["start"] = start
+                            hl_xn["end"] = end
+                            hl_xn["ghi"] = (
+                                f"Đã duyệt nghỉ ca {thu} {start}-{end} ({tuan_id}) — áp vào lượt xếp lịch tới"
+                            )
+                        else:
+                            hl_xn["ghi"] = (
+                                f"Đã duyệt nghỉ phép {thu} ({tuan_id}) — áp vào lượt xếp lịch tới"
+                            )
+                        it["hieu_luc"] = hl_xn
                     elif y in {"bao_tre", "cap_nhat_tkb"}:
                         thu = rb.get("thu", "")
                         start = rb.get("start", "07:00")

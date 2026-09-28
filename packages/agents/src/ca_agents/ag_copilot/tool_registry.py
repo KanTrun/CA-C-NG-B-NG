@@ -16,6 +16,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 from collections.abc import Callable
 from dataclasses import dataclass
 
@@ -2281,15 +2282,61 @@ def _parse_thu_tu_tin(text: str) -> str:
     return ""
 
 
+# Khung giờ chuẩn của ca — NGUỒN DUY NHẤT cho phần parse tin nhắn tự do.
+# Phải khớp `_busy_to_availability` (sprint3.py) để "bận ca sáng" chặn đúng
+# ca sáng mà trang /tkb vẫn dùng cùng một định nghĩa.
+_CA_RANGE_TIMEOFF: dict[str, tuple[str, str]] = {
+    "sang": ("06:30", "12:00"),
+    "chieu": ("12:00", "17:30"),
+    "toi": ("17:30", "22:30"),
+}
+
+
+def _parse_ca_range(text: str) -> tuple[str, str] | None:
+    """Trích khung giờ bận từ tin nhắn tự do.
+
+    Trả ``(start, end)`` khi người nói nêu RÕ khung giờ (ca sáng/chiều/tối hoặc
+    khoảng "7h-11h30"); trả ``None`` khi chỉ nói tới thứ (bận cả ngày).
+    """
+    t = " ".join(str(text or "").lower().split())
+    range_m = re.search(
+        r"(\d{1,2})(?:[:h](\d{2})?)\s*(?:đến|-|tới|toi|den)\s*(\d{1,2})(?:[:h](\d{2})?)",
+        t,
+        re.IGNORECASE,
+    )
+    if range_m:
+        h1 = int(range_m.group(1))
+        m1 = int(range_m.group(2) or 0)
+        h2 = int(range_m.group(3))
+        m2 = int(range_m.group(4) or 0)
+        return f"{h1:02d}:{m1:02d}", f"{h2:02d}:{m2:02d}"
+    if "ca sáng" in t or "ca sang" in t or "buổi sáng" in t or "buoi sang" in t:
+        return _CA_RANGE_TIMEOFF["sang"]
+    if "ca chiều" in t or "ca chieu" in t or "buổi chiều" in t or "buoi chieu" in t:
+        return _CA_RANGE_TIMEOFF["chieu"]
+    if "ca tối" in t or "ca toi" in t or "buổi tối" in t or "buoi toi" in t:
+        return _CA_RANGE_TIMEOFF["toi"]
+    return None
+
+
 def tool_propose_time_off(
     store_id: str = "quan_01",
     user_id: str = "",
     ly_do: str = "",
     thu: str = "",
+    start: str = "",
+    end: str = "",
     **kwargs: Any,
 ) -> ToolExecutionResult:
-    """PROPOSE_TIME_OFF: đề xuất xin nghỉ/bận cho chính người nói (cần duyệt)."""
-    thu = _parse_thu_tu_tin(thu or kwargs.get("raw_message") or ly_do) or thu
+    """PROPOSE_TIME_OFF: đề xuất xin nghỉ/bận cho chính người nói (cần duyệt).
+
+    Phân biệt hai mức: nêu **ca** (ca sáng/chiều/tối hoặc khoảng giờ) thì chỉ bận
+    khung đó; chỉ nêu **thứ** thì bận cả ngày. Khung giờ được trả trong payload
+    (`start`/`end`) để `copilot.py` ghi đúng `cap_nhat_tkb` và solver chỉ loại
+    đúng ca, không xoá cả ngày.
+    """
+    raw = thu or kwargs.get("raw_message") or ly_do
+    thu = _parse_thu_tu_tin(raw) or thu
     if not thu:
         return ToolExecutionResult(
             success=False,
@@ -2301,18 +2348,28 @@ def tool_propose_time_off(
             requires_confirmation=False,
             error="missing_thu",
         )
-    payload = {
+    # Khung giờ ưu tiên từ tham số (intent parser đã tách); nếu không có thì tự
+    # parse lại từ câu gốc (đường gọi trực tiếp có raw_message).
+    ca_range = (start, end) if (start and end) else _parse_ca_range(raw)
+    payload: dict[str, Any] = {
         "snapshot_version": "live-v1",
         "nv_id": user_id,
         "thu": thu,
         "ly_do": (ly_do or "").strip()[:200] or "bận",
     }
+    if ca_range:
+        payload["start"], payload["end"] = ca_range
+        payload["khung"] = "ca"
+        muc = f"ca {ca_range[0]}–{ca_range[1]} ngày {thu}"
+    else:
+        payload["khung"] = "ca_ngay"
+        muc = f"cả ngày {thu}"
     return ToolExecutionResult(
         success=True,
         tool_name="tool_propose_time_off",
         intent="PROPOSE_TIME_OFF",
         data=payload,
-        summary=f"Đề xuất ghi nhận: {user_id} xin không xếp ca vào {thu} (lý do: {payload['ly_do']}).",
+        summary=f"Đề xuất ghi nhận: {user_id} bận {muc} (lý do: {payload['ly_do']}).",
         explanation="Sau khi quản lý duyệt, ràng buộc áp vào lượt xếp lịch tới — AI không tự sửa lịch.",
         requires_confirmation=True,
         source_snapshot=build_live_snapshot("PROPOSE_TIME_OFF", store_id),

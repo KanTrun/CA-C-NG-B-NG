@@ -981,17 +981,35 @@ def copilot_execute_action(
     elif intent == "PROPOSE_TIME_OFF":
         # Cùng key/schema với inbox duyệt của AG-MSG (xin_nghi) — quản lý duyệt
         # ở /inbox, hiệu lực nạp vào lượt xếp lịch tới qua _run_solver.
+        #
+        # PHÂN BIỆT MỨC: nêu ca (start/end) → chỉ chặn đúng khung giờ đó
+        # (y_dinh="cap_nhat_tkb"); chỉ nêu thứ → bận cả ngày (y_dinh="xin_nghi").
+        # Trước đây luôn ghi 07:00–22:00 + xin_nghi nên "bận ca sáng" xoá cả ngày.
+        _start = str(diff.get("start") or "").strip()
+        _end = str(diff.get("end") or "").strip()
+        _co_khung = bool(_start and _end)
+        _y_dinh = "cap_nhat_tkb" if _co_khung else "xin_nghi"
+        _muc_chu = (
+            f"ca {_start}–{_end} {diff.get('thu')}"
+            if _co_khung
+            else f"cả ngày {diff.get('thu')}"
+        )
+        _rang_buoc: dict[str, Any] = {"thu": str(diff.get("thu") or "")}
+        if _co_khung:
+            _rang_buoc["start"] = _start
+            _rang_buoc["end"] = _end
+
         def mut_inbox(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
             items.append({
                 "id": f"in_to_{uuid.uuid4().hex[:6]}",
                 "agent": "ag_copilot",
                 "nv_id": str(diff.get("nv_id") or user["user_id"]),
-                "y_dinh": "xin_nghi",
-                "tom_tat": f"Copilot ghi nhận: bận {diff.get('thu')} ({diff.get('ly_do')})",
+                "y_dinh": _y_dinh,
+                "tom_tat": f"Copilot ghi nhận: bận {_muc_chu} ({diff.get('ly_do')})",
                 "trang_thai": "cho_duyet",
                 "do_tin_cay": 0.92,
                 "nguon": "copilot",
-                "rang_buoc": {"thu": str(diff.get("thu") or ""), "start": "07:00", "end": "22:00"},
+                "rang_buoc": _rang_buoc,
                 "hieu_luc": None,
                 "created_at": now_iso,
             })

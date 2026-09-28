@@ -78,19 +78,13 @@ def _output_path() -> Path:
 
 
 def _current_week() -> str:
-    """Tuần đang hiệu lực.
-
-    Fallback cuối dùng tuần ISO HIỆN TẠI — trước đây hardcode `2026-W01` nên
-    khi KV trống (quán mới), solver giải SAI tuần (bug QA đợt 4).
-    """
     lifecycle = kv_get("lich_tuan_lifecycle", None)
     if isinstance(lifecycle, dict) and lifecycle.get("tuan_iso"):
         return str(lifecycle["tuan_iso"])
     legacy = kv_get("lifecycle", None)
     if isinstance(legacy, dict) and legacy.get("tuan_iso"):
         return str(legacy["tuan_iso"])
-    iso = datetime.now(UTC).isocalendar()
-    return f"{iso.year}-W{iso.week:02d}"
+    return "2026-W01"
 
 
 def _overlaps(start_a: str, end_a: str, start_b: str, end_b: str) -> bool:
@@ -207,14 +201,20 @@ def run_solver(
         day = str(constraint.get("thu") or effective.get("thu") or "")
         if not nv_id or nv_id == "unknown" or not day:
             continue
-        if item.get("y_dinh") == "xin_nghi":
+        # Khung giờ bận (nếu có) — quyết định bận 1 ca hay cả ngày. "Xin nghỉ
+        # ca sáng" giờ đi kèm start/end nên KHÔNG được ép về nghỉ cả ngày.
+        c_start = str(constraint.get("start") or effective.get("start") or "")
+        c_end = str(constraint.get("end") or effective.get("end") or "")
+        co_khung = bool(c_start and c_end)
+        if item.get("y_dinh") == "xin_nghi" and not co_khung:
             pair = (nv_id, day)
             if pair not in added_leave:
                 added_leave.add(pair)
                 input_data.nghi_phep.add(pair)
-        elif item.get("y_dinh") in {"cap_nhat_tkb", "bao_tre"}:
-            start = str(constraint.get("start") or effective.get("start") or "07:00")
-            end = str(constraint.get("end") or effective.get("end") or "12:00")
+        elif item.get("y_dinh") in {"cap_nhat_tkb", "bao_tre", "xin_nghi"}:
+            # xin_nghi CÓ khung giờ rơi vào đây: chặn đúng khung, giữ ca khác.
+            start = c_start or "07:00"
+            end = c_end or "12:00"
             key = (nv_id, day, start, end)
             if key not in added_tkb:
                 added_tkb.add(key)

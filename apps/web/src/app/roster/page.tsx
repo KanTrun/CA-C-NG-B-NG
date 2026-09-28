@@ -761,6 +761,16 @@ export default function RosterPage() {
             Tuần {currentDisplayWeek}
           </span>
         </div>
+
+        {/* Gợi ý tuần luyện: tuần CHƯA xếp bao giờ ở trạng thái "nháp" — an toàn
+            để chạy thử trọn luồng (xếp tự động → ghim → xử lý ca thiếu) mà
+            không đụng tuần thật đã công bố. */}
+        {canWrite && (
+          <p className="nq-muted text-xs">
+            Muốn luyện thử mà không đụng lịch thật? Bấm <strong>Sau →</strong> sang một tuần
+            chưa xếp (mặc định là <strong>nháp</strong>) để chạy thử toàn bộ luồng.
+          </p>
+        )}
       </header>
 
       {scheduleNotifications.length > 0 && (
@@ -800,11 +810,29 @@ export default function RosterPage() {
           ].map(([state, label]) => (
             <span
               key={state}
-              className={`nq-workflow-step ${trangThai === state ? "nq-workflow-step--active" : ""}`}
+              className={`nq-workflow-step ${
+                trangThai === state ||
+                (state === "cho_duyet" && trangThai === "da_duyet") ||
+                (state === "da_cong_bo" && trangThai === "da_dong")
+                  ? "nq-workflow-step--active"
+                  : ""
+              }`}
             >
               {label}
             </span>
           ))}
+          {/* Chỉ đường rõ "việc kế tiếp": người dùng phàn nàn không biết bấm gì
+              để test. Mỗi trạng thái có ĐÚNG một hành động kế tiếp. */}
+          <p className="nq-workflow-hint">
+            <strong>Việc kế tiếp:</strong>{" "}
+            {trangThai === "nhap"
+              ? "bấm «Xếp lịch tự động» để máy phân công theo lịch bận."
+              : trangThai === "dang_giai"
+                ? "đang xếp lịch, chờ trong giây lát."
+                : trangThai === "cho_duyet"
+                  ? "xử lý hết «Ca còn thiếu người» rồi bấm «Duyệt và công bố»."
+                  : "lịch đã công bố. Muốn test lại, bấm «Mở lại để điều chỉnh» và ghi lý do — lịch trở về bước 1 để chạy lại từ đầu."}
+          </p>
           <p className="nq-muted text-xs basis-full">
             Duyệt cuối sẽ tự công bố và gửi thông báo. Muốn sửa lịch đã công bố, quản lý phải mở lại và ghi rõ lý do.
           </p>
@@ -1200,7 +1228,9 @@ export default function RosterPage() {
                     <span className="nq-gap-panel__count">{data?.open_shifts?.length}</span>
                   </h3>
                   <p className="nq-gap-panel__hint">
-                    Lịch chưa thể duyệt khi còn ca thiếu. Chọn nhân sự phù hợp rồi ghim để chạy lại.
+                    Xếp tự động đã cố gắng hết sức, nhưng nếu ai cũng bận/kẹt ca thì máy KHÔNG tự
+                    bịa ra người. Các ca này là chỗ máy bó tay — bạn chọn người phù hợp rồi ghim
+                    để chạy lại. Xong hết mới duyệt được.
                   </p>
                 </div>
               </div>
@@ -1554,6 +1584,11 @@ export default function RosterPage() {
               <p className="text-sm text-[var(--nq-ink)]">
                 Lịch đã được duyệt/công bố. Để mở lại và chỉnh sửa, vui lòng ghi rõ lý do.
                 Thao tác này sẽ được ghi lại trong nhật ký hệ thống.
+              </p>
+              <p className="rounded-lg border border-[color-mix(in_srgb,var(--nq-st-warn)_40%,var(--nq-line))] bg-[color-mix(in_srgb,var(--nq-st-warn)_10%,transparent)] p-3 text-xs text-[var(--nq-ink)]">
+                Lịch sẽ trở về <strong>bước 1 (Chuẩn bị lịch)</strong>. Từ đó bạn bấm lại
+                «Xếp lịch tự động» để chạy lại toàn bộ luồng — đây chính là cách test lại
+                xếp lịch, ghim ca và xử lý ca thiếu.
               </p>
               <label className="block">
                 <span className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-[var(--nq-ink-muted)]">

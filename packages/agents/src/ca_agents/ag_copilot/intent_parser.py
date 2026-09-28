@@ -566,6 +566,37 @@ def _parse_thu(text_lower: str) -> str:
     return ""
 
 
+# Khung giờ chuẩn của ca — phải khớp `_busy_to_availability` (sprint3.py) và
+# `_CA_RANGE_TIMEOFF` (ag_copilot/tool_registry.py). Đây là điểm phân biệt
+# "bận 1 ca" với "bận cả ngày" cho câu báo bận qua chat.
+_CA_RANGE_INTENT: dict[str, tuple[str, str]] = {
+    "sang": ("06:30", "12:00"),
+    "chieu": ("12:00", "17:30"),
+    "toi": ("17:30", "22:30"),
+}
+
+
+def _parse_ca_range(text_lower: str) -> tuple[str, str] | None:
+    """Trích khung giờ bận (start, end) từ câu; None nếu chỉ nêu thứ."""
+    t = " ".join(str(text_lower or "").split())
+    range_m = re.search(
+        r"(\d{1,2})(?:[:h](\d{2})?)\s*(?:đến|-|tới|toi|den)\s*(\d{1,2})(?:[:h](\d{2})?)",
+        t,
+        re.IGNORECASE,
+    )
+    if range_m:
+        h1, m1 = int(range_m.group(1)), int(range_m.group(2) or 0)
+        h2, m2 = int(range_m.group(3)), int(range_m.group(4) or 0)
+        return f"{h1:02d}:{m1:02d}", f"{h2:02d}:{m2:02d}"
+    if "ca sáng" in t or "ca sang" in t or "buổi sáng" in t or "buoi sang" in t:
+        return _CA_RANGE_INTENT["sang"]
+    if "ca chiều" in t or "ca chieu" in t or "buổi chiều" in t or "buoi chieu" in t:
+        return _CA_RANGE_INTENT["chieu"]
+    if "ca tối" in t or "ca toi" in t or "buổi tối" in t or "buoi toi" in t:
+        return _CA_RANGE_INTENT["toi"]
+    return None
+
+
 
 def _active_date(context: dict[str, Any]) -> Any:
     from datetime import date
@@ -887,6 +918,10 @@ def parse_intent(message: str, context: dict[str, Any] | None = None) -> IntentP
         thu = _parse_thu(lower)
         if thu:
             params["thu"] = thu
+        # Nêu ca/khung giờ → chỉ bận khung đó, KHÔNG nghỉ cả ngày.
+        ca_range = _parse_ca_range(lower)
+        if ca_range:
+            params["start"], params["end"] = ca_range
         ly_do_raw = text.strip()
         # BUG7 fix: trích phần lý do sau dấu ',' hoặc ':' đầu tiên nếu có.
         # Regex cũ dùng lazy {0,40}? → match 0 ký tự → không strip được gì.

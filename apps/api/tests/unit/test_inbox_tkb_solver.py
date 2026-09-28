@@ -67,6 +67,66 @@ def test_duyet_xin_nghi_wires_into_solver_nghi_phep(monkeypatch: pytest.MonkeyPa
             assert "nv_01" not in nvs, f"nv_01 bị xếp vào ca {ca_id} ngày T5 dù đã duyệt nghỉ!"
 
 
+def test_duyet_xin_nghi_co_ca_chi_chan_dung_ca_do(monkeypatch: pytest.MonkeyPatch, _du_nhan_vien_xep_lich: None) -> None:
+    """Duyệt xin nghỉ CÓ khung giờ: chỉ chặn đúng ca, ca khác cùng ngày vẫn xếp được.
+
+    Lỗi gốc: mọi xin_nghi đều bị ép về `nghi_phep` (nv, ngày) nên xoá cả ngày.
+    Sau khi sửa, xin_nghi có start/end đi vào `tkb` và chỉ loại ca trùng khung.
+    """
+    monkeypatch.setenv("CA_AGENT_MODE", "replay")
+    ql = headers(client, "lan")
+
+    item_id = "test_inbox_xin_nghi_ca_sang"
+    item = {
+        "id": item_id,
+        "agent": "ag_copilot",
+        "tom_tat": "Bận ca sáng T5",
+        "trang_thai": "cho_duyet",
+        "nguon": "copilot",
+        "y_dinh": "xin_nghi",
+        "do_tin_cay": 0.92,
+        "nv_id": "nv_01",
+        "rang_buoc": {"thu": "T5", "start": "07:00", "end": "12:00", "tuan_id": "2026-W01"},
+    }
+    kv_set("inbox_rang_buoc", [item])
+
+    res = client.post(
+        f"/api/v1/inbox/rang-buoc/{item_id}",
+        json={"quyet_dinh": "duyet"},
+        headers=ql,
+    )
+    assert res.status_code == 200
+
+    # hiệu lực phải GIỮ khung giờ để solver biết đây là nghỉ 1 ca.
+    hl = next(t for t in kv_get("inbox_rang_buoc", []) if t.get("id") == item_id)["hieu_luc"]
+    assert hl["loai"] == "rang_buoc_cho_solver"
+    assert hl.get("start") == "07:00" and hl.get("end") == "12:00"
+
+    sol = _run_solver("2026-W01")
+    assert sol["ok"] is True
+
+    from ca_solver import build_lich_input
+
+    inp = build_lich_input()
+    phan = kv_get("phan_cong", {})
+    ca_sang_t5 = [
+        c for c, m in inp.ca_meta.items()
+        if m.get("thu") == "T5" and m.get("bat_dau") == "07:00"
+    ]
+    ca_khac_t5 = [
+        c for c, m in inp.ca_meta.items()
+        if m.get("thu") == "T5" and m.get("bat_dau") != "07:00"
+    ]
+    assert ca_sang_t5, "fixture phải có ca sáng T5 để kiểm tra"
+    for ca_id in ca_sang_t5:
+        assert "nv_01" not in phan.get(ca_id, []), f"nv_01 vẫn bị xếp ca sáng T5 {ca_id} dù đã bận!"
+    # Điểm mấu chốt: nv_01 VẪN còn khả dụng cho ca khác trong ngày T5 —
+    # không bị xoá cả ngày như trước.
+    assert any("nv_01" in phan.get(ca_id, []) for ca_id in ca_khac_t5), (
+        "nv_01 bị xoá khỏi MỌI ca T5 — bận 1 ca không được thành nghỉ cả ngày"
+    )
+
+
 def test_duyet_cap_nhat_tkb_wires_into_solver_tkb(monkeypatch: pytest.MonkeyPatch, _du_nhan_vien_xep_lich: None) -> None:
     """Test 3: Duyệt TKB bận sáng T3 nạp vào inp.tkb, solver không xếp ca sáng T3."""
     monkeypatch.setenv("CA_AGENT_MODE", "replay")

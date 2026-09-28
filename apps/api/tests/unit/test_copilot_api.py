@@ -1716,7 +1716,40 @@ def test_time_off_bao_ban_tao_de_xuat_cho_duyet() -> None:
     assert item["y_dinh"] == "xin_nghi"
     assert item["trang_thai"] == "cho_duyet"
     assert item["rang_buoc"]["thu"] == "T5"
+    # Không nêu ca/khung giờ → đúng là bận CẢ NGÀY (giữ hành vi cũ ở mức ngày).
+    assert "start" not in item["rang_buoc"]
 
+
+def test_time_off_bao_ban_mot_ca_giu_dung_khung() -> None:
+    """«Tôi bận ca sáng thứ 5» → chỉ chặn ca sáng, KHÔNG nghỉ cả ngày.
+
+    Đây là lỗi gốc: trước đây mọi báo bận đều bị ép về 07:00–22:00 + xin_nghi
+    nên "bận ca sáng" xoá luôn ca chiều/tối cùng ngày.
+    """
+    from ca_api.persist import kv_get
+
+    token = _login_staff()
+    res = client.post(
+        "/api/v1/copilot/message",
+        json={"message": "Tôi bận ca sáng thứ 5", "channel": "web"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert res.status_code == 200
+    data = res.json()
+    assert data["intent"] == "PROPOSE_TIME_OFF"
+    action_id = data["action_proposal"]["action_id"]
+
+    exec_res = client.post(
+        "/api/v1/copilot/execute-action",
+        json={"action_id": action_id, "decision": "approve"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert exec_res.status_code == 200
+    item = next(t for t in kv_get("inbox_rang_buoc", []) if t.get("agent") == "ag_copilot")
+    assert item["y_dinh"] == "cap_nhat_tkb", "có ca phải là cập nhật TKB, không phải nghỉ cả ngày"
+    assert item["rang_buoc"]["thu"] == "T5"
+    assert item["rang_buoc"]["start"] == "06:30"
+    assert item["rang_buoc"]["end"] == "12:00"
 def test_pr10_task_complete_proposal_and_execute() -> None:
     """Đánh dấu xong việc treo qua chat: propose -> approve -> trang_thai='xong'."""
     from ca_api.persist import kv_set

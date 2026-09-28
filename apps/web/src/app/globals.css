@@ -22,6 +22,18 @@
   background: color-mix(in srgb, var(--nq-accent) 12%, transparent);
 }
 
+.nq-workflow-hint {
+  flex-basis: 100%;
+  margin: 0.35rem 0 0;
+  padding: 0.5rem 0.65rem;
+  border-left: 2px solid var(--nq-accent);
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--nq-accent) 8%, transparent);
+  color: var(--nq-ink);
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+
 .nq-constraint-panel {
   border: 1px solid var(--nq-border);
   border-radius: 6px;
