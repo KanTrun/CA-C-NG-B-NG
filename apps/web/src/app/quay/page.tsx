@@ -107,15 +107,21 @@ export default function QuayPage() {
   const [report, setReport] = useState<BaoCao | null>(null);
   const [checkedIn, setCheckedIn] = useState(false);
   const [caMine, setCaMine] = useState<Ca[]>([]);
+  // Tách khỏi `checkedIn`: "hôm nay có ca" KHÁC "đã điểm danh". Cổng mở quầy ở
+  // API (`_require_dang_ca`) chỉ chấp nhận `da_diem_danh`, nên có ca mà chưa
+  // điểm danh vẫn bị 403 — gộp hai thứ làm một sẽ khiến UI báo "Ca đang mở"
+  // trong khi nút gửi đơn chết. Xem bug QA đợt 5.
+  const [coCaHomNay, setCoCaHomNay] = useState(false);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
 
   /*
-    Lịch của chính tôi (`GET /api/v1/toi/lich`) vừa để hiển thị khối ca vừa để nới
-    cổng mở quầy: "đã điểm danh HOẶC có ca hôm nay". Trả về `true` khi hôm nay có
-    ca của mình, để hàm gọi không phải tự so ngày.
+    Lịch của chính tôi (`GET /api/v1/toi/lich`) — CHỈ để hiển thị khối ca hôm nay.
+    KHÔNG dùng để suy ra quầy đã mở: cổng mở quầy ở API (`_require_dang_ca`) đòi
+    `da_diem_danh`, không phải "hôm nay có ca". Trả về `true` khi hôm nay có ca
+    của mình, để hàm gọi không phải tự so ngày.
   */
   const loadCa = useCallback(async (): Promise<{ list: Ca[]; homNay: boolean }> => {
     try {
@@ -150,20 +156,15 @@ export default function QuayPage() {
         // Quầy khóa: vẫn nạp menu + lịch để nhân viên thấy mình có ca nào.
         const { list, homNay } = await loadCa();
         setCaMine(list);
-        setCheckedIn(homNay);
+        setCoCaHomNay(homNay);
+        // 403 ở đây CHỈ có một nghĩa: `chua_diem_danh` (`_require_dang_ca`).
+        // Không được suy ra "đã mở quầy" từ việc hôm nay có ca.
+        setCheckedIn(false);
         try {
           const menuOut = await apiGet<{ items: Mon[] }>("/api/v1/menu");
           setMenu(menuOut.items ?? []);
         } catch {
-          if (!homNay) setError(viError(e, { doing: "mở quầy" }));
-        }
-        if (homNay) {
-          try {
-            const orderOut = await apiGet<{ items: Don[] }>("/api/v1/quay/don");
-            setOrders(orderOut.items ?? []);
-          } catch {
-            /* có ca nhưng chưa đọc được đơn — để nút gửi đơn nhắc */
-          }
+          setError(viError(e, { doing: "mở quầy" }));
         }
       } else {
         setError(viError(e, { doing: "mở quầy" }));
@@ -258,7 +259,9 @@ export default function QuayPage() {
       {msg ? <Alert kind="ok">{msg}</Alert> : null}
       {!checkedIn ? (
         <Alert kind="info">
-          Quầy đang khóa: bạn chưa điểm danh và hôm nay chưa có ca nào trong lịch.{" "}
+          {coCaHomNay
+            ? "Quầy đang khóa: bạn có ca hôm nay nhưng chưa điểm danh."
+            : "Quầy đang khóa: bạn chưa điểm danh và hôm nay chưa có ca nào trong lịch."}{" "}
           <Btn onClick={() => void checkIn()} busy={busy}>
             Điểm danh để mở quầy
           </Btn>
@@ -288,7 +291,9 @@ export default function QuayPage() {
                   <p className="nq-ca-strip__gio">
                     {ca.bat_dau} – {ca.ket_thuc}
                   </p>
-                  <p className="nq-ca-strip__meta">Hôm nay · bạn đang trong ca này</p>
+                  <p className="nq-ca-strip__meta">
+                    {checkedIn ? "Hôm nay · đã điểm danh" : "Hôm nay · chưa điểm danh"}
+                  </p>
                 </li>
               ))}
             </ul>
