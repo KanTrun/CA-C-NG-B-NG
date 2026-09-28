@@ -102,6 +102,68 @@ const MANAGER_ONLY = new Set([
 ]);
 const OWNER_ONLY = new Set(["/menu", "/nguoi"]);
 
+/**
+ * Mọi đường dẫn HỢP LỆ của app (khớp `GROUPS` trong `AppShell.tsx` + route
+ * ngoài sidebar). Dùng để phân biệt "bị chặn quyền" với "không có trang này":
+ * trước đây gõ sai URL vẫn hiện "Không đủ quyền truy cập" — thông báo sai làm
+ * người dùng tưởng mình bị khoá quyền trong khi thật ra trang không tồn tại.
+ */
+const KNOWN_PATHS = new Set<string>([
+  "/",
+  "/login",
+  "/dang-ky",
+  "/hom-nay",
+  "/quay",
+  "/pha",
+  "/phieu",
+  "/treo",
+  "/cuoc-hop",
+  "/handover",
+  "/chat",
+  "/lich-tuan",
+  "/roster",
+  "/toi",
+  "/doi-ca",
+  "/qr",
+  "/cong-bang",
+  "/tkb",
+  "/nguoi",
+  "/copilot",
+  "/sop",
+  "/cam-nang",
+  "/skills",
+  "/ai-learning",
+  "/de-xuat-thong-minh",
+  "/giai-thich",
+  "/thu-nghiem-an-toan",
+  "/inbox",
+  "/quanverse",
+  "/quanverse/war-room",
+  "/quanverse/shift-rescue",
+  "/quanverse/rules",
+  "/quanverse/spatial-memory",
+  "/menu",
+  "/tieu-thu",
+  "/hao-phi",
+  "/khao-sat-gia",
+  "/page-quan",
+  "/page-quan/fb-inbox",
+  "/page-quan/dat-ban",
+  "/gmail",
+  "/cau-hinh-quan",
+  "/vet",
+  "/contracts",
+  "/huong-dan",
+  "/them",
+]);
+
+/** Trang có tồn tại trong app không (bỏ qua phần đuôi con của /quanverse). */
+export function isKnownPath(path: string): boolean {
+  if (KNOWN_PATHS.has(path)) return true;
+  // `/quanverse/tour/<id>` là route con hợp lệ.
+  return path.startsWith("/quanverse/tour/");
+}
+
 /** Client-side gate for navigation and hand-typed URLs. API remains authoritative. */
 export function canAccess(role: Role, path: string): boolean {
   if (OWNER_ONLY.has(path)) return role === "chu_quan";

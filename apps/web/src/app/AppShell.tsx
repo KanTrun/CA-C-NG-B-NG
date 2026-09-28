@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { Fragment, ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { apiGet } from "../lib/api";
-import { canAccess, clearSession, getName, getToken, isChuQuan, isManager, roleLabel } from "../lib/session";
+import { canAccess, clearSession, getName, getToken, isChuQuan, isKnownPath, isManager, roleLabel } from "../lib/session";
 import { Icon, iconForHref } from "../ui/icons";
 import { Tour } from "../ui/tour";
 import { Logo } from "../ui/Logo";
@@ -474,6 +474,22 @@ export function AppShell({ children }: { children: ReactNode }) {
           {!ready ? (
             <div className="nq-page nq-page--center py-16 text-center" role="status">
               <p className="nq-muted" style={{ margin: 0 }}>Đang kiểm tra quyền truy cập…</p>
+            </div>
+          ) : token && role && !isKnownPath(path) ? (
+            /* Gõ sai URL phải nói ĐÚNG là không có trang, không được đổ cho
+               phân quyền — trước đây hai trường hợp dùng chung một thông báo
+               "Không đủ quyền truy cập" nên người dùng tưởng bị khoá quyền. */
+            <div className="nq-page nq-page--center py-16 text-center">
+              <h1 className="nq-gate-title">Không tìm thấy trang</h1>
+              <p className="nq-muted mx-auto" style={{ margin: "var(--nq-s3) auto 0", maxWidth: "46ch" }}>
+                Đường dẫn <code>{path}</code> không tồn tại trong hệ thống. Kiểm tra lại địa chỉ,
+                hoặc mở «Bản đồ hệ thống» ở menu để tìm đúng mục.
+              </p>
+              <p style={{ marginTop: "var(--nq-s4)" }}>
+                <a href="/huong-dan" className="nq-btn nq-btn-ghost">
+                  Mở bản đồ hệ thống
+                </a>
+              </p>
             </div>
           ) : token && role && !canAccess(role, path) ? (
             <div className="nq-page nq-page--center py-16 text-center">

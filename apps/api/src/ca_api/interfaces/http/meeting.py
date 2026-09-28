@@ -138,12 +138,15 @@ def _get_roster_data() -> tuple[dict[str, list[str]], list[dict[str, Any]]]:
 
 
 class AnalyzeMeetingBody(BaseModel):
-    text: str
-    segments: list[dict[str, Any]] = Field(default_factory=list)
-    meeting_type: str = "giao_ca"
-    audio_source: str = "google_meet_tab"
-    meeting_id: str | None = None
-    thoi_gian: str | None = None
+    # Bug QA đợt 5: `text` không có giới hạn nên payload 500.000 ký tự vẫn được
+    # nhận và giữ worker >25 giây (đo trên production) — một request là đủ làm
+    # chậm cả API. 20.000 ký tự ≈ 40 phút nói, thừa cho một biên bản giao ca.
+    text: str = Field(min_length=1, max_length=20_000)
+    segments: list[dict[str, Any]] = Field(default_factory=list, max_length=2_000)
+    meeting_type: str = Field(default="giao_ca", max_length=40)
+    audio_source: str = Field(default="google_meet_tab", max_length=40)
+    meeting_id: str | None = Field(default=None, max_length=64)
+    thoi_gian: str | None = Field(default=None, max_length=64)
 
 
 class TranscribeAudioBody(BaseModel):

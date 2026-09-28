@@ -514,6 +514,21 @@ def phieu_start(
     catalog = {entry["ma"] for entry in load_phieu_catalog(_store_from_token(authorization))}
     if body.mau not in catalog:
         raise HTTPException(status_code=404, detail="mau_phieu_khong_bat")
+
+    # Đã có phiếu CÙNG MẪU đang mở của chính mình → trả lại phiếu đó thay vì
+    # tạo phiếu mới. Bug QA đợt 5: bấm "Mở quán" nhiều lần (hoặc 3 request
+    # đồng thời) sinh ra ph_20/ph_21/ph_22 song song, cùng ca cùng người — mọi
+    # bước bị ghi rải rác vào các phiếu khác nhau nên không phiếu nào đủ bước.
+    bag = kv_get("phieu", {})
+    for raw in bag.values():
+        if not isinstance(raw, dict) or raw.get("closed"):
+            continue
+        if str(raw.get("mau") or "") != body.mau:
+            continue
+        if str(raw.get("nv_id") or "") != nv:
+            continue
+        return cast(dict[str, Any], raw)
+
     da_diem_danh = nv in set(diem_danh_hom_nay())
 
     def next_seq(seq: int) -> int:
