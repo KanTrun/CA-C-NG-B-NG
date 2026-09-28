@@ -1,24 +1,30 @@
-<!-- Fixture HTML mô phỏng Threads search SPA — mỗi post là 1 div có attr data-e2e
-     giá trị search-result-post. Dùng cho test extract_threads_items (hàm thuần,
-     không cần Playwright thật). Khi Threads đổi DOM: cập nhật file này + extractor. -->
-<div data-e2e="search-result-post">
-  <a href="/@saigon_coffee_guide/post/Cx1a2b3c4d5">
-    <span>@saigon_coffee_guide</span>
-    <div>Cơn sốt matcha nguyên bản đậm vị đang áp đảo hoàn toàn các loại trà ngọt gắt. Khách Gen Z giờ vào quán toàn hỏi độ đậm của bột matcha và sữa yến mạch.</div>
-  </a>
-  <div>2.4K 185</div>
+<!-- Fixture HTML Threads search — cấu trúc THẬT đo 2026-09-26.
+     Threads KHÔNG có data-e2e cho post; class CSS là hash React đổi mỗi build.
+     Cấu trúc ổn định: link /@user/post/id + các dòng text theo thứ tự
+     username → thời gian → nội dung → stats. Dùng cho test extract_threads_items
+     (hàm thuần, không cần Playwright). Khi Threads đổi DOM: cập nhật file này. -->
+<div>
+  <a href="/@saigon_coffee_guide/post/Cx1a2b3c4d5"></a>
+  <div>saigon_coffee_guide</div>
+  <div>2 giờ</div>
+  <div>Cơn sốt matcha nguyên bản đậm vị đang áp đảo hoàn toàn các loại trà ngọt gắt. Khách Gen Z giờ vào quán toàn hỏi độ đậm của bột matcha và sữa yến mạch.</div>
+  <div>2.4K</div>
+  <div>185</div>
 </div>
-<div data-e2e="search-result-post">
-  <a href="/@genz_overthinking/post/Cx9y8z7w6v5">
-    <span>@genz_overthinking</span>
-    <div>Đi làm quán cafe ca tối đúng là bài test sức bền tâm lý. Nhưng tự nhiên nghe khách khen ly cà phê ngon là có động lực đứng quầy tiếp.</div>
-  </a>
-  <div>1.8K 94</div>
+<div>
+  <a href="/@genz_overthinking/post/Cx9y8z7w6v5"></a>
+  <div>genz_overthinking</div>
+  <div>5 giờ</div>
+  <div>Đi làm quán cafe ca tối đúng là bài test sức bền tâm lý. Nhưng tự nhiên nghe khách khen ly cà phê ngon là có động lực đứng quầy tiếp.</div>
+  <div>1.8K</div>
+  <div>94</div>
 </div>
-<div data-e2e="search-result-post">
-  <a href="/@hanoi_checkin_food/post/Cx5f4g3h2i1">
-    <span>@hanoi_checkin_food</span>
-    <div>Trào lưu decor quán tone gỗ mộc và mở nhạc lofi nhẹ nhàng đang kéo khách ngồi làm việc nhiều hơn hẳn các quán nhạc ồn ào.</div>
-  </a>
-  <div>3.1K 210</div>
+<div>
+  <a href="/@hanoi_checkin_food/post/Cx5f4g3h2i1"></a>
+  <div>hanoi_checkin_food</div>
+  <div>1 ngày</div>
+  <div>Trào lưu decor quán tone gỗ mộc và mở nhạc lofi nhẹ nhàng đang kéo khách ngồi làm việc nhiều hơn hẳn các quán nhạc ồn ào.</div>
+  <div>3.1K</div>
+  <div>210</div>
 </div>
+

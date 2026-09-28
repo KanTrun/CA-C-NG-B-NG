@@ -44,7 +44,7 @@ Hệ thống cào TikTok có **3 nguồn thật + 1 tầng tĩnh last-resort**, 
 - Mode `direct_only`: chỉ TikWM, không bao giờ tốn CU Apify
 - Mode `browser`: Camoufox first (plan §3.5)
 
-### Đặc tính TikWM đã đo thật (2026-09-24)
+### Đặc tính TikWM đã đo thật (2026-09-24, cập nhật 2026-09-25)
 
 | Đặc tính | Giá trị | Ảnh hưởng code |
 |---|---|---|
@@ -52,6 +52,36 @@ Hệ thống cào TikTok có **3 nguồn thật + 1 tầng tĩnh last-resort**, 
 | Host | `tikwm.com` và `www.tikwm.com` **đều sống** nhưng hay lỗi tạm (timeout / HTTP 531) | `_fetch_tikwm_feed()` thử **lần lượt 2 host** trước khi bỏ |
 | Rate limit | **1 request/giây** (`code=-1 "Free Api Limit: 1 request/second."`) | `_fetch_tikwm_comments()` tự chờ đủ nhịp 1.1s; chỉ cào comment cho **2 video đầu** |
 | Shape response | **`data` là LIST PHẲNG** (không bọc `{"videos": [...]}`) | `parse_tikwm_feed()` hỗ trợ cả 2 dạng, từ chối `code != 0` (ADR-008) |
+
+### ⚠️ `region=VN` KHÔNG phải bộ lọc thật — phải tự lọc
+
+**Đo live 2026-09-25 (80–100 video qua 4–5 lần gọi):**
+
+```
+{'VN': 40, 'MM': 15, 'TH': 7, 'PK': 5, 'ID': 3, 'US': 3, 'PH': 2, 'KR': 1, 'JP': 1, 'UG': 1, 'SG': 1, 'GB': 1}
+→ Tỷ lệ VN: 40/80 = 50%
+```
+
+Lần khác chỉ **21%** (21/100), có lần **1/20**, có lần **0/20**. Nghĩa là video
+Thái Lan / Myanmar / Pakistan lẫn vào "TikTok Việt Nam" đúng như người dùng thấy.
+
+| Cách thử lọc | Kết quả |
+|---|---|
+| `?region=VN` | Chỉ là gợi ý — **không ràng buộc** |
+| `?region=VN&lang=vi` | VN=45% — không tốt hơn |
+| `?region=VN&country=VN` | HTTP 531 |
+| `?region=VN&city=ho chi minh` | HTTP 531 |
+| `?region=VN&type=1` | VN=30% |
+| `?region=vn` (chữ thường) | HTTP 531 |
+| `/api/feed/search?keywords=...` | **403 Forbidden** (không dùng được) |
+
+**→ Giải pháp trong code:** `_filter_vn_videos()` **CHỈ giữ `region == "VN"`** (bỏ hẳn
+video nước ngoài), và `_fetch_tikwm_feed_vn()` gọi **3 lần** để tích luỹ + khử trùng
+theo `video_id` (1 lần gọi không đủ: đo thật 4 lần → 24 video VN unique; có lần 0 video VN).
+
+⚠️ **Hệ quả cần biết:** khi TikWM trả quá ít video VN, kết quả TikTok sẽ **ít hoặc rỗng**
+(và rớt xuống Camoufox → Apify). Đây là hành vi ĐÚNG (fail-closed): thà rỗng còn hơn
+hiển thị video Thái/Myanmar dưới nhãn "TikTok Việt Nam".
 
 ### ⚠️ Apify: payload rỗng làm actor FAILED ngay nhưng VẪN tốn CU
 

@@ -355,27 +355,83 @@ def test_trending_now_classifies_by_category_name() -> None:
     assert by_query["món mới quán abc"].danh_muc == "am_thuc_fnb"
 
 
-# ── Ưu tiên video Việt Nam trong feed TikWM ───────────────────────────────────
-def test_prioritize_vn_videos_puts_vn_first() -> None:
-    """Feed TikWM trả lẫn region (MM/US/PK…) dù đã yêu cầu region=VN."""
-    from ca_agents.ag_trend import _prioritize_vn_videos
+# ── Lọc video Việt Nam trong feed TikWM ──────────────────────────────────────
+def test_filter_vn_videos_drops_foreign() -> None:
+    """`region=VN` của TikWM KHÔNG lọc thật → phải tự lọc, BỎ video nước ngoài.
+
+    Đo live 2026-09-25: tỷ lệ VN chỉ 21–50%, có lần 1/20; phần còn lại là
+    MM/TH/PK/US/ID/PH/KR/JP/UG/SG/GB. Hành vi cũ chỉ "ưu tiên VN lên đầu" nên
+    video Thái/Myanmar vẫn lọt vào radar TikTok VN.
+    """
+    from ca_agents.ag_trend import _filter_vn_videos
 
     videos = [
         {"video_id": "1", "region": "MM"},
-        {"video_id": "2", "region": "US"},
-        {"video_id": "3", "region": "VN"},
-        {"video_id": "4", "region": "vn"},  # chữ thường vẫn tính
+        {"video_id": "2", "region": "VN"},
+        {"video_id": "3", "region": "TH"},
+        {"video_id": "4", "region": "vn"},
         {"video_id": "5", "region": None},
+        {"video_id": "6", "region": "US"},
     ]
-    ordered = _prioritize_vn_videos(videos)
-    assert [v["video_id"] for v in ordered] == ["3", "4", "1", "2", "5"], (
-        "video VN lên đầu, giữ thứ tự tương đối, KHÔNG loại bỏ video khác"
+    kept = _filter_vn_videos(videos)
+    assert [v["video_id"] for v in kept] == ["2", "4"], "chỉ giữ VN, bỏ hẳn nước ngoài"
+
+
+def test_filter_vn_videos_empty_when_no_vn() -> None:
+    """Không có video VN (thực tế có lần 0/20) → trả [] để rớt tầng, KHÔNG trả bừa."""
+    from ca_agents.ag_trend import _filter_vn_videos
+
+    assert _filter_vn_videos([{"video_id": "1", "region": "MM"}]) == []
+
+
+def test_fetch_tikwm_feed_vn_accumulates_and_dedupes() -> None:
+    """Feed 1 lần không đủ video VN → gọi nhiều lần, khử trùng theo `video_id`."""
+    import ca_agents.ag_trend as agt
+
+    # Mỗi lần trả 1 phần VN + rác nước ngoài (mô phỏng đo thật: có lần 0 VN).
+    batches = [
+        [{"video_id": "a", "region": "MM"}, {"video_id": "b", "region": "VN"}],
+        [{"video_id": "c", "region": "VN"}, {"video_id": "b", "region": "VN"}],  # b trùng
+        [{"video_id": "d", "region": "VN"}, {"video_id": "e", "region": "TH"}],
+    ]
+    calls = {"n": 0}
+
+    def _fake_feed() -> list[dict]:
+        i = calls["n"]
+        calls["n"] += 1
+        return batches[min(i, len(batches) - 1)]
+
+    with (
+        patch.object(agt, "_fetch_tikwm_feed", side_effect=_fake_feed),
+        patch.object(agt.time, "sleep"),
+    ):
+        videos = agt._fetch_tikwm_feed_vn(attempts=3)
+
+    assert sorted(v["video_id"] for v in videos) == ["b", "c", "d"], (
+        "tích luỹ qua nhiều lần, khử trùng, chỉ giữ VN"
     )
 
 
-def test_prioritize_vn_videos_keeps_all_when_no_vn() -> None:
-    """Feed toàn region khác → giữ nguyên, không làm rỗng danh sách."""
-    from ca_agents.ag_trend import _prioritize_vn_videos
+def test_fetch_tikwm_feed_vn_raises_when_all_attempts_fail() -> None:
+    """Mọi lần gọi đều lỗi → raise lỗi cuối để caller ghi circuit breaker."""
+    import ca_agents.ag_trend as agt
 
-    videos = [{"video_id": "1", "region": "MM"}, {"video_id": "2", "region": "TH"}]
-    assert len(_prioritize_vn_videos(videos)) == 2
+    with (
+        patch.object(agt, "_fetch_tikwm_feed", side_effect=TimeoutError("down")),
+        patch.object(agt.time, "sleep"),
+        pytest.raises(TimeoutError),
+    ):
+        agt._fetch_tikwm_feed_vn(attempts=2)
+
+
+def test_fetch_tikwm_feed_vn_returns_empty_when_only_foreign() -> None:
+    """TikWM trả toàn video nước ngoài → [] (không raise, để rớt tầng sạch)."""
+    import ca_agents.ag_trend as agt
+
+    with (
+        patch.object(
+            agt, "_fetch_tikwm_feed", return_value=[{"video_id": "x", "region": "MM"}]
+        ),
+        patch.object(agt.time, "sleep"),
+    ):
+        assert agt._fetch_tikwm_feed_vn(attempts=2) == []

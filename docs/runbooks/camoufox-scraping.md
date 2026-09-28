@@ -11,16 +11,122 @@ TikTok:   TikWM → [Camoufox nếu available] → Apify → static topics (is_l
 Threads:  [Official API nếu có token] → Google RSS Bridge → Jina → [Camoufox nếu available] → Apify → RSS GenZ
 ```
 
-> **Trạng thái từng tầng (đo live 2026-09-24)** — xem trước khi tin vào sơ đồ:
+> **Trạng thái từng tầng (đo live 2026-09-25)** — xem trước khi tin vào sơ đồ:
 >
 > | Tầng | Trạng thái | Ghi chú |
 > |---|---|---|
-> | TikWM | 🟢 sống | Timeout đặt 20s, thử 2 host, rate limit 1 req/s |
+> | TikWM | 🟡 sống nhưng `region=VN` KHÔNG lọc thật | Tự lọc VN (`_filter_vn_videos`), gọi 3 lần tích luỹ; tỷ lệ VN gốc chỉ 21–50% |
 > | Threads Official API | ⚪ chưa cấu hình | Cần `THREADS_ACCESS_TOKEN` (tier 0 đáng tin nhất) |
-> | Google RSS Bridge | 🟡 chạy nhưng KHÔNG phải bài Threads | `site:threads.net` trả **0 item**; RSS trả tin báo chí → `is_live_scraped=False`, `link_goc=""` |
+> | Google RSS Bridge | 🔴 **KHÔNG cào được Threads** | `site:threads.net` trả **0–1 item**; 4/4 biến thể query cho **0 link threads.net thật** → toàn bộ là BÀI BÁO chứa chữ "Threads" |
 > | Jina Reader (`r.jina.ai`) | 🔴 **HTTP 403** | Đã ngừng hoạt động cho Threads |
 > | Camoufox | ⚪ chưa cài | `is_available()=False` → tier bị skip |
-> | Apify Threads | ⚠️ phụ thuộc ID | `apify/threads-scraper` **404**; dùng `curious_coder/threads-scraper` |
+> | Apify Threads | 🔴 **403 Forbidden** khi start | `curious_coder/threads-scraper` tồn tại nhưng token hiện tại không có quyền chạy |
+>
+> ### ⚠️ Sự thật quan trọng về nguồn Threads
+>
+> **Google KHÔNG index nội dung Threads cho Google News RSS.** Đo live 2026-09-25:
+>
+> | Query | Item | Link threads.net thật |
+> |---|---|---|
+> | `site:threads.net cà phê OR matcha` | **0** | 0 |
+> | `site:threads.net` | 1 | 0 |
+> | `threads.net cà phê` | 11 | **0** |
+> | `cà phê OR matcha` | 100 | **0** |
+>
+> Nghĩa là các item "Threads" trên radar thực chất là **bài báo Việt** (`Kenh14.vn`,
+> `thanhnien.vn`…) nhắc tới chủ đề/Threads — **không phải bài Threads, không có
+> tương tác thật**. Code nay gắn nhãn trung thực:
+> `📰 [TÍN HIỆU BÁO CHÍ, KHÔNG PHẢI BÀI THREADS]` + `nen_tang=["Báo chí (Google News — chưa index được Threads)"]`
+> + `link_goc=""` + `is_live_scraped=False`.
+>
+> **Muốn có trend Threads THẬT** phải làm 1 trong 2 việc (chưa làm):
+> 1. Cài Camoufox + `scripts/threads_setup_login.py` → tier Trending Now (đã code sẵn).
+> 2. Lấy `THREADS_ACCESS_TOKEN` → tier 0 Official API (`/keyword_search`).
+
+### ⚠️ Chỉ `/search` và `/tag` mới cào được Threads anon — nhưng vẫn cần login
+
+Đo live 2026-09-26 (Camoufox đã cài, `camoufox 0.5.6` + binary `152.0.4-beta.30`):
+
+| URL | Kết quả anon |
+|---|---|
+| `threads.net/` (home) | ✅ render bài thật (13 link `/@user/post/…`) |
+| `threads.net/tag/caphe` | ✅ render bài + header `caphe · 42K thread` |
+| `threads.net/search?q=cà phê` | ✅ **render bài thật** — DÙNG ĐƯỢC (xem dưới) |
+| `threads.net/@user/post/<id>` | ❌ redirect `?error=invalid_post` |
+
+**⇒ ĐÃ SỬA (2026-09-26): Threads search anon cào được bài THẬT — KHÔNG cần đăng nhập.**
+
+Trước đây tier này luôn fail vì **4 bug**:
+
+1. **Selector sai**: code chờ `[data-e2e='search-result-post']` — **Threads không có
+   `data-e2e` nào cho post** (đo thật: 0 giá trị). Class CSS là hash React
+   (`xrvj5dj xd0jker`) đổi mỗi build. → Sửa thành `a[href*='/post/']`.
+2. **Extractor sai**: cắt HTML theo `data-e2e` → 0 khối. → Sửa thành **JS chạy
+   trong trang** (`_JS_EXTRACT_POSTS`): tìm link `/@user/post/id`, leo lên tổ tiên
+   **RỘNG NHẤT mà vẫn chỉ chứa DUY NHẤT bài đó**, rồi bóc theo dòng
+   (username → thời gian → nội dung → stats).
+3. **Login-wall FALSE POSITIVE** (bug nặng nhất): code cũ coi
+   `a[href*='/login']` là login-wall. **NHƯNG link "Đăng nhập" LUÔN có trong nav
+   bar** trên MỌI trang Threads — kể cả khi trang render đầy đủ 6–19 bài. Vì vậy
+   tier báo "login-wall" **oan** rồi rớt tầng dù cào được.
+   → Sửa: chỉ coi là wall khi **URL bị redirect** sang `/login`.
+4. **Regex domain cũ**: `threads\.net/login` — nhưng Threads đã chuyển sang
+   **`threads.com`** và tự redirect. → Sửa: khớp cả `.net` và `.com`.
+
+**Bằng chứng đo thật (phép thử 5 phần):**
+
+| URL | Số bài | login_link |
+|---|---|---|
+| `/search?q=cà phê` | **7** | True (nav bar) |
+| `/tag/caphe` | **7** | True |
+| `/tag/cafe` | **8** | True |
+| `/` (home) | **7–19** | True |
+| `/explore` | 0 | False → **redirect `/login` (wall THẬT)** |
+| warm-up home → search | **10** | True |
+| locale VN + warm-up | **9** | True |
+
+**Tỷ lệ thành công sau fix: 6/6 = 100%** (trước đó ~1/4 lần).
+
+**Không cần đăng nhập, không cần warm-up, không cần locale** — chỉ cần **chờ đủ
+lâu cho SPA render** (poll đếm link post tối đa 20s rồi cuộn tới khi số bài ổn định).
+
+**Bug thứ 3 phát hiện khi sửa**: bài có ảnh/video có **2 link cùng post_id**
+(`/post/<id>` và `/post/<id>/media`). Nếu đếm SỐ LINK thì gặp >1 là dừng → container
+chỉ còn phần media, `innerText` rỗng → mất nội dung 3/5 bài. Phải đếm **SỐ POST_ID
+KHÁC NHAU**.
+
+**Kết quả đo lại:** 6–7 bài thật/lần, link `/post/` thật, tương tác thật
+(vd `@sonqthao` 6.900 tim / 99 phản hồi / 496 đăng lại).
+
+**Thứ tự chuỗi Threads (mode `auto`) đã đổi:**
+
+```
+Official API (nếu có token) → Camoufox (bài THẬT) → Google Bridge (báo chí) → Jina → Apify → RSS
+```
+
+Camoufox đứng TRƯỚC Google Bridge vì Bridge chỉ trả **bài báo chứa chữ "Threads"**
+(Google không index Threads) — đặt Bridge trước sẽ che mất nguồn thật.
+
+**Thứ tự chuỗi TikTok (mode `auto`) đã đổi:**
+
+```
+Camoufox (video VN đúng chủ đề) → TikWM (chỉ 21–50% VN) → Apify → static
+```
+
+### 🐛 Bug đã sửa: Camoufox 0.5.x bắt buộc `persistent_context=True`
+
+Camoufox 0.5.x **không nhận `user_data_dir` một mình** — Playwright raise
+`TypeError: BrowserType.launch() got an unexpected keyword argument 'user_data_dir'`.
+Phải truyền kèm cờ:
+
+```python
+Camoufox(headless=True, geoip=True, humanize=True,
+         persistent_context=True, user_data_dir="/path/to/profile")
+```
+
+Bug này khiến MỌI tầng cần profile đăng nhập (Threads Trending Now) **chết ngay lúc
+launch**, không bao giờ tới bước cào. Đã sửa ở `camoufox_client._attempt_once()`
++ `scripts/threads_setup_login.py`.
 
 Mode UI tương ứng:
 

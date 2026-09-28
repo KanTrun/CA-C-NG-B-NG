@@ -86,13 +86,48 @@ def test_extract_items_skips_block_without_text():
 def test_extract_reuses_lifecycle_helper():
     """Post ít tương tác (likes < 1000) → 'moi_nhu' từ _assess_trend_lifecycle."""
     html = (
-        '<div data-e2e="search-result-post">'
-        "<a href='/@user/post/Ab1'>Cà phê quán mới mở đẹp lung linh ghé ngay kẻo lỡ</a>"
-        "<div>150 12</div></div>"
+        '<a href="/@user/post/Ab1"></a>'
+        '<div>user</div><div>3 giờ</div>'
+        '<div>Cà phê quán mới mở đẹp lung linh ghé ngay kẻo lỡ</div>'
+        '<div>150</div><div>12</div>'
     )
     items = extract_threads_items(html, "cafe", 5, "threads_vn", "now")
     assert len(items) == 1
     assert items[0].vong_doi == "moi_nhu"
+
+
+def test_map_post_rejects_short_body_and_no_stats():
+    """Bài rỗng nội dung hoặc không có tương tác → skip (không phải trend)."""
+    assert src._map_post(
+        {"username": "a", "body": "ngắn", "stats_raw": ["1"], "aria_labels": []},
+        0, "kw", "threads_vn", "now",
+    ) is None
+    assert src._map_post(
+        {"username": "a", "body": "nội dung đủ dài để vượt ngưỡng 15 ký tự",
+         "stats_raw": [], "aria_labels": []},
+        0, "kw", "threads_vn", "now",
+    ) is None
+
+
+def test_map_post_parses_real_shape():
+    """Payload THẬT từ JS extract → TrendItem đầy đủ trường."""
+    raw = {
+        "username": "sonqthao",
+        "post_id": "DddL7rjmtPp",
+        "url": "https://www.threads.net/@sonqthao/post/DddL7rjmtPp",
+        "time_text": "2 giờ",
+        "body": "Thu đến nhất định phải ngồi quán này... Quán đúng gu tui thật sự",
+        "stats_raw": ["6,9K", "99", "496", "4,4K"],
+        "aria_labels": ["Thích", "Bình luận", "Đăng lại"],
+    }
+    item = src._map_post(raw, 0, "cà phê", "threads_vn", "now")
+    assert item is not None
+    assert item.link_goc == "https://www.threads.net/@sonqthao/post/DddL7rjmtPp"
+    # "6,9K" kiểu Việt (dấu phẩy thập phân) → 6900
+    assert "6,900 tim" in item.luot_tiep_can
+    assert "496 đăng lại" in item.luot_tiep_can
+    assert "@sonqthao" in item.diem_nhan_dac_biet
+    assert item.is_live_scraped is True
 
 
 # ── _is_login_wall (plan §3.4) ──
@@ -101,16 +136,24 @@ def test_extract_reuses_lifecycle_helper():
 def test_login_wall_detected_by_url():
     """URL redirect về /login → login-wall."""
     assert src._is_login_wall("<html>whatever</html>", "https://www.threads.net/login") is True
+    assert src._is_login_wall(
+        "x", "https://www.threads.com/login/?next=https%3A%2F%2Fwww.threads.com%2Fexplore"
+    ) is True
 
 
-def test_login_wall_detected_by_html():
-    """HTML không có post + chỉ có nút Log in → login-wall."""
-    html = "<html><body><button>Log in</button></body></html>"
-    assert src._is_login_wall(html, "https://www.threads.net/search?q=cafe") is True
+def test_nav_login_link_is_NOT_wall():
+    """⚠️ BÀI HỌC 2026-09-26: `a[href*='/login']` LUÔN có trong nav bar.
+
+    Trang search render đầy đủ 6–19 bài VẪN có link "Đăng nhập" ở nav. Dùng nav
+    link để suy ra login-wall là FALSE POSITIVE — chính là nguyên nhân tier
+    Threads báo "login-wall" oan rồi rớt tầng dù cào được bài.
+    """
+    html = '<html><nav><a href="/login">Đăng nhập</a></nav><a href="/@u/post/1">bài</a></html>'
+    assert src._is_login_wall(html, "https://www.threads.net/search?q=cafe") is False
 
 
 def test_no_login_wall_when_posts_present():
-    """HTML có post thật → KHÔNG phải login-wall."""
+    """Trang có post thật + URL search → KHÔNG phải login-wall."""
     html = _FIXTURE.read_text(encoding="utf-8")
     assert src._is_login_wall(html, "https://www.threads.net/search?q=cafe") is False
 
@@ -118,50 +161,48 @@ def test_no_login_wall_when_posts_present():
 # ── fetch_threads_page — mock page object (không Playwright thật) ──
 
 
-def test_fetch_threads_page_waits_selector_and_returns_content():
-    """fetch chỉ chờ selector + content — KHÔNG goto (scrape_page đã goto)."""
+def test_fetch_threads_page_returns_content_when_posts_found():
+    """fetch chờ CÓ BÀI (poll đếm link post) rồi trả content — KHÔNG goto.
+
+    ĐO THẬT 2026-09-26: bỏ `wait_for_selector` (trang render chậm, chờ selector
+    cứng dễ chụp HTML quá sớm → 0–2 bài). Nay poll `a[href*='/post/']` tối đa 20s.
+    """
     page = MagicMock()
     page.content.return_value = "<html>fake</html>"
-    page.query_selector.return_value = None  # không có login-link → không grace-wait
-    html = fetch_threads_page(page, "cafe")
-    page.wait_for_selector.assert_called_once_with(
-        "[data-e2e='search-result-post'], a[href*='/login']", timeout=30_000
-    )
+    page.eval_on_selector_all.return_value = 5  # có 5 link post
+    page.wait_for_timeout.return_value = None
+
+    html = fetch_threads_page(page, "cafe", scroll_rounds=0)
     assert html == "<html>fake</html>"
     page.goto.assert_not_called()  # goto do scrape_page lo
+    # Đã đếm link post ít nhất 1 lần
+    assert page.eval_on_selector_all.called
 
 
-def test_fetch_threads_page_fast_fails_on_soft_login_wall():
-    """Login-wall mềm: login-link xuất hiện, post không render sau grace-wait
-    → raise CamoufoxUnavailable NGAY (~3s) thay vì chờ đủ 30s timeout."""
+def test_fetch_threads_page_raises_when_no_posts():
+    """Trang render nhưng 0 link post sau khi chờ → CamoufoxUnavailable."""
     from ca_agents.clients.camoufox_client import CamoufoxUnavailable
 
     page = MagicMock()
-    # wait_for_selector lần 1 (post HOẶC login) thành công; lần 2 (grace-wait
-    # post thật, timeout=3s) raise timeout → wall xác nhận.
-    page.query_selector.return_value = MagicMock()  # login-link có mặt
+    page.eval_on_selector_all.return_value = 0
+    page.url = "https://www.threads.net/search?q=cafe"  # KHÔNG redirect /login
+    page.wait_for_timeout.return_value = None
 
-    def raise_timeout(selector, timeout):
-        if "search-result-post" in selector and timeout == 3_000:
-            raise RuntimeError("Timeout 3000ms exceeded")
-        return None
-
-    page.wait_for_selector.side_effect = raise_timeout
-
-    with pytest.raises(CamoufoxUnavailable, match="login-wall"):
-        fetch_threads_page(page, "cafe")
+    with pytest.raises(CamoufoxUnavailable, match="không có bài viết nào"):
+        fetch_threads_page(page, "cafe", scroll_rounds=0)
 
 
-def test_fetch_threads_page_login_link_but_post_renders_later():
-    """Login-link có mặt nhưng post render sau grace-wait → KHÔNG phải wall,
-    trả content bình thường (tránh false-positive khi SPA lazy-render)."""
+def test_fetch_threads_page_raises_login_wall_when_redirected():
+    """0 post + URL redirect về /login → CamoufoxUnavailable nói rõ login-wall."""
+    from ca_agents.clients.camoufox_client import CamoufoxUnavailable
+
     page = MagicMock()
-    page.query_selector.return_value = MagicMock()  # login-link có mặt
-    page.wait_for_selector.return_value = None  # mọi wait đều thành công
-    page.content.return_value = "<html>posts</html>"
+    page.eval_on_selector_all.return_value = 0
+    page.url = "https://www.threads.com/login/?next=https%3A%2F%2Fwww.threads.com%2Fexplore"
+    page.wait_for_timeout.return_value = None
 
-    html = fetch_threads_page(page, "cafe")
-    assert html == "<html>posts</html>"
+    with pytest.raises(CamoufoxUnavailable, match="redirect về trang đăng nhập"):
+        fetch_threads_page(page, "cafe", scroll_rounds=0)
 
 
 # ── Cache TTL (§3.3-bis) ──
@@ -180,6 +221,44 @@ def test_cache_hit_within_ttl(monkeypatch: pytest.MonkeyPatch):
     scrape_mock.assert_not_called()
 
 
+def _fake_posts() -> list[dict]:
+    """Payload THẬT từ JS extract (2 bài đủ nội dung + stats)."""
+    return [
+        {
+            "username": "saigon_coffee_guide",
+            "post_id": "Cx1a2b3c4d5",
+            "url": "https://www.threads.net/@saigon_coffee_guide/post/Cx1a2b3c4d5",
+            "time_text": "2 giờ",
+            "body": "Cơn sốt matcha nguyên bản đậm vị đang áp đảo các loại trà ngọt gắt.",
+            "stats_raw": ["2.4K", "185"],
+            "aria_labels": ["Thích", "Bình luận"],
+        },
+        {
+            "username": "genz_overthinking",
+            "post_id": "Cx9y8z7w6v5",
+            "url": "https://www.threads.net/@genz_overthinking/post/Cx9y8z7w6v5",
+            "time_text": "5 giờ",
+            "body": "Đi làm quán cafe ca tối đúng là bài test sức bền tâm lý ghê.",
+            "stats_raw": ["1.8K", "94"],
+            "aria_labels": ["Thích"],
+        },
+    ]
+
+
+def _fake_scrape_page_factory(posts: list[dict]):  # type: ignore[no-untyped-def]
+    """Trả hàm `scrape_page` giả: chạy extractor với page đã mock sẵn."""
+
+    def _fake(url: str, extractor, **kwargs: object) -> object:
+        page = MagicMock()
+        page.wait_for_selector.return_value = None
+        page.eval_on_selector_all.return_value = len(posts)
+        page.query_selector.return_value = None
+        page.evaluate.return_value = posts
+        return extractor(page)
+
+    return _fake
+
+
 def test_cache_miss_after_ttl(monkeypatch: pytest.MonkeyPatch):
     """Hết TTL → cache miss → gọi scrape_page thật."""
     src._cache_put("threads:matcha|threads_vn", [MagicMock(spec=TrendItem)])
@@ -187,45 +266,70 @@ def test_cache_miss_after_ttl(monkeypatch: pytest.MonkeyPatch):
     stale = time.monotonic() - 10_000
     src._cache["threads:matcha|threads_vn"] = (stale, [MagicMock(spec=TrendItem)])
 
-    fixture_html = _FIXTURE.read_text(encoding="utf-8")
-    scrape_mock = MagicMock(return_value=fixture_html)
-    monkeypatch.setattr(src, "scrape_page", scrape_mock)
+    posts = _fake_posts()
+
+    def fake_scrape_page(url: str, extractor, **kwargs: object) -> list[dict]:
+        page = MagicMock()
+        page.wait_for_selector.return_value = None
+        page.eval_on_selector_all.return_value = len(posts)
+        page.query_selector.return_value = None
+        page.evaluate.return_value = posts
+        return extractor(page)
+
+    monkeypatch.setattr(src, "scrape_page", fake_scrape_page)
 
     items = scrape_threads_camoufox(keyword="matcha", count=3, nguon_goc="threads_vn")
-    scrape_mock.assert_called_once()
-    assert len(items) == 3
+    assert len(items) == 2
+    assert all(isinstance(i, TrendItem) for i in items)
 
 
 def test_cache_key_separates_from_tiktok(monkeypatch: pytest.MonkeyPatch):
     """Key threads: prefix riêng — không đụng cache TikTok cùng keyword."""
-    # Cache TikTok (khác module) không ảnh hưởng; key threads riêng.
     from ca_agents.sources import tiktok_camoufox_source as tt_src
 
     tt_src._cache_put("matcha|tiktok_vn", [MagicMock(spec=TrendItem)])
 
-    fixture_html = _FIXTURE.read_text(encoding="utf-8")
-    scrape_mock = MagicMock(return_value=fixture_html)
-    monkeypatch.setattr(src, "scrape_page", scrape_mock)
+    posts = _fake_posts()
 
-    scrape_threads_camoufox(keyword="matcha", count=3, nguon_goc="threads_vn")
-    scrape_mock.assert_called_once()  # threads cache trống → gọi thật
+    def fake_scrape_page(url: str, extractor, **kwargs: object) -> list[dict]:
+        page = MagicMock()
+        page.wait_for_selector.return_value = None
+        page.eval_on_selector_all.return_value = len(posts)
+        page.query_selector.return_value = None
+        page.evaluate.return_value = posts
+        return extractor(page)
+
+    monkeypatch.setattr(src, "scrape_page", fake_scrape_page)
+    items = scrape_threads_camoufox(keyword="matcha", count=3, nguon_goc="threads_vn")
+    assert items, "threads cache trống → phải gọi thật và có item"
 
 
 # ── scrape_threads_camoufox lifecycle — mock scrape_page ──
 
 
 def test_scrape_calls_extract_and_logs(monkeypatch: pytest.MonkeyPatch):
-    """scrape_page trả fixture HTML → extract ra items, URL goto đúng search URL."""
-    fixture_html = _FIXTURE.read_text(encoding="utf-8")
-    scrape_mock = MagicMock(return_value=fixture_html)
-    monkeypatch.setattr(src, "scrape_page", scrape_mock)
+    """scrape_page chạy extractor → items, URL goto đúng search URL."""
+    posts = _fake_posts()
+    captured: dict[str, str] = {}
+
+    def fake_scrape_page(url: str, extractor, **kwargs: object) -> list[dict]:
+        captured["url"] = url
+        page = MagicMock()
+        page.wait_for_selector.return_value = None
+        page.eval_on_selector_all.return_value = len(posts)
+        page.query_selector.return_value = None
+        page.evaluate.return_value = posts
+        return extractor(page)
+
+    monkeypatch.setattr(src, "scrape_page", fake_scrape_page)
 
     items = scrape_threads_camoufox(keyword="matcha", count=3, nguon_goc="threads_vn")
-    assert len(items) == 3
+    assert len(items) == 2
     assert all(isinstance(i, TrendItem) for i in items)
-    call_args = scrape_mock.call_args
-    assert "https://www.threads.net/search?q=matcha" in call_args[0][0]
-    assert "serp_type=default" in call_args[0][0]
+    assert "https://www.threads.net/search?q=matcha" in captured["url"]
+    assert "serp_type=default" in captured["url"]
+    # Link là bài thật (không phải search URL)
+    assert all("/post/" in i.link_goc for i in items)
 
 
 def test_scrape_propagates_camoufox_unavailable(monkeypatch: pytest.MonkeyPatch):
@@ -238,21 +342,19 @@ def test_scrape_propagates_camoufox_unavailable(monkeypatch: pytest.MonkeyPatch)
 
 
 def test_login_wall_raises_unavailable(monkeypatch: pytest.MonkeyPatch):
-    """Login-wall → CamoufoxUnavailable cho lần gọi đó, rớt tầng NGAY (plan §3.4)."""
+    """URL redirect /login → CamoufoxUnavailable, rớt tầng NGAY (plan §3.4)."""
     from ca_agents.clients.camoufox_client import CamoufoxUnavailable
 
-    def fake_scrape_page(url: str, extractor, timeout_s: int = 45):
+    def fake_scrape_page(url: str, extractor, **kwargs: object) -> object:
         page = MagicMock()
-        page.url = "https://www.threads.net/login"
-        page.content.return_value = "<html><button>Log in</button></html>"
-        # wait_for_selector sẽ timeout trên trang login — mock để không chờ thật.
-        page.wait_for_selector = MagicMock()
-        page.query_selector.return_value = None
+        page.eval_on_selector_all.return_value = 0  # 0 post
+        page.url = "https://www.threads.com/login/?next=https%3A%2F%2Fwww.threads.com%2Fexplore"
+        page.wait_for_timeout.return_value = None
         return extractor(page)
 
     monkeypatch.setattr(src, "scrape_page", fake_scrape_page)
 
-    with pytest.raises(CamoufoxUnavailable, match="login-wall"):
+    with pytest.raises(CamoufoxUnavailable, match="redirect về trang đăng nhập"):
         scrape_threads_camoufox(keyword="matcha", count=3)
 
 
@@ -289,25 +391,23 @@ def test_smart_chain_uses_camoufox_after_direct_fail(monkeypatch: pytest.MonkeyP
         "ca_agents.sources.threads_direct_source.scrape_threads_direct",
         MagicMock(return_value=[]),
     )
-    fixture_html = _FIXTURE.read_text(encoding="utf-8")
     monkeypatch.setattr(
         "ca_agents.sources.threads_camoufox_source.scrape_page",
-        MagicMock(return_value=fixture_html),
+        _fake_scrape_page_factory(_fake_posts()),
     )
     apify_spy = MagicMock()
     monkeypatch.setattr("ca_agents.sources.threads_apify_source.scrape_threads_apify", apify_spy)
 
     items = _scrape_threads_smart(keyword="matcha", count=3, scrape_mode="auto")
-    assert len(items) == 3
+    assert len(items) == 2
     apify_spy.assert_not_called()  # Camoufox gánh được → không tốn CU Apify
 
 
 def test_smart_chain_browser_mode_camoufox_first(monkeypatch: pytest.MonkeyPatch):
     """mode='browser' → Camoufox FIRST, Bridge/Direct chỉ là backup."""
-    fixture_html = _FIXTURE.read_text(encoding="utf-8")
     monkeypatch.setattr(
         "ca_agents.sources.threads_camoufox_source.scrape_page",
-        MagicMock(return_value=fixture_html),
+        _fake_scrape_page_factory(_fake_posts()),
     )
     bridge_spy = MagicMock(return_value=[])
     monkeypatch.setattr(
@@ -316,7 +416,7 @@ def test_smart_chain_browser_mode_camoufox_first(monkeypatch: pytest.MonkeyPatch
     )
 
     items = _scrape_threads_smart(keyword="matcha", count=3, scrape_mode="browser")
-    assert len(items) == 3
+    assert len(items) == 2
     # Camoufox gánh → Bridge backup KHÔNG được gọi
     bridge_spy.assert_not_called()
 

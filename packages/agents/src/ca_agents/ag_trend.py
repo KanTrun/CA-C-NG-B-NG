@@ -142,13 +142,19 @@ def _scrape_tiktok_smart(
     nguon_goc: str = "tiktok_vn",
     scrape_mode: str = "auto",
 ) -> list[TrendItem]:
-    """TikWM Direct Free API as PRIMARY → Camoufox browser → Apify as BACKUP.
+    """Camoufox (video VN đúng chủ đề) → TikWM → Apify → static last-resort.
 
     Modes:
-        - auto: TikWM first -> Camoufox browser -> Apify backup -> dynamic fallback
-        - direct_only: TikWM only -> dynamic fallback (never uses Apify/Camoufox)
-        - apify_force: Apify first -> TikWM backup
-        - browser: Camoufox first -> TikWM -> Apify backup (plan §3.5)
+        - auto: Camoufox → TikWM → Apify → static
+        - direct_only: TikWM only → static (không Apify/Camoufox)
+        - apify_force: Apify first → TikWM backup
+        - browser: Camoufox first → TikWM → Apify (plan §3.5)
+
+    ĐO THẬT 2026-09-26: Camoufox đứng TRƯỚC TikWM trong `auto` vì:
+      - TikWM `/api/feed/list?region=VN` **không lọc** — chỉ 21–50% video là VN,
+        lẫn MM/TH/PK/US/ID/PH (có lần 0/20 video VN).
+      - Camoufox search theo **từ khoá Việt** → video đúng chủ đề, đúng VN,
+        có view/like thật (đo: `@caitochim` 108.1K views, `@ghiengapgo` 12.6K).
     """
     start = time.monotonic()
     # Theo dõi đã thử Camoufox chưa — tránh launch browser 2 lần cho 1 request
@@ -190,7 +196,39 @@ def _scrape_tiktok_smart(
                 extra={"error": str(e)[:200]},
             )
 
-    # PRIMARY: TikWM Direct Free Scraper
+    # PRIMARY (auto): Camoufox browser-thật — video VN ĐÚNG CHỦ ĐỀ.
+    # Đặt trước TikWM vì TikWM `region=VN` không lọc (chỉ 21–50% là VN) và
+    # không tìm theo từ khoá (chỉ lấy feed chung).
+    if scrape_mode not in {"direct_only", "apify_force"} and not camoufox_tried:
+        camoufox_tried = True
+        try:
+            from ca_agents.clients.camoufox_client import is_available as _cf_avail
+
+            if _cf_avail():
+                from ca_agents.sources.tiktok_camoufox_source import scrape_tiktok_camoufox
+
+                items = scrape_tiktok_camoufox(
+                    keyword=keyword,
+                    count=count,
+                    nguon_goc=nguon_goc,
+                )
+                if items:
+                    logger.info(
+                        "tiktok_source_camoufox_primary",
+                        extra={
+                            "source": "camoufox_tiktok",
+                            "nguon_goc": nguon_goc,
+                            "items_count": len(items),
+                            "duration_ms": int((time.monotonic() - start) * 1000),
+                        },
+                    )
+                    return cast(list[TrendItem], items)
+        except Exception as e:  # noqa: BLE001
+            logger.warning(
+                "tiktok_camoufox_primary_failed_trying_tikwm", extra={"error": str(e)[:200]}
+            )
+
+    # SECONDARY: TikWM Direct Free Scraper
     try:
         items = _scrape_tiktokwm_fallback(keyword=keyword, count=count)
         if items:
@@ -206,31 +244,9 @@ def _scrape_tiktok_smart(
             return cast(list[TrendItem], items)
     except Exception as e:  # noqa: BLE001
         logger.warning(
-            "tiktok_primary_failed_trying_camoufox",
+            "tiktok_tikwm_failed_trying_apify",
             extra={"error": str(e)[:200]},
         )
-
-    # SECONDARY: Camoufox browser-thật (chỉ khi available, plan §3.5)
-    # Bỏ qua nếu đã thử Camoufox ở mode `browser` — tránh launch browser 2 lần.
-    if scrape_mode != "direct_only" and not camoufox_tried:
-        try:
-            from ca_agents.clients.camoufox_client import is_available
-
-            if is_available():
-                from ca_agents.sources.tiktok_camoufox_source import scrape_tiktok_camoufox
-
-                items = scrape_tiktok_camoufox(
-                    keyword=keyword,
-                    count=count,
-                    nguon_goc=nguon_goc,
-                )
-                if items:
-                    return cast(list[TrendItem], items)
-        except Exception as e:  # noqa: BLE001
-            logger.warning(
-                "tiktok_camoufox_tier_failed_trying_apify",
-                extra={"error": str(e)[:200]},
-            )
 
     # TERTIARY / BACKUP: Apify TikTok Scraper (only if mode != direct_only)
     if scrape_mode != "direct_only":
@@ -463,17 +479,59 @@ def _fetch_tikwm_comments(video_url: str, limit: int = 3) -> list[str]:
     return comments
 
 
-def _prioritize_vn_videos(videos: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Đẩy video `region == "VN"` lên đầu, giữ nguyên thứ tự tương đối.
+# TikWM feed: `region=VN` KHÔNG phải bộ lọc thật.
+# Đo live 2026-09-25 (80–100 video/4–5 lần gọi): tỷ lệ VN chỉ **21–50%**, phần
+# còn lại là MM/TH/PK/US/ID/PH/KR/JP/UG/SG/GB — có lần chỉ **1/20** video là VN.
+# Các tham số `lang`, `country`, `type`, `city` KHÔNG lọc chặt hơn; endpoint
+# `/api/feed/search` trả 403. Vì vậy phải TỰ LỌC theo `region`, và gọi vài lần
+# để tích luỹ (1 lần gọi không đủ: 4 lần → 24 video VN unique).
+_TIKTOKWM_FEED_ATTEMPTS = 3
+_TIKTOKWM_MIN_VN_VIDEOS = 12
 
-    Đo live 2026-09-24: dù gọi `/api/feed/list?region=VN`, TikWM vẫn trả lẫn
-    video từ MM/US/PK/TH/TW — đó là hạn chế của nguồn, KHÔNG lọc bỏ (sẽ mất
-    dữ liệu khi feed toàn region khác), chỉ ưu tiên VN lên trước để item F&B
-    Việt Nam không bị video nước ngoài chiếm hết slot hiển thị.
+
+def _filter_vn_videos(videos: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """CHỈ giữ video có `region == "VN"` (bỏ hẳn video nước ngoài).
+
+    Không dùng "ưu tiên lên đầu" như trước: khi tỷ lệ VN chỉ 1/20 thì 19 video
+    Thái/Myanmar vẫn lọt vào radar TikTok VN và người dùng thấy đúng như vậy.
     """
-    vn = [v for v in videos if str(v.get("region") or "").upper() == "VN"]
-    other = [v for v in videos if str(v.get("region") or "").upper() != "VN"]
-    return vn + other
+    return [v for v in videos if str(v.get("region") or "").upper() == "VN"]
+
+
+def _fetch_tikwm_feed_vn(attempts: int = _TIKTOKWM_FEED_ATTEMPTS) -> list[dict[str, Any]]:
+    """Gọi TikWM feed vài lần, chỉ giữ video VN, khử trùng theo `video_id`.
+
+    Mỗi lần gọi chỉ trả một phần video VN (có lần 0) nên phải tích luỹ qua nhiều
+    lần mới đủ dữ liệu. Dừng sớm khi đã đủ `_TIKTOKWM_MIN_VN_VIDEOS`.
+    Raise lỗi của lần gọi ĐẦU nếu mọi lần đều lỗi (caller ghi circuit breaker).
+    """
+    seen: set[str] = set()
+    acc: list[dict[str, Any]] = []
+    last_err: Exception | None = None
+
+    for i in range(max(1, attempts)):
+        try:
+            batch = _filter_vn_videos(_fetch_tikwm_feed())
+            for v in batch:
+                vid = str(v.get("video_id") or "")
+                if vid and vid not in seen:
+                    seen.add(vid)
+                    acc.append(v)
+        except Exception as e:  # noqa: BLE001 — lần sau có thể thành công
+            last_err = e
+            logger.info("tikwm_feed_attempt_failed attempt=%d error=%s", i + 1, e)
+
+        if len(acc) >= _TIKTOKWM_MIN_VN_VIDEOS or i + 1 >= attempts:
+            break
+        # Tôn trọng rate limit 1 req/s của TikWM giữa các lần gọi.
+        time.sleep(_TIKTOKWM_COMMENT_MIN_INTERVAL_S)
+
+    if not acc and last_err is not None:
+        raise last_err
+    logger.info(
+        "tikwm_vn_accumulated videos=%d attempts_used<=%d", len(acc), attempts
+    )
+    return acc
 
 
 def _scrape_tiktokwm_fallback(keyword: str = "", count: int = 12) -> list[TrendItem]:
@@ -495,7 +553,7 @@ def _scrape_tiktokwm_fallback(keyword: str = "", count: int = 12) -> list[TrendI
         videos = _TIKTOKWM_CACHE
     elif _CB_TIKWM.allow():
         try:
-            videos = _fetch_tikwm_feed()
+            videos = _fetch_tikwm_feed_vn()
             if videos:
                 _TIKTOKWM_CACHE = videos
                 _TIKTOKWM_CACHE_TIME = now_ts
@@ -519,9 +577,6 @@ def _scrape_tiktokwm_fallback(keyword: str = "", count: int = 12) -> list[TrendI
         filtered = [v for v in videos if kw_clean.lower() in (v.get("title") or "").lower()]
         if filtered:
             videos = filtered
-
-    # Ưu tiên video Việt Nam lên đầu (feed hay trả lẫn region khác).
-    videos = _prioritize_vn_videos(videos)
 
     # ADR-008 anti-fake-signals: KHÔNG sinh dữ liệu giả khi TikWM fail.
     # Trả [] để _scrape_tiktok_smart kích hoạt Apify backup (nếu có),
@@ -593,12 +648,20 @@ def _scrape_tiktokwm_fallback(keyword: str = "", count: int = 12) -> list[TrendI
 def _scrape_google_trends_vn(keyword: str = "") -> list[TrendItem]:
     """Lấy dữ liệu Google Trends Việt Nam.
 
-    Chuỗi: Trending Now (bảng xếp hạng quốc gia) → SerpApi theo từ khóa → RSS.
+    Chuỗi khi KHÔNG lọc keyword: **gộp** Trending Now + Discovery → RSS.
+    Chuỗi khi CÓ keyword: SerpApi theo từ khoá → RSS.
 
-    "Trending Now" đứng ĐẦU vì đây là bảng xếp hạng xu hướng bùng nổ thật tại
-    VN, phát hiện được trend MỚI mà quán chưa nhập từ khóa (plan 260914 §1.2).
+    ⚠️ ĐO THẬT 2026-09-26 — vì sao GỘP chứ không `return` sớm:
+    Hai tầng trả **hai loại tín hiệu KHÁC NHAU**, không thay thế nhau:
+      - Trending Now = từ khoá **tìm kiếm bùng nổ** (fpt play, bão, xsmb…)
+        → biết XH đang tìm GÌ, có số lượt tìm kiếm.
+      - Discovery    = **slang/meme từ báo chí** (`bá khí`, `thánh meme`…)
+        → bắt được cái Trending Now bỏ sót (trend văn hoá không phải tìm kiếm).
+    Trước đây `return tn_items` ngay → Discovery không bao giờ chạy (bug thật
+    phát hiện khi chạy live: `id bắt đầu bằng 'discovery_': 0`).
     """
-    # 0. PRIMARY: Bảng xếp hạng Trending Now cấp quốc gia (không cần keyword)
+    # 0. Trending Now (bảng xếp hạng tìm kiếm quốc gia) — không cần keyword.
+    tn_items: list[TrendItem] = []
     try:
         from ca_agents.sources.gtrends_trending_now_source import fetch_trending_now_serpapi
 
@@ -608,24 +671,141 @@ def _scrape_google_trends_vn(keyword: str = "") -> list[TrendItem]:
             tn_items = [it for it in tn_items if kw_low in it.cum_tu_khoa_viral.lower()]
         if tn_items:
             logger.info("google_trends_source_trending_now items_count=%d", len(tn_items))
-            return tn_items
     except Exception as exc:  # noqa: BLE001 — rớt tầng
-        logger.info("Trending Now không khả dụng, thử SerpApi theo từ khóa: %s", exc)
+        logger.info("Trending Now không khả dụng: %s", exc)
 
-    # 1. SerpApi Google Trends (theo từ khóa cụ thể)
+    # Nếu có keyword cụ thể → lọc theo keyword qua các tầng (Trending Now đã lọc
+    # ở trên, kế đó SerpApi theo từ khoá, cuối cùng RSS). KHÔNG gộp discovery
+    # vì discovery là "quét rộng" để tìm trend mới, không phải lọc theo keyword.
+    if keyword.strip():
+        if tn_items:
+            return tn_items
+        try:
+            from ca_agents.sources.gtrends_serpapi_source import fetch_fnb_trends_serpapi
+
+            serp_items = fetch_fnb_trends_serpapi(keyword=keyword.strip(), geo="VN")
+            if serp_items:
+                logger.info(
+                    "google_trends_source_serpapi_primary items_count=%d", len(serp_items)
+                )
+                return serp_items
+        except Exception as exc:  # noqa: BLE001
+            logger.info("SerpApi Trends (keyword) fallback sang RSS: %s", exc)
+        return _scrape_google_trends_vn_rss(keyword=keyword)
+
+    # 1. DISCOVERY: từ khoá MỚI (slang/meme) từ bài báo tổng hợp.
+    disc_items: list[TrendItem] = []
+    try:
+        from ca_agents.sources.trend_discovery_source import discover_candidates
+
+        cands = discover_candidates()
+        if cands:
+            disc_items = _candidates_to_trend_items(cands)
+            logger.info(
+                "google_trends_source_discovery items_count=%d candidates=%d",
+                len(disc_items),
+                len(cands),
+            )
+    except Exception as exc:  # noqa: BLE001
+        logger.info("Discovery không khả dụng: %s", exc)
+
+    # 2. GỘP hai tầng (khử trùng theo cụm từ khoá).
+    merged = _merge_trend_layers(tn_items, disc_items)
+    if merged:
+        return merged
+
+    # 3. SerpApi theo từ khoá mặc định (khi cả 2 tầng trên đều rỗng).
     try:
         from ca_agents.sources.gtrends_serpapi_source import fetch_fnb_trends_serpapi
 
-        serp_kw = keyword.strip() or "cà phê"
-        serp_items = fetch_fnb_trends_serpapi(keyword=serp_kw, geo="VN")
+        serp_items = fetch_fnb_trends_serpapi(keyword="cà phê", geo="VN")
         if serp_items:
             logger.info("google_trends_source_serpapi_primary items_count=%d", len(serp_items))
             return serp_items
     except Exception as exc:
         logger.info("SerpApi Trends fallback sang RSS: %s", exc)
 
-    # 2. FALLBACK: Google Trends RSS Việt Nam (miễn phí, không cần key)
+    # 4. FALLBACK: Google Trends RSS Việt Nam (miễn phí, không cần key)
     return _scrape_google_trends_vn_rss(keyword=keyword)
+
+
+def _merge_trend_layers(
+    primary: list[TrendItem], secondary: list[TrendItem]
+) -> list[TrendItem]:
+    """Gộp 2 tầng trend, khử trùng theo `cum_tu_khoa_viral` (không phân biệt hoa/thường).
+
+    Tầng `primary` (Trending Now) đứng trước vì có số liệu lượt tìm kiếm thật;
+    `secondary` (Discovery) nối sau để giữ cả tín hiệu slang/meme.
+    """
+    seen: set[str] = set()
+    out: list[TrendItem] = []
+    for it in list(primary) + list(secondary):
+        key = (it.cum_tu_khoa_viral or "").strip().lower()
+        if not key or key in seen:
+            continue
+        seen.add(key)
+        out.append(it)
+    return out
+
+
+def _candidates_to_trend_items(candidates: list[Any]) -> list[TrendItem]:
+    """Map `TrendCandidate` (discovery) → `TrendItem` để hiển thị.
+
+    ADR-008: candidate là **GỢI Ý do AI tự phát hiện**, chưa được xác minh
+    trên mạng xã hội → gắn nhãn rõ + `is_live_scraped=True` chỉ nghĩa là
+    "dữ liệu tín hiệu là THẬT từ báo chí", KHÔNG phải "đã xác minh viral".
+    """
+    items: list[TrendItem] = []
+    now_str = datetime.now().strftime("%H:%M:%S %d/%m/%Y")
+    for idx, c in enumerate(candidates):
+        kw = c.keyword
+        clean_tag = re.sub(r"[^a-zA-Z0-9_]", "", kw.lower())
+        sources_str = ", ".join(c.sources[:4])
+        conf_pct = int(round(c.confidence * 100))
+        items.append(
+            TrendItem(
+                id=f"discovery_{idx}_{clean_tag or idx}",
+                tieu_de=f"🔎 [PHÁT HIỆN MỚI] {kw}",
+                cum_tu_khoa_viral=kw,
+                nguon_goc="google_vn",
+                loai_xu_huong="breaking_vn_24h",
+                danh_muc="trao_luu_pop_culture",
+                vong_doi="moi_nhu",
+                diem_nhan_dac_biet=(
+                    f"AI tự phát hiện từ bài báo tổng hợp: {c.mention_count} lần / "
+                    f"{c.source_count} nguồn ({sources_str}). "
+                    f"Độ tin cậy {conf_pct}% (nguồn {c.source_count}, "
+                    f"tươi {c.freshness_days:.0f} ngày)."
+                ),
+                nguon_goc_chi_tiet=(
+                    f"Trend Discovery: quét bài báo tổng hợp (query meta-keyword "
+                    f"có tháng) lúc {now_str}. Đây là GỢI Ý chưa xác minh trên MXH."
+                ),
+                ngu_canh_su_dung=(
+                    f"Từ khoá '{kw}' đang được báo chí nhắc nhiều — kiểm tra "
+                    f"TikTok/Threads để xác nhận trước khi làm nội dung."
+                ),
+                tam_ly_gioi_tre=(
+                    "Tín hiệu sớm: báo chí bắt đầu tổng hợp → giới trẻ có thể đã dùng."
+                ),
+                toc_do_tang_truong_24h=float(conf_pct),
+                diem_tiem_nang_viral=min(95, 40 + conf_pct),
+                du_bao_thoi_gian="Tín hiệu sớm — cần xác minh trên TikTok/Threads",
+                link_goc="",
+                tiktok_url=f"https://www.tiktok.com/search?q={kw}",
+                tiktok_tag_url=(
+                    f"https://www.tiktok.com/tag/{clean_tag}" if clean_tag else ""
+                ),
+                thoi_gian_cao=now_str,
+                luot_tiep_can=f"{c.mention_count} lần / {c.source_count} nguồn báo",
+                trich_doan_noi_dung_that=" | ".join(c.sample_titles[:2]),
+                binh_luan_that_tiktok=[],
+                nen_tang_lan_toa=["Báo chí VN", "Trend Discovery"],
+                tu_khoa_hashtag=[f"#{clean_tag}", "#trendmoi", "#discovery"],
+                is_live_scraped=True,
+            )
+        )
+    return items
 
 
 def _scrape_google_trends_vn_rss(keyword: str = "") -> list[TrendItem]:
@@ -931,13 +1111,17 @@ def _scrape_threads_smart(
     nguon_goc: str = "threads_vn",
     scrape_mode: str = "auto",
 ) -> list[TrendItem]:
-    """Threads Official API → Google Bridge → Direct Jina → Camoufox → Apify → RSS.
+    """Threads Official API → Camoufox (bài thật) → Google Bridge → Direct Jina → Apify → RSS.
 
     Modes:
-        - auto: Official API first -> Google Bridge -> Direct Jina -> Camoufox browser -> Apify backup -> RSS fallback
-        - direct_only: Google Bridge -> Direct Jina -> RSS fallback (never uses API/Apify/Camoufox)
-        - apify_force: Apify first -> Google Bridge backup
-        - browser: Camoufox first -> Official API -> Google Bridge -> Direct Jina -> Apify -> RSS (plan §3.5)
+        - auto: Official API → Camoufox → Google Bridge → Direct Jina → Apify → RSS
+        - direct_only: Google Bridge → Direct Jina → RSS (không API/Apify/Camoufox)
+        - apify_force: Apify first → Google Bridge backup
+        - browser: Camoufox first (plan §3.5)
+
+    ĐO THẬT 2026-09-26: Camoufox đứng TRƯỚC Google Bridge trong `auto` vì
+    Camoufox cào được bài Threads THẬT (link /post/, tương tác thật), còn
+    Bridge chỉ trả bài báo chứa chữ "Threads" (Google không index Threads).
     """
     start = time.monotonic()
     # Theo dõi đã thử Camoufox chưa — tránh launch browser 2 lần cho 1 request
@@ -1028,7 +1212,41 @@ def _scrape_threads_smart(
                 extra={"error": str(e)[:200]},
             )
 
-    # 1. PRIMARY (Zero-Infra): Google Index Real-Time Bridge for Threads
+    # 1. PRIMARY: Camoufox browser-thật — cào bài Threads THẬT (link /post/,
+    #    tương tác thật). ĐO THẬT 2026-09-26: đứng TRƯỚC Google Bridge vì
+    #    Bridge chỉ trả BÀI BÁO chứa chữ "Threads" (Google không index Threads),
+    #    không phải bài Threads thật. Đặt Bridge trước sẽ che mất nguồn thật.
+    if scrape_mode not in {"direct_only", "apify_force"}:
+        try:
+            from ca_agents.clients.camoufox_client import is_available as _cf_avail
+
+            if _cf_avail():
+                from ca_agents.sources.threads_camoufox_source import scrape_threads_camoufox
+
+                items = scrape_threads_camoufox(
+                    keyword=keyword,
+                    count=count,
+                    nguon_goc=nguon_goc,
+                )
+                if items:
+                    logger.info(
+                        "threads_source_camoufox_primary",
+                        extra={
+                            "source": "camoufox_threads",
+                            "nguon_goc": nguon_goc,
+                            "items_count": len(items),
+                            "duration_ms": int((time.monotonic() - start) * 1000),
+                        },
+                    )
+                    return cast(list[TrendItem], items)
+        except Exception as e:  # noqa: BLE001
+            logger.warning(
+                "threads_camoufox_primary_failed_trying_bridge: %s", str(e)[:200]
+            )
+
+    # 2. FALLBACK: Google Index Real-Time Bridge.
+    #    ⚠️ Nguồn này trả BÀI BÁO chứa chữ "Threads" (Google KHÔNG index nội
+    #    dung Threads) → items mang is_live_scraped=False + nhãn "TÍN HIỆU BÁO CHÍ".
     try:
         from ca_agents.sources.threads_google_bridge_source import scrape_threads_google_bridge
 
@@ -1039,7 +1257,7 @@ def _scrape_threads_smart(
         )
         if items:
             logger.info(
-                "threads_source_google_bridge_primary",
+                "threads_source_google_bridge_fallback",
                 extra={
                     "source": "threads_google_bridge",
                     "nguon_goc": nguon_goc,

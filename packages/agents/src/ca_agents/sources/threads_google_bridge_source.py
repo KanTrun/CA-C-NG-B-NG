@@ -264,13 +264,25 @@ def scrape_threads_google_bridge(
         # Ngược lại (kết quả báo chí từ query fallback) giữ source thật để
         # không gán nhãn sai cho dữ liệu.
         is_threads_source = bool(p.get("is_threads_source"))
-        source_label = "Meta Threads" if is_threads_source else "Báo chí (Google News)"
         author_label = f"@{author}" if author else "không xác định (nguồn báo chí)"
+
+        # ADR-008: Google KHÔNG index nội dung Threads cho News RSS. Đo live
+        # 2026-09-25: `site:threads.net` trả **0–1 item**, và 4/4 biến thể query
+        # đều cho **0 link threads.net thật** — toàn bộ kết quả là BÀI BÁO chứa
+        # chữ "Threads". Vì vậy tiêu đề phải phản ánh đúng nguồn thật, KHÔNG
+        # được gắn "[THREADS REALTIME]" cho bài báo (người dùng sẽ tưởng là
+        # trend thật từ Threads).
+        if is_threads_source:
+            title_prefix = "🧵 [THREADS]"
+            platform_name = "Meta Threads"
+        else:
+            title_prefix = "📰 [TÍN HIỆU BÁO CHÍ, KHÔNG PHẢI BÀI THREADS]"
+            platform_name = "Báo chí (Google News — chưa index được Threads)"
 
         items_out.append(
             TrendItem(
                 id=f"threads_google_bridge_{idx}_{stable_id}",
-                tieu_de=f"🧵 [THREADS REALTIME] {title_display}",
+                tieu_de=f"{title_prefix} {title_display}",
                 cum_tu_khoa_viral=short_kw or "Tâm sự Threads",
                 nguon_goc=nguon_goc,
                 loai_xu_huong="breaking_vn_24h",
@@ -278,9 +290,14 @@ def scrape_threads_google_bridge(
                 vong_doi=vong_doi,
                 diem_nhan_dac_biet=f"Tài khoản: {author_label}. Trạng thái: {forecast}. Xuất bản: {pub_date}",
                 nguon_goc_chi_tiet=(
-                    f"Cào từ Meta Threads qua Google Index Bridge lúc {now_str}."
+                    f"Cào từ Meta Threads qua Google Index Bridge lúc {now_str}. "
+                    f"Nguồn: {platform_name}."
                     if is_threads_source
-                    else f"Tín hiệu Threads gián tiếp từ Google News (chưa index trực tiếp) lúc {now_str}."
+                    else (
+                        f"Chưa index được bài Threads trực tiếp — đây là TIN BÁO CHÍ "
+                        f"({pub_date}) nhắc tới chủ đề/Threads, KHÔNG phải bài viết Threads "
+                        f"và KHÔNG có số liệu tương tác thật."
+                    )
                 ),
                 ngu_canh_su_dung=f"Ý tưởng đổi mới menu, nâng cao dịch vụ quán hoặc tạo nội dung bắt trend #{short_kw}.",
                 tam_ly_gioi_tre="Tâm lý tiêu dùng, gu thưởng thức đồ uống và lối sống văn phòng của Gen Z.",
@@ -294,7 +311,7 @@ def scrape_threads_google_bridge(
                 luot_tiep_can=reach_str,
                 trich_doan_noi_dung_that=snippet,
                 binh_luan_that_tiktok=cmts,
-                nen_tang_lan_toa=[source_label],
+                nen_tang_lan_toa=[platform_name],
                 tu_khoa_hashtag=[f"#{clean_tag}", "#threads", "#fnbvietnam", "#trend"],
                 is_live_scraped=False,
             )
