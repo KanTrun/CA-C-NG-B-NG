@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import os
 import threading
 import time
@@ -27,6 +28,8 @@ from ca_api.persist import (
     copilot_draft_save,
 )
 from ca_api.persist import session as auth_session
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["copilot-voice"])
 
@@ -165,20 +168,166 @@ async def _receive_client(
             await live.send_activity_end()
 
 
-def _extract_function_call(event: dict[str, Any]) -> tuple[str, str] | None:
-    """Return (call_id, message) if the upstream event contains a function call."""
-    server_content = event.get("serverContent") or {}
-    model_turn = server_content.get("modelTurn") or {}
+_PIPELINE_TOOL_NAME = "run_copilot_pipeline"
+
+
+def _as_dict(value: Any) -> dict[str, Any]:
+    """Ép về dict — upstream có thể gửi sai kiểu (str/list/None).
+
+    Đây là dữ liệu từ mạng: gọi `.get()` thẳng lên giá trị sai kiểu sẽ ném
+    `AttributeError` và giết luôn phiên voice, nên mọi truy cập phải qua đây.
+    """
+    return value if isinstance(value, dict) else {}
+
+
+def _iter_function_calls(event: dict[str, Any]) -> list[dict[str, Any]]:
+    """Gom mọi functionCall trong một server message của Gemini Live.
+
+    Live API (`BidiGenerateContentServerMessage`) gửi yêu cầu gọi hàm ở field
+    **top-level** `toolCall.functionCalls`. Bản trước chỉ đọc
+    `serverContent.modelTurn.parts[].functionCall` — shape này KHÔNG tồn tại
+    trong Live API — nên mọi lượt model gọi `run_copilot_pipeline` đều bị bỏ
+    qua: pipeline nghiệp vụ không chạy, không có `toolResponse` trả về Gemini,
+    và trợ lý đành trả lời là không truy cập được dữ liệu (voice hỏng trong khi
+    chat text vẫn trả lời bình thường). Nhánh `modelTurn.parts[]` được giữ làm
+    dự phòng để không vỡ nếu upstream đổi định dạng giữa các bản preview.
+    """
+    tool_call = _as_dict(event.get("toolCall")) or _as_dict(event.get("tool_call"))
+    raw_calls = tool_call.get("functionCalls") or tool_call.get("function_calls") or []
+    if not isinstance(raw_calls, list):
+        raw_calls = []
+    calls = [c for c in raw_calls if isinstance(c, dict)]
+    if calls:
+        return calls
+
+    server_content = _as_dict(event.get("serverContent"))
+    model_turn = _as_dict(server_content.get("modelTurn"))
     parts = model_turn.get("parts") or []
+    if not isinstance(parts, list):
+        return calls
     for part in parts:
-        fn = part.get("functionCall") or {}
-        if fn.get("name") == "run_copilot_pipeline":
-            args = fn.get("args") or {}
-            message = str(args.get("message") or "").strip()
-            call_id = str(fn.get("id") or "")
-            if message and call_id:
-                return call_id, message
-    return None
+        if not isinstance(part, dict):
+            continue
+        fn = part.get("functionCall") or part.get("function_call")
+        if isinstance(fn, dict):
+            calls.append(fn)
+    return calls
+
+
+def _extract_pipeline_calls(event: dict[str, Any]) -> list[tuple[str, str]]:
+    """Trả [(call_id, message)] cho mọi lượt model gọi tool pipeline.
+
+    Giữ nguyên `call_id` kể cả khi rỗng để hàm gọi tự quyết định (Live API luôn
+    kèm id, nhưng thiếu id thì không thể gửi `toolResponse` hợp lệ).
+    """
+    result: list[tuple[str, str]] = []
+    for fn in _iter_function_calls(event):
+        if fn.get("name") != _PIPELINE_TOOL_NAME:
+            continue
+        args = _as_dict(fn.get("args"))
+        message = str(args.get("message") or "").strip()
+        result.append((str(fn.get("id") or "").strip(), message))
+    return result
+
+
+def _cancelled_call_ids(event: dict[str, Any]) -> set[str]:
+    """Id các tool call đã bị server huỷ — không được trả lời nữa."""
+    cancellation = _as_dict(event.get("toolCallCancellation")) or _as_dict(
+        event.get("tool_call_cancellation")
+    )
+    ids = cancellation.get("ids")
+    if not isinstance(ids, list):
+        return set()
+    return {str(call_id) for call_id in ids if call_id}
+
+
+async def _serve_pipeline_call(
+    websocket: WebSocket,
+    live: GeminiLiveSession,
+    context: VerifiedVoiceContext,
+    call_id: str,
+    message: str,
+) -> None:
+    """Chạy pipeline nghiệp vụ cho MỘT tool call rồi trả kết quả về Gemini + client."""
+    if not call_id:
+        # Live API luôn kèm id; thiếu id thì không thể gửi toolResponse hợp lệ.
+        logger.warning("voice tool call thieu id; bo qua (khong the tra toolResponse)")
+        return
+    if not message:
+        # Vẫn phải trả lời, nếu không Gemini sẽ treo lượt chờ toolResponse.
+        await live.send_function_response(
+            call_id,
+            "Dạ em chưa nghe rõ yêu cầu. Anh/chị nói lại giúp em nhé.",
+        )
+        return
+
+    try:
+        # run_copilot() có thể gọi LLM (chậm) trong live mode → chạy trong
+        # thread executor để không block event loop của WebSocket.
+        response = await asyncio.to_thread(
+            run_copilot,
+            message,
+            {
+                "store_id": context.store_id,
+                "user_id": context.user_id,
+                "user_role": context.user_role,
+                "active_date": ngay_hom_nay_vn(),
+                "channel": "voice",
+            },
+        )
+    except Exception:
+        # Ghi log: nuốt lỗi im lặng từng khiến sự cố voice không có dấu vết nào.
+        logger.exception("voice: run_copilot that bai cho call_id=%s", call_id)
+        response = None
+
+    if response is None:
+        await live.send_function_response(
+            call_id,
+            "Dạ em gặp lỗi khi xử lý yêu cầu. Anh/chị thử lại hoặc dùng chat text nhé.",
+        )
+        return
+
+    proposal = (
+        response.action_proposal.model_dump()
+        if response.action_proposal is not None
+        else None
+    )
+    # Lưu draft + audit như chat thường để client bấm "Duyệt & Gửi"
+    # không bị 404 action_proposal_not_found.
+    if response.action_proposal is not None:
+        try:
+            copilot_draft_save(response.action_proposal.model_dump())
+            copilot_audit_add(
+                action_id=response.action_proposal.action_id,
+                actor_user_id=context.user_id,
+                store_id=context.store_id,
+                intent=response.action_proposal.intent.value,
+                decision="propose",
+                payload_diff=response.action_proposal.payload_diff,
+                channel="voice",
+                latency_ms=0,
+                agent_name="ag_copilot",
+                controller_user_id=context.user_id,
+            )
+        except Exception:
+            pass
+    await live.send_function_response(call_id, response.reply_text, proposal)
+    await websocket.send_json(
+        {
+            "event": "voice:proposal",
+            "data": {
+                "reply_text": response.reply_text,
+                "intent": (
+                    response.intent.value
+                    if hasattr(response.intent, "value")
+                    else str(response.intent)
+                ),
+                "action_proposal": proposal,
+                "citations": response.citations or [],
+                "agent_mode": response.agent_mode,
+            },
+        }
+    )
 
 
 async def _receive_upstream(
@@ -186,82 +335,20 @@ async def _receive_upstream(
     live: GeminiLiveSession,
     context: VerifiedVoiceContext,
 ) -> None:
+    cancelled: set[str] = set()
     while True:
         event = await live.receive()
         await websocket.send_json({"event": "voice:upstream", "data": event})
 
+        cancelled |= _cancelled_call_ids(event)
+
         # Nối pipeline nghiệp vụ: khi Gemini gọi tool run_copilot_pipeline,
         # chạy run_copilot() (role auth + tool + ActionProposal + audit) rồi
         # trả kết quả về Gemini để đọc thành tiếng + gửi proposal về client.
-        fn = _extract_function_call(event)
-        if fn is None:
-            continue
-        call_id, message = fn
-        try:
-            # run_copilot() có thể gọi LLM (chậm) trong live mode → chạy trong
-            # thread executor để không block event loop của WebSocket.
-            response = await asyncio.to_thread(
-                run_copilot,
-                message,
-                {
-                    "store_id": context.store_id,
-                    "user_id": context.user_id,
-                    "user_role": context.user_role,
-                    "active_date": ngay_hom_nay_vn(),
-                    "channel": "voice",
-                },
-            )
-        except Exception:
-            response = None
-
-        if response is None:
-            await live.send_function_response(
-                call_id,
-                "Dạ em gặp lỗi khi xử lý yêu cầu. Anh/chị thử lại hoặc dùng chat text nhé.",
-            )
-            continue
-
-        proposal = (
-            response.action_proposal.model_dump()
-            if response.action_proposal is not None
-            else None
-        )
-        # Lưu draft + audit như chat thường để client bấm "Duyệt & Gửi"
-        # không bị 404 action_proposal_not_found.
-        if response.action_proposal is not None:
-            try:
-                copilot_draft_save(response.action_proposal.model_dump())
-                copilot_audit_add(
-                    action_id=response.action_proposal.action_id,
-                    actor_user_id=context.user_id,
-                    store_id=context.store_id,
-                    intent=response.action_proposal.intent.value,
-                    decision="propose",
-                    payload_diff=response.action_proposal.payload_diff,
-                    channel="voice",
-                    latency_ms=0,
-                    agent_name="ag_copilot",
-                    controller_user_id=context.user_id,
-                )
-            except Exception:
-                pass
-        await live.send_function_response(call_id, response.reply_text, proposal)
-        await websocket.send_json(
-            {
-                "event": "voice:proposal",
-                "data": {
-                    "reply_text": response.reply_text,
-                    "intent": (
-                        response.intent.value
-                        if hasattr(response.intent, "value")
-                        else str(response.intent)
-                    ),
-                    "action_proposal": proposal,
-                    "citations": response.citations or [],
-                    "agent_mode": response.agent_mode,
-                },
-            }
-        )
+        for call_id, message in _extract_pipeline_calls(event):
+            if call_id and call_id in cancelled:
+                continue
+            await _serve_pipeline_call(websocket, live, context, call_id, message)
 
 
 async def _idle_watchdog(websocket: WebSocket, tracker: ActivityTracker) -> None:

@@ -253,20 +253,20 @@ def test_copilot_voice_runs_pipeline_on_function_call(
     import ca_api.interfaces.http.copilot_voice as voice_module
 
     sent_responses: list[dict[str, object]] = []
+    # Shape THẬT của Gemini Live API: yêu cầu gọi hàm nằm ở field top-level
+    # `toolCall.functionCalls` (BidiGenerateContentServerMessage), KHÔNG phải
+    # `serverContent.modelTurn.parts[].functionCall`. Test cũ dùng shape sai nên
+    # không phát hiện được voice hỏng.
     upstream_events: list[dict[str, object]] = [
         {
-            "serverContent": {
-                "modelTurn": {
-                    "parts": [
-                        {
-                            "functionCall": {
-                                "id": "call_abc",
-                                "name": "run_copilot_pipeline",
-                                "args": {"message": "Báo cáo hao hụt sữa hôm nay"},
-                            }
-                        }
-                    ]
-                }
+            "toolCall": {
+                "functionCalls": [
+                    {
+                        "id": "call_abc",
+                        "name": "run_copilot_pipeline",
+                        "args": {"message": "Báo cáo hao hụt sữa hôm nay"},
+                    }
+                ]
             }
         },
     ]
@@ -321,6 +321,182 @@ def test_copilot_voice_runs_pipeline_on_function_call(
     assert len(sent_responses) == 1
     assert sent_responses[0]["call_id"] == "call_abc"
     assert sent_responses[0]["reply_text"]
+
+
+def test_copilot_voice_function_call_parsing_shapes() -> None:
+    """Parser phải đọc shape Live API thật (`toolCall.functionCalls`).
+
+    Đây là hồi quy cho lỗi voice "không truy cập được dữ liệu": parser cũ chỉ
+    đọc `serverContent.modelTurn.parts[].functionCall` — shape không tồn tại
+    trong Live API — nên tool call của Gemini bị bỏ qua hoàn toàn.
+    """
+    import ca_api.interfaces.http.copilot_voice as voice_module
+
+    # Shape THẬT của Live API.
+    real = voice_module._extract_pipeline_calls(
+        {
+            "toolCall": {
+                "functionCalls": [
+                    {
+                        "id": "call_1",
+                        "name": "run_copilot_pipeline",
+                        "args": {"message": "lịch tuần này"},
+                    }
+                ]
+            }
+        }
+    )
+    assert real == [("call_1", "lịch tuần này")]
+
+    # Shape dự phòng (modelTurn.parts) vẫn phải chạy để không vỡ nếu upstream đổi.
+    fallback = voice_module._extract_pipeline_calls(
+        {
+            "serverContent": {
+                "modelTurn": {
+                    "parts": [
+                        {
+                            "functionCall": {
+                                "id": "call_2",
+                                "name": "run_copilot_pipeline",
+                                "args": {"message": "hao hụt hôm nay"},
+                            }
+                        }
+                    ]
+                }
+            }
+        }
+    )
+    assert fallback == [("call_2", "hao hụt hôm nay")]
+
+    # Nhiều tool call song song trong cùng một message → xử lý hết.
+    parallel = voice_module._extract_pipeline_calls(
+        {
+            "toolCall": {
+                "functionCalls": [
+                    {"id": "a", "name": "run_copilot_pipeline", "args": {"message": "một"}},
+                    {"id": "b", "name": "run_copilot_pipeline", "args": {"message": "hai"}},
+                    {"id": "c", "name": "tool_khac", "args": {"message": "bỏ qua"}},
+                ]
+            }
+        }
+    )
+    assert parallel == [("a", "một"), ("b", "hai")]
+
+    # Message rỗng vẫn phải giữ call_id để trả lời, tránh Gemini treo chờ.
+    assert voice_module._extract_pipeline_calls(
+        {"toolCall": {"functionCalls": [{"id": "z", "name": "run_copilot_pipeline"}]}}
+    ) == [("z", "")]
+
+    # Không có tool call → không có gì.
+    assert voice_module._extract_pipeline_calls({"serverContent": {"turnComplete": True}}) == []
+
+    # Cancellation: id bị huỷ phải nhận diện được (cả snake_case).
+    assert voice_module._cancelled_call_ids({"toolCallCancellation": {"ids": ["x"]}}) == {"x"}
+    assert voice_module._cancelled_call_ids({"tool_call_cancellation": {"ids": ["y"]}}) == {"y"}
+    assert voice_module._cancelled_call_ids({"serverContent": {}}) == set()
+
+
+def test_copilot_voice_parsing_survives_malformed_upstream() -> None:
+    """Dữ liệu upstream sai kiểu KHÔNG được làm sập phiên voice.
+
+    Đây là JSON đi qua mạng: nếu code `.get()` thẳng lên giá trị sai kiểu thì
+    `AttributeError` sẽ giết luôn `_receive_upstream` → cả phiên voice chết.
+    Mọi trường hợp dưới đây phải trả kết quả rỗng thay vì ném lỗi.
+    """
+    import ca_api.interfaces.http.copilot_voice as voice_module
+
+    malformed: list[dict[str, object]] = [
+        {"toolCall": "không phải dict"},
+        {"toolCall": ["list"]},
+        {"toolCall": {"functionCalls": "không phải list"}},
+        {"toolCall": {"functionCalls": [None, 123, "str"]}},
+        {"toolCall": {"functionCalls": [{"id": "a", "name": "run_copilot_pipeline", "args": "str"}]}},
+        {"serverContent": "không phải dict"},
+        {"serverContent": {"modelTurn": "không phải dict"}},
+        {"serverContent": {"modelTurn": {"parts": "không phải list"}}},
+        {"serverContent": {"modelTurn": {"parts": [None, "str", 42]}}},
+        {"toolCallCancellation": "không phải dict"},
+        {"toolCallCancellation": {"ids": "không phải list"}},
+        {"toolCallCancellation": {"ids": [None, ""]}},
+    ]
+    for event in malformed:
+        # Không được ném lỗi.
+        calls = voice_module._extract_pipeline_calls(event)
+        cancelled = voice_module._cancelled_call_ids(event)
+        assert isinstance(calls, list), event
+        assert isinstance(cancelled, set), event
+
+    # `args` sai kiểu → coi như thiếu message nhưng VẪN giữ call_id để trả lời.
+    assert voice_module._extract_pipeline_calls(
+        {"toolCall": {"functionCalls": [{"id": "a", "name": "run_copilot_pipeline", "args": "str"}]}}
+    ) == [("a", "")]
+    # id rỗng/None trong cancellation bị bỏ qua (không tạo entry rác).
+    assert voice_module._cancelled_call_ids({"toolCallCancellation": {"ids": [None, ""]}}) == set()
+
+
+def test_copilot_voice_skips_cancelled_function_call(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Tool call đã bị server huỷ thì không được chạy pipeline nữa."""
+    import ca_api.interfaces.http.copilot_voice as voice_module
+
+    sent_responses: list[dict[str, object]] = []
+    upstream_events: list[dict[str, object]] = [
+        {"toolCallCancellation": {"ids": ["call_cancelled"]}},
+        {
+            "toolCall": {
+                "functionCalls": [
+                    {
+                        "id": "call_cancelled",
+                        "name": "run_copilot_pipeline",
+                        "args": {"message": "hao hụt hôm nay"},
+                    }
+                ]
+            }
+        },
+    ]
+
+    class FakeLiveSession:
+        def __init__(self, context: object) -> None:
+            self.context = context
+
+        async def open(self) -> None:
+            return None
+
+        async def receive(self) -> dict[str, object]:
+            if upstream_events:
+                return upstream_events.pop(0)
+            await asyncio.sleep(60)
+            return {}
+
+        async def send_audio(self, audio: bytes) -> None:
+            return None
+
+        async def send_text(self, text: str) -> None:
+            return None
+
+        async def send_function_response(
+            self, call_id: str, reply_text: str, proposal: object | None = None
+        ) -> None:
+            sent_responses.append({"call_id": call_id, "reply_text": reply_text})
+
+        async def close(self) -> None:
+            return None
+
+    monkeypatch.setattr(voice_module, "GeminiLiveSession", FakeLiveSession)
+    token = _login_manager()
+
+    with client.websocket_connect("/api/v1/copilot/voice") as ws:
+        ws.send_text(json.dumps({"event": "auth", "token": token}))
+        assert ws.receive_json()["event"] == "voice:ready"
+
+        # Hai upstream event (cancel + call) rồi không có voice:proposal nào.
+        assert ws.receive_json()["event"] == "voice:upstream"
+        assert ws.receive_json()["event"] == "voice:upstream"
+
+        ws.send_text(json.dumps({"event": "stop"}))
+
+    assert sent_responses == []
 
 
 def test_copilot_execution_receipt_lifecycle_and_isolation() -> None:
