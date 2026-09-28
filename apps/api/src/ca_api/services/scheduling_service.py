@@ -106,19 +106,18 @@ def current_open_shifts(
     phan_cong: dict[str, list[str]] | None = None,
     ca_list: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
-    """Ca thiếu người THẬT của tuần: chỉ thuộc lần xếp gần nhất và CHƯA được lấp.
+    """Ca thiếu người THẬT của tuần: bản ghi open_shift mà ca đó VẪN chưa đủ người.
 
     `open_shifts` là bảng SQLite TÍCH LUỸ: ca thiếu của lần xếp thất bại cũ vẫn
-    nằm ở trạng thái "open" dù lần xếp sau đã đủ người (đường vá chỉ chạy khi
-    lần xếp đạt). Không lọc thì mọi bề mặt (lịch tuần, chợ đổi ca) hiện hàng
-    trăm ca "thiếu" không còn đúng sự thật, bắt người dùng xử lý vô nghĩa.
+    nằm ở trạng thái "open" dù quản lý đã ghim đủ người (ghim chạy `run_solver`
+    trực tiếp, KHÔNG tạo run mới, nên không có đường vá nào dọn bản ghi cũ).
+    Không lọc thì mọi bề mặt (lịch tuần, chợ đổi ca) hiện hàng chục ca "thiếu"
+    không còn đúng sự thật, bắt người dùng xử lý vô nghĩa.
 
-    Hai luật:
-    1. Chỉ giữ ca của `schedule_run` MỚI NHẤT (lần xếp đang hiển thị).
-    2. Nếu có `phan_cong` + `ca_list`: bỏ ca đã ĐỦ người (đã ghim thủ công hoặc
-       lần xếp sau đã lấp) — ca không còn thiếu thì không còn là việc phải làm.
+    Luật: ca nào `assigned >= so_nguoi_toi_thieu` thì KHÔNG còn là việc phải làm,
+    bất kể bản ghi open_shift cũ còn nằm đó. Chỉ giữ bản ghi còn thiếu thật.
     """
-    from ca_api.persist import open_shift_list, schedule_run_latest
+    from ca_api.persist import open_shift_list
 
     items = [
         *open_shift_list(store_id, tuan_iso=tuan_iso),
@@ -126,12 +125,7 @@ def current_open_shifts(
     ]
     if not items:
         return []
-    run = schedule_run_latest(store_id, tuan_iso)
-    if not run:
-        return []
-    run_id = str(run.get("id") or "")
-    items = [s for s in items if str(s.get("schedule_run_id") or "") == run_id]
-    if phan_cong and ca_list:
+    if phan_cong is not None and ca_list is not None:
         toi_thieu = {
             str(shift.get("id")): int(shift.get("so_nguoi_toi_thieu") or 1)
             for shift in ca_list

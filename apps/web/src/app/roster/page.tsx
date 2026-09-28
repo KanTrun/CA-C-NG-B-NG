@@ -871,6 +871,20 @@ export default function RosterPage() {
                 {lifecycleBusy ? "Đang lưu…" : nextAction.label}
               </button>
             )}
+            {/* Trạng thái "Chờ duyệt" trước đây chỉ có MỘT nút (Duyệt và công bố),
+                không có đường lùi — user bị "kẹt" phải công bố mới thoát. Cho
+                phép về nháp để chỉnh/xếp lại mà không phải công bố. */}
+            {trangThai === "cho_duyet" && (
+              <button
+                type="button"
+                className="nq-btn-outline px-3 py-1 text-sm"
+                disabled={lifecycleBusy}
+                title="Quay về nháp để chỉnh phân công hoặc xếp lại, không công bố."
+                onClick={() => void runLifecycle("nhap", currentDisplayWeek, null)}
+              >
+                Về nháp để xếp lại
+              </button>
+            )}
             <details className="relative">
               <summary className="nq-btn px-3 py-1 text-sm cursor-pointer list-none">
                 {icsBusy ? "Đang xuất…" : "Xuất lịch"}

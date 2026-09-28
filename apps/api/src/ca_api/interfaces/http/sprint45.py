@@ -526,10 +526,7 @@ async def lich_transition(
 
 def _guard_authoritative_lifecycle(week: str, target: str, store_id: str) -> dict[str, Any]:
     from ca_api.persist import schedule_run_latest
-    from ca_api.services.scheduling_service import (
-        authoritative_input_fingerprint,
-        current_open_shifts,
-    )
+    from ca_api.services.scheduling_service import authoritative_input_fingerprint
 
     run = schedule_run_latest(store_id, week)
     if not run:
@@ -537,13 +534,25 @@ def _guard_authoritative_lifecycle(week: str, target: str, store_id: str) -> dic
     _, current_fingerprint = authoritative_input_fingerprint(store_id, week)
     if run.get("fingerprint") != current_fingerprint:
         raise HTTPException(status_code=409, detail="stale_schedule_run")
-    # Ca thiếu THẬT = ca của lần xếp gần nhất CHƯA đủ người (xem
-    # `current_open_shifts`). Dùng nó thay cho `run.status` đóng băng + bảng
-    # `open_shifts` tích luỹ: nếu không, một run cũ `needs_gap_resolution` khoá
-    # công bố MÃI MÃI dù lịch đã đủ người — đúng lỗi "bấm duyệt không được gì".
-    real_gaps = current_open_shifts(store_id, week)
-    if target in {"da_cong_bo", "da_duyet"} and real_gaps:
-        raise HTTPException(status_code=409, detail="schedule_has_unresolved_gaps")
+    # Ca thiếu THẬT = ca mà PHÂN CÔNG HIỆN TẠI chưa đủ người tối thiểu.
+    #
+    # Vì sao KHÔNG dùng `run.status`: ghim ca (`POST /lich-tuan/pin`) chạy
+    # `run_solver` TRỰC TIẾP (không tạo run mới), nên một run cũ
+    # `needs_gap_resolution` vẫn đóng băng mãi — dù quản lý đã ghim đủ người,
+    # nút "Duyệt và công bố" vẫn 409 `schedule_has_unresolved_gaps`. Tương tự,
+    # `open_shifts` là bảng tích luỹ không tự dọn khi ghim tay lấp ca.
+    #
+    # Nguồn đúng là phân công đang hiển thị: ca nào `assigned < so_nguoi_toi_thieu`
+    # mới thực sự còn thiếu. Đủ hết thì cho công bố, bất kể run cũ nói gì.
+    if target in {"da_cong_bo", "da_duyet"}:
+        phan_cong = _phan(week)
+        toi_thieu = _so_nguoi_toi_thieu_map()
+        thieu = [
+            ca_id for ca_id in toi_thieu
+            if len(set(phan_cong.get(ca_id, []))) < toi_thieu.get(ca_id, 1)
+        ]
+        if thieu:
+            raise HTTPException(status_code=409, detail="schedule_has_unresolved_gaps")
     return run
 
 
@@ -664,15 +673,22 @@ def list_open_shifts(
         if role in {"quan_ly", "chu_quan"}:
             items.extend(open_shift_list(store_id, status="claimed"))
         return {"items": items}
-    # Chỉ ca thiếu THẬT của tuần: lọc theo lần xếp gần nhất + bỏ ca đã đủ người
-    # (xem `current_open_shifts`). Không lọc thì chợ đổi ca hiện hàng trăm ca cũ
-    # đã hết hạn trong khi lịch thực đã đủ người.
-    from ca_api.services.scheduling_service import current_open_shifts
+    # Ca thiếu THẬT cho tuần: chỉ giữ bản ghi open_shift mà ca đó VẪN chưa đủ
+    # người trong phân công hiện tại. `open_shifts` là bảng tích luỹ — không lọc
+    # thì chợ hiện hàng chục ca "hết hạn" dù ghim tay đã lấp đủ (lỗi user thấy).
+    phan_cong = _phan(tuan_iso)
+    toi_thieu = _so_nguoi_toi_thieu_map()
 
-    items = current_open_shifts(store_id, tuan_iso)
-    if role not in {"quan_ly", "chu_quan"}:
-        # Nhân viên chỉ thấy ca CHƯA ai nhận để xin nhận.
-        items = [s for s in items if s.get("status") != "claimed"]
+    def con_thieu(s: dict[str, Any]) -> bool:
+        ca_id = str(s.get("ca_id") or "")
+        return len(set(phan_cong.get(ca_id, []))) < toi_thieu.get(ca_id, 1)
+
+    items = [s for s in open_shift_list(store_id, tuan_iso=tuan_iso) if con_thieu(s)]
+    if role in {"quan_ly", "chu_quan"}:
+        items.extend(
+            s for s in open_shift_list(store_id, tuan_iso=tuan_iso, status="claimed")
+            if con_thieu(s)
+        )
     return {"items": items}
 
 
@@ -2157,6 +2173,17 @@ def _ca_meta_map() -> dict[str, dict[str, Any]]:
             "ket_thuc": str(c.get("ket_thuc") or ""),
             "vi_tri": str(c.get("vi_tri") or ""),
         }
+    return out
+
+
+def _so_nguoi_toi_thieu_map() -> dict[str, int]:
+    """ca_id → số người tối thiểu, đọc từ seed `ca_mau_21` (mặc định 1)."""
+    seed = json.loads(SEED.read_text(encoding="utf-8")) if SEED.exists() else {}
+    out: dict[str, int] = {}
+    for c in seed.get("ca_mau_21", []):
+        if not isinstance(c, dict) or not c.get("id"):
+            continue
+        out[str(c["id"])] = int(c.get("so_nguoi_toi_thieu") or 1)
     return out
 
 
