@@ -6152,8 +6152,12 @@ a.nq-bento-surface:active {
 }
 
 /* ── Ops register (T0) ── */
+/* Trang vận hành dùng bề rộng sẵn có. TRƯỚC ĐÂY cap ở `--nq-max-narrow`
+   (720px) → trên màn 1366px thừa hai dải trống rất lớn hai bên (user phàn nàn
+   "chừa hai khoảng trống 2 bên quá nhiều"). Nay chỉ giới hạn ở `--nq-max`
+   (1600px) để nội dung giãn rộng, vẫn không tràn trên màn siêu rộng. */
 .nq-page--run {
-  max-width: var(--nq-max-narrow);
+  max-width: var(--nq-max);
   margin: 0 auto;
 }
 
@@ -6322,7 +6326,7 @@ a.nq-bento-surface:active {
   bottom: calc(0.6rem + var(--nq-safe-b));
   left: calc(0.6rem + var(--nq-safe-l));
   right: calc(0.6rem + var(--nq-safe-r));
-  max-width: calc(var(--nq-max-narrow) + 1.2rem);
+  max-width: min(1100px, 100%);
   margin: 0 auto;
   background: var(--nq-glass-1);
   backdrop-filter: var(--nq-blur-glass);
@@ -6880,7 +6884,33 @@ a.nq-bento-surface:active {
   align-items: flex-start;
   justify-content: space-between;
   gap: var(--nq-s3);
+  cursor: pointer;
+  list-style: none;
+}
+
+.nq-gap-panel__head::-webkit-details-marker {
+  display: none;
+}
+
+.nq-gap-panel__head::after {
+  content: "";
+  flex: none;
+  width: 0.7rem;
+  height: 0.7rem;
+  margin-top: 0.25rem;
+  border-right: 2px solid var(--nq-st-warn-ink-strong, var(--nq-ink));
+  border-bottom: 2px solid var(--nq-st-warn-ink-strong, var(--nq-ink));
+  transform: rotate(45deg);
+  transition: transform var(--nq-beat-settle) var(--nq-ease-out);
+}
+
+.nq-gap-panel[open] .nq-gap-panel__head {
   margin-bottom: var(--nq-s4);
+}
+
+.nq-gap-panel[open] .nq-gap-panel__head::after {
+  transform: rotate(-135deg);
+  margin-top: 0.5rem;
 }
 
 .nq-gap-panel__title {
@@ -6922,9 +6952,9 @@ a.nq-bento-surface:active {
   margin: 0;
   padding: 0;
   list-style: none;
-  /* Chặn trường hợp xấu nhất: rất nhiều ca. Ở màn phổ thông 4–8 ca vừa trọn
-     trong 22rem; nhiều hơn thì cuộn trong khối, không kéo dài cả trang. */
-  max-height: 22rem;
+  /* Chặn trường hợp xấu nhất: rất nhiều ca. Khối đã GẤP được nên chỉ khi mở
+     mới cuộn; 18rem đủ ~3 hàng thẻ, phần còn lại của trang vẫn thấy được. */
+  max-height: 18rem;
   overflow-y: auto;
   overscroll-behavior: contain;
   scrollbar-width: thin;

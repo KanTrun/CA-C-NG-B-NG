@@ -1214,26 +1214,25 @@ export default function RosterPage() {
           />
 
           {canWrite && (data?.open_shifts?.length ?? 0) > 0 ? (
-            /* Khối "ca thiếu người": LƯỚI THẺ, không phải danh sách dọc.
-               Bản cũ mỗi ca một hàng full-width (nhãn + select + nút) nên 5 ca
-               là 5 hàng cao ~90px, đẩy trang dài quá màn hình và trông nặng.
-               Nay mỗi ca là một THẺ trong lưới tự chia cột: quét bằng mắt một
-               khối, và số ca tăng vẫn không kéo dài trang vô hạn — `max-height`
-               + cuộn trong khối giữ phần còn lại của trang luôn thấy được. */
-            <section className="nq-gap-panel">
-              <div className="nq-gap-panel__head">
+            /* Khối "ca thiếu người": <details> GẤP ĐƯỢC.
+               - Ít ca (≤6) thì mở sẵn để xử lý ngay.
+               - Nhiều ca thì mặc định GẤP để không chiếm cả màn hình; bấm mở
+                 mới cuộn trong khối (max-height) — trang không bị kéo dài.
+               Số ca nay chỉ là ca thiếu của LẦN XẾP GẦN NHẤT (backend đã lọc),
+               nên không còn hiện bản ghi cũ khi lịch đã đủ người. */
+            <details className="nq-gap-panel" open={(data?.open_shifts?.length ?? 0) <= 6}>
+              <summary className="nq-gap-panel__head">
                 <div>
                   <h3 className="nq-gap-panel__title">
                     Ca còn thiếu người
                     <span className="nq-gap-panel__count">{data?.open_shifts?.length}</span>
                   </h3>
                   <p className="nq-gap-panel__hint">
-                    Xếp tự động đã cố gắng hết sức, nhưng nếu ai cũng bận/kẹt ca thì máy KHÔNG tự
-                    bịa ra người. Các ca này là chỗ máy bó tay — bạn chọn người phù hợp rồi ghim
-                    để chạy lại. Xong hết mới duyệt được.
+                    Máy không tự bịa ra người khi ai cũng bận/kẹt ca. Bấm mở để chọn người cho
+                    từng ca rồi ghim — xử lý hết mới duyệt được.
                   </p>
                 </div>
-              </div>
+              </summary>
               <ul className="nq-gap-grid">
                 {data?.open_shifts?.map((openShift) => {
                   const shift = shifts.find((item) => item.id === openShift.ca_id);
@@ -1275,7 +1274,7 @@ export default function RosterPage() {
                   );
                 })}
               </ul>
-            </section>
+            </details>
           ) : null}
 
           {canWrite ? (

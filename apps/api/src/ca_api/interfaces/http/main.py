@@ -807,6 +807,17 @@ def get_lich_tuan(
         *open_shift_list(store_id, tuan_iso=tuan_iso),
         *open_shift_list(store_id, tuan_iso=tuan_iso, status="claimed"),
     ]
+    # CHỈ giữ ca thiếu của LẦN XẾP GẦN NHẤT.
+    #
+    # `open_shifts` là bảng SQLite TÍCH LUỸ: ca thiếu của lần xếp cũ vẫn nằm đó
+    # nếu lần đó thất bại rồi lần sau thành công (đường vá chỉ chạy khi lần xếp
+    # đạt). Hậu quả user thấy: lịch đã đủ 70/70 người mà khối "Ca còn thiếu
+    # người" vẫn liệt kê 168 ca cũ, bắt ghim từng ca vô nghĩa.
+    # Neo vào `schedule_run` hiện tại để khối này luôn khớp sự thật của lần xếp
+    # đang hiển thị.
+    if schedule_run:
+        run_id = str(schedule_run.get("id") or "")
+        open_shifts = [s for s in open_shifts if str(s.get("schedule_run_id") or "") == run_id]
 
     data = _week_value("lich_tuan_results_by_week", tuan_iso, None)
     if not isinstance(data, dict):
@@ -860,6 +871,21 @@ def get_lich_tuan(
 
         chua_xac_nhan, du_bi, nv_status_map = _detect_staff_availability(tuan_iso, phan_cong, nhan_vien)
 
+        # Bỏ ca thiếu ĐÃ ĐƯỢC LẤP (đủ người trong `phan_cong` hiện tại). Người
+        # dùng có thể đã ghim thủ công hoặc lần xếp sau đã lấp — khi đó ca không
+        # còn thiếu nữa dù bản ghi open_shift vẫn "open". Không lọc thì UI bắt
+        # ghim lại ca đã đủ người.
+        if open_shifts and ca_list:
+            so_nguoi_toi_thieu = {
+                str(shift.get("id")): int(shift.get("so_nguoi_toi_thieu") or 1)
+                for shift in ca_list
+            }
+            open_shifts = [
+                s for s in open_shifts
+                if len(set(phan_cong.get(str(s.get("ca_id") or ""), [])))
+                < so_nguoi_toi_thieu.get(str(s.get("ca_id") or ""), 1)
+            ]
+
         lifecycle = _week_value("lich_tuan_lifecycle_by_week", tuan_iso, {})
         return {
             "nguon": "quan",
@@ -894,6 +920,13 @@ def get_lich_tuan(
     result["trang_thai"] = lifecycle.get("trang_thai", result.get("trang_thai", "nhap"))
     result["khung_gio"] = _khung_template()
     result["schedule_run"] = schedule_run
+    # Cùng luật neo-run như nhánh solver: chỉ giữ ca thiếu của lần xếp gần nhất,
+    # tránh hiện bản ghi cũ khi chưa có lần xếp nào cho tuần này.
+    if schedule_run:
+        run_id = str(schedule_run.get("id") or "")
+        open_shifts = [s for s in open_shifts if str(s.get("schedule_run_id") or "") == run_id]
+    else:
+        open_shifts = []
     result["open_shifts"] = open_shifts
     return result
 

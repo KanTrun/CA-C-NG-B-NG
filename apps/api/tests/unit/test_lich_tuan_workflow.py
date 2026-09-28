@@ -42,6 +42,43 @@ def test_week_assignments_and_pins_are_isolated() -> None:
     assert week_41["pins"] == []
 
 
+def test_khong_hien_ca_thieu_cua_lan_xep_cu(
+    _du_nhan_vien_xep_lich: None, _xac_nhan_kha_dung_tuan: None
+) -> None:
+    """Bảng open_shifts tích luỹ: ca thiếu của LẦN XẾP CŨ không được hiện khi
+    đã có lần xếp mới.
+
+    Lỗi gốc: lịch W40 đủ người nhưng khối "Ca còn thiếu người" vẫn liệt kê hàng
+    trăm ca cũ từ một lần xếp thất bại trước đó — user bị bắt ghim từng ca vô nghĩa.
+    """
+    from ca_api.persist import open_shift_create, schedule_run_create
+
+    week = "2026-W43"
+    old_run = schedule_run_create(
+        store_id="quan_01", tuan_iso=week, input_snapshot={"a": 1},
+        fingerprint="fp-old", idempotency_key="old-run", created_by="lan", status="computed",
+    )
+    open_shift_create(
+        store_id="quan_01", schedule_run_id=str(old_run["id"]), tuan_iso=week,
+        ca_id="w1_c01", deadline_at="2026-11-01T00:00:00Z",
+    )
+    open_shift_create(
+        store_id="quan_01", schedule_run_id=str(old_run["id"]), tuan_iso=week,
+        ca_id="w1_c02", deadline_at="2026-11-01T00:00:00Z",
+    )
+
+    # Lần xếp MỚI (không có ca thiếu) — phải che ca thiếu của lần cũ.
+    new_run = schedule_run_create(
+        store_id="quan_01", tuan_iso=week, input_snapshot={"a": 2},
+        fingerprint="fp-new", idempotency_key="new-run", created_by="lan", status="computed",
+    )
+    assert str(new_run["id"]) != str(old_run["id"])
+
+    res = client.get(f"/api/v1/lich-tuan?tuan={week}", headers=headers(client, "lan")).json()
+    assert str(res["schedule_run"]["id"]) == str(new_run["id"])
+    assert res["open_shifts"] == [], "ca thiếu của lần xếp cũ phải bị ẩn"
+
+
 def test_manager_can_export_xlsx_and_pdf_for_selected_week() -> None:
     week = "2026-W42"
     kv_set("phan_cong_by_week", {week: {"w1_c01": ["nv_01"]}})
