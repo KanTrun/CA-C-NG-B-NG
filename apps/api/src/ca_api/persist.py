@@ -106,6 +106,12 @@ _PREFIX = "pbkdf2_sha256"
 # mà lấy được vai quản lý thì bất kỳ ai cũng duyệt được ràng buộc và phát được
 # mã điểm danh. Nâng vai là việc của chủ quán, làm ngoài luồng đăng ký.
 VAI_TU_DANG_KY = "nhan_vien"
+# Vai KHÔNG phải người: bot/agent nội bộ. Tài khoản bot `ai_scheduler` được tạo
+# tự động để thoả khoá ngoại `chat_participants.nv_id → users.nv_id`, nhưng nó
+# KHÔNG phải nhân sự — không được xuất hiện trong danh sách người, không được
+# tính vào số nhân viên, không được nhận việc. Giữ một nguồn duy nhất ở đây;
+# `ca_api.nhan_vien.VAI_KHONG_XEP_LICH` là chốt thứ hai cho pool xếp lịch.
+VAI_BOT = {"ai_assistant"}
 DEFAULT_STORE_ID = os.environ.get("NHIPQUAN_DEFAULT_STORE_ID", "quan_01").strip() or "quan_01"
 
 
@@ -1919,7 +1925,19 @@ def audit_add(
         state["written"] = True
 
 
-def list_users(*, store_id: str | None = None) -> list[dict[str, str]]:
+def list_users(*, store_id: str | None = None, include_bots: bool = False) -> list[dict[str, str]]:
+    """Liệt kê tài khoản NGƯỜI THẬT của quán.
+
+    Bug QA đợt 5: bot nội bộ `ai_scheduler` (vai `ai_assistant`) lọt vào danh
+    sách nhân sự ở `/api/v1/nguoi` — trang Người dùng hiện "20 TỔNG TÀI KHOẢN"
+    và vẽ bot trong biểu đồ phân bố vai trò, dù quán chỉ có 19 người. Bot được
+    tạo tự động ở `chat_get_or_create_scheduler_direct` để thoả khoá ngoại của
+    `chat_participants`, KHÔNG phải nhân sự.
+
+    Lọc ở TẦNG DỮ LIỆU (không ở giao diện) để mọi bề mặt dùng chung đều đúng:
+    `/nguoi`, `channels` (gợi ý người nhận), `AG-MEETING`, provider của Copilot,
+    và phép đếm `so_nv`. Truyền `include_bots=True` ở nơi thật sự cần bot.
+    """
     init_db()
     with _conn() as cx:
         if store_id:
@@ -1940,6 +1958,7 @@ def list_users(*, store_id: str | None = None) -> list[dict[str, str]]:
             "email": str(r[4] or ""),
         }
         for r in rows
+        if include_bots or str(r[1]) not in VAI_BOT
     ]
 
 
