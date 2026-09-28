@@ -499,6 +499,137 @@ def test_copilot_voice_skips_cancelled_function_call(
     assert sent_responses == []
 
 
+def _call_serve_pipeline_directly(
+    monkeypatch: pytest.MonkeyPatch,
+    call_id: str,
+    message: str,
+) -> tuple[list[dict[str, object]], list[dict[str, object]], list[str]]:
+    """Gọi trực tiếp `_serve_pipeline_call` cho nhánh biên; trả (response, event, run_copilot_calls).
+
+    Cố ý KHÔNG đi qua WebSocket: cách đó phụ thuộc timing (client gửi `stop` sớm
+    làm task bị cancel giữa chừng → response chưa kịp ghi → test xanh giả).
+    Gọi trực tiếp thì tất định và nhanh.
+
+    `run_copilot` được thay bằng hàm ghi vết: mọi nhánh ở đây đều phải thoát
+    SỚM, nên nó KHÔNG được gọi lần nào.
+    """
+    import ca_api.interfaces.http.copilot_voice as voice_module
+    from ca_agents.ag_copilot.voice_session import VerifiedVoiceContext
+
+    run_copilot_calls: list[str] = []
+
+    def _forbidden_run_copilot(message: str, context: object) -> object:
+        run_copilot_calls.append(message)
+        raise AssertionError("run_copilot KHONG duoc goi o nhanh bien nay")
+
+    monkeypatch.setattr(voice_module, "run_copilot", _forbidden_run_copilot)
+
+    sent_responses: list[dict[str, object]] = []
+    client_events: list[dict[str, object]] = []
+
+    class FakeLive:
+        async def send_function_response(
+            self, cid: str, reply_text: str, proposal: object | None = None
+        ) -> None:
+            sent_responses.append(
+                {"call_id": cid, "reply_text": reply_text, "proposal": proposal}
+            )
+
+    class FakeWebSocket:
+        async def send_json(self, payload: dict[str, object]) -> None:
+            client_events.append(payload)
+
+    asyncio.run(
+        voice_module._serve_pipeline_call(
+            FakeWebSocket(),
+            FakeLive(),
+            VerifiedVoiceContext(
+                user_id="nv_01", user_role="quan_ly", store_id="quan_01"
+            ),
+            call_id,
+            message,
+        )
+    )
+    return sent_responses, client_events, run_copilot_calls
+
+
+def test_copilot_voice_replies_when_function_call_has_no_message(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Tool call THIẾU `message` vẫn phải được trả lời để Gemini không treo lượt.
+
+    Live API dừng sinh cho tới khi nhận `toolResponse` khớp `id`. Nếu nhánh này
+    im lặng thì lượt hội thoại treo vĩnh viễn — người dùng nói mà trợ lý không
+    bao giờ đáp. Vì vậy phải trả lời kể cả khi không có gì để chạy pipeline.
+    """
+    sent, events, run_calls = _call_serve_pipeline_directly(
+        monkeypatch, "call_empty", ""
+    )
+
+    assert len(sent) == 1, "phai tra dung MOT toolResponse"
+    assert sent[0]["call_id"] == "call_empty"
+    assert str(sent[0]["reply_text"]).strip()
+    assert events == [], "khong duoc gui voice:proposal khi pipeline khong chay"
+    assert run_calls == [], "khong duoc goi run_copilot khi thieu message"
+
+
+def test_copilot_voice_ignores_function_call_without_id(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Tool call không có `id` thì bỏ qua — KHÔNG được gửi toolResponse thiếu id.
+
+    `toolResponse` phải khớp `id` để Live API ghép cặp; gửi response rỗng id sẽ
+    làm hỏng lượt. Nhánh này phải thoát sớm, không chạy pipeline.
+    """
+    sent, events, run_calls = _call_serve_pipeline_directly(
+        monkeypatch, "", "hao hụt hôm nay"
+    )
+
+    assert sent == [], "KHONG duoc gui toolResponse khi thieu id"
+    assert events == []
+    assert run_calls == [], "khong duoc chay pipeline khi thieu id"
+
+
+def test_copilot_voice_whitespace_message_is_normalised_to_empty() -> None:
+    """`message` toàn khoảng trắng phải được CHUẨN HOÁ thành rỗng ngay tầng parse.
+
+    Tầng `_extract_pipeline_calls` chịu trách nhiệm `.strip()`. Nhờ đó
+    `_serve_pipeline_call` chỉ cần kiểm tra một điều kiện duy nhất (`not message`)
+    là đủ chặn mọi trường hợp "không có nội dung thật" — kể cả `"   "`.
+    """
+    import ca_api.interfaces.http.copilot_voice as voice_module
+
+    for raw in ("", "   ", "\n", "\t  \n"):
+        assert voice_module._extract_pipeline_calls(
+            {
+                "toolCall": {
+                    "functionCalls": [
+                        {
+                            "id": "c1",
+                            "name": "run_copilot_pipeline",
+                            "args": {"message": raw},
+                        }
+                    ]
+                }
+            }
+        ) == [("c1", "")], f"raw={raw!r} phai chuan hoa thanh chuoi rong"
+
+    # Chuỗi có nội dung thật vẫn giữ nguyên (không strip mất chữ).
+    assert voice_module._extract_pipeline_calls(
+        {
+            "toolCall": {
+                "functionCalls": [
+                    {
+                        "id": "c2",
+                        "name": "run_copilot_pipeline",
+                        "args": {"message": "  hao hụt hôm nay  "},
+                    }
+                ]
+            }
+        }
+    ) == [("c2", "hao hụt hôm nay")]
+
+
 def test_copilot_execution_receipt_lifecycle_and_isolation() -> None:
     request_hash = compute_snapshot_hash({"decision": "approve"})
     outcome = {"ok": True, "status": "executed"}
