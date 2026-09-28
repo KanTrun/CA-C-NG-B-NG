@@ -60,6 +60,7 @@ from ca_api.context_providers import (
     get_mail_style_for_store,
     get_ops_context_for_mail,
 )
+from ca_api.interfaces.http.ai_insight import router as ai_insight_router
 from ca_api.interfaces.http.ai_learning import router as ai_learning_router
 from ca_api.interfaces.http.channels import router as channels_router
 from ca_api.interfaces.http.chat import router as chat_router
@@ -318,6 +319,11 @@ if serpapi_system_router:
 app.include_router(mail_router)
 app.include_router(gmail_router)
 app.include_router(ai_learning_router)
+# Khung "AI phân tích" dùng chung cho 6 trang AI & tự động hoá (Đề xuất thông
+# minh, Tự giải thích, Thử nghiệm an toàn, Cẩm nang, Học từ phản hồi, Hộp thư
+# ràng buộc). Router này từng bị MỒ CÔI — file có, endpoint có, nhưng không
+# import/include nên mọi trang gọi `/api/v1/ai/insight` đều 404 (QA đợt 6).
+app.include_router(ai_insight_router)
 app.include_router(chat_router)
 app.include_router(reservations_router)
 app.include_router(shift_rescue_router)

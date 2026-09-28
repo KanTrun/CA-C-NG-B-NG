@@ -131,7 +131,10 @@ export default function PhieuPage() {
   }, [token, authHeader]);
 
   // Load danh sách mẫu — không còn fallback hard-code.
+  // Phải chờ có token: effect chạy ở lần render đầu khi `token` còn rỗng sẽ gửi
+  // `Authorization: Bearer ` (rỗng) → API trả 401 (QA đợt 6).
   useEffect(() => {
+    if (!token) return;
     fetch(`${API}/api/v1/phieu/mau`, { headers: authHeader() })
       .then(async (r) => {
         if (!r.ok) throw new Error("load_mau");
@@ -139,7 +142,7 @@ export default function PhieuPage() {
       })
       .then((d) => setMauList(Array.isArray(d) ? d : d.items ?? []))
       .catch(() => setMauList([]));
-  }, [authHeader]);
+  }, [token, authHeader]);
 
   async function xacNhanCoMat() {
     setBusy(true);
