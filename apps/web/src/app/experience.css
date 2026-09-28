@@ -364,11 +364,11 @@
    trong khoảng 97ms -> 190ms. Cũng chính vì thế bài `spatial-memory.spec.ts` đo
    `svgBox` rồi đo từng neo, hai phép đo rơi vào hai bố cục khác nhau nên toạ độ
    lệch (neo chạm 912 trong khi `svgBox` kết thúc ở 771). */
-.nq-spatial__layout { display: grid; gap: 1rem; grid-template-columns: minmax(0, 1fr) 420px; align-items: start; }
-/* Dưới 1100px thì về một cột: bản đồ và cột chi tiết cạnh nhau ở bề rộng này
-   làm cả hai bị bó (bản đồ mất chiều ngang, cột phải gãy chữ). */
-@media (max-width: 1100px) { .nq-spatial__layout { grid-template-columns: minmax(0, 1fr); } }
-.nq-spatial__side { display: grid; gap: var(--nq-s4); align-content: start; }
+.nq-spatial__layout { display: grid; gap: 1rem; grid-template-columns: minmax(0, 1fr); align-items: start; }
+/* Bản đồ full chiều ngang; chi tiết neo + tour xuống DƯỚI thành lưới nhiều cột
+   đều nhau (trước đây cột phải cứng 420px làm bản đồ hẹp và panel bị bó chữ). */
+.nq-spatial__side { display: grid; gap: var(--nq-s4); align-content: start; grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr)); align-items: start; }
+.nq-spatial__side > * { align-self: start; }
 .nq-map2d { align-self: start; border: 2px solid var(--nq-line); border-radius: var(--nq-radius-bubble, 18px); background: var(--nq-bg-elevated); overflow: hidden; }
 .nq-map2d__svg { display: block; width: 100%; height: auto; color: var(--nq-fg); }
 .nq-map2d__anchor { cursor: pointer; outline: none; }
@@ -425,24 +425,24 @@
 
 /* ── QUANVERSE Living OS ────────────────────────────────────────────────── */
 .nq-quanverse { display: grid; gap: var(--nq-s4); }
-/* Bố cục ba vùng rõ ràng, KHÔNG để vùng nào bị ép:
-   - ≥1400px: mặt bằng + rail phải THEO TỈ LỆ (rail ~30%) — rail cứng 360px ở
-     màn 1920px chỉ chiếm 23%, nội dung dồn trái và rail bị bóp; đây đúng là
-     cảm giác "ép qua bên phải".
-   - 1200–1400px: rail 340–380px là đủ cho trục 15 phút + chế độ.
-   - <1200px: MỘT cột (rail xuống dưới) — dải 760–1040px trước đây tách rail
-     thành hai cột nằm dưới mặt bằng full-width nên mỗi cột chỉ còn ~370px. */
+/* MỘT cột: mặt bằng FULL chiều ngang, các panel xuống dưới thành lưới nhiều cột.
+   Trước đây chia hai cột (map 1fr + rail 26–32%) làm nội dung bên phải bị ép
+   thành dải hẹp, chữ bó và kéo dài xuống màn hình — nay trả bề ngang cho map,
+   panel dàn đều bên dưới. */
 .nq-quanverse__layout {
   display: grid; gap: var(--nq-s4);
-  grid-template-columns: minmax(0, 1fr) minmax(320px, 32%);
+  grid-template-columns: minmax(0, 1fr);
   align-items: start;
 }
-@media (min-width: 1700px) {
-  /* Màn rất rộng: chặn rail lại để nó không phình thành một cột chữ dài khó đọc. */
-  .nq-quanverse__layout { grid-template-columns: minmax(0, 1fr) minmax(380px, 26%); }
+/* Panel dưới map: lưới tự chia cột đều nhau (auto-fit), mỗi thẻ tối thiểu 320px. */
+.nq-quanverse__panels {
+  display: grid; gap: var(--nq-s4);
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr));
+  align-items: start;
 }
-@media (max-width: 1200px) { .nq-quanverse__layout { grid-template-columns: minmax(0, 1fr); } }
-.nq-quanverse__right { display: grid; gap: var(--nq-s4); }
+/* `ZoneDetail`/`HorizonTimeline`/`ModeRail` cao khác nhau → cho mỗi thẻ tự cao,
+   không kéo giãn thẻ hàng xóm. */
+.nq-quanverse__panels > * { align-self: start; }
 .nq-quanverse__guests { display: grid; gap: var(--nq-s4); grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); align-items: start; }
 .nq-quanverse__guests section { margin-top: 0; }
 
@@ -1763,14 +1763,16 @@
 .nq-living-map__zone .nq-loadbar { width: 5px; height: 22px; }
 .nq-living-map__zone .nq-living-map__loadt { font-size: 0.7rem; }
 
-/* ── /quanverse: phân bổ lại vùng nội dung (chia đều, không ép một bên) ──── */
-/* Cột trái là một grid dọc: mặt bằng rồi tới chi tiết khu vực. `align-content:
-   start` giữ nó không bị kéo cao theo cột phải. */
-.nq-quanverse__main {
+/* ── /quanverse: phân bổ lại vùng nội dung (mặt bằng full ngang, panel dưới) ── */
+/* Panel dưới mặt bằng là một grid: chi tiết khu vực + trục thời gian + chế độ,
+   chia ĐỀU theo bề ngang (auto-fit), mỗi thẻ tự cao. */
+.nq-quanverse__panels {
   display: grid; gap: var(--nq-s4);
-  align-content: start; min-width: 0;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr));
+  align-items: start; min-width: 0;
 }
-.nq-quanverse__main .nq-living-map { align-self: start; }
+.nq-quanverse__panels > * { align-self: start; }
+.nq-quanverse__panels .nq-living-map { align-self: start; }
 
 /* Ba panel khách chia ĐỀU: mỗi panel một cột khi đủ chỗ, không để panel thứ ba
    rơi xuống một mình. `auto-fit` + trần 1fr cho phép 3 cột ở màn rộng. */
