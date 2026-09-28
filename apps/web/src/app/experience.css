@@ -221,6 +221,19 @@
 .nq-war-compare__blocked { color: var(--nq-warn); background: color-mix(in srgb, var(--nq-warn) 14%, transparent); }
 .nq-war-compare__stale { color: var(--nq-warn); font-size: 0.75rem; }
 .nq-war-compare__actions { display: flex; gap: 0.5rem; margin-top: 0.25rem; flex-wrap: wrap; }
+/* Lời giải thích phương án (LLM khi live, tất định khi replay). */
+.nq-war-compare__reason {
+  margin: 0.35rem 0 0;
+  padding-left: 0.5rem;
+  border-left: 2px solid var(--nq-accent);
+  font-size: 0.8rem;
+  line-height: 1.5;
+  color: var(--nq-ink-muted);
+  display: flex;
+  gap: 0.35rem;
+  align-items: flex-start;
+}
+.nq-war-compare__reason .nq-icon { flex: none; margin-top: 0.15rem; color: var(--nq-accent); }
 
 .nq-crisis { margin-top: 1.25rem; }
 .nq-crisis h2 { font-size: 1rem; letter-spacing: 0.04em; text-transform: uppercase; color: var(--nq-accent); }
@@ -1462,8 +1475,7 @@
   margin: 0; color: var(--nq-dim); font-size: 0.95rem; line-height: 1.6;
   max-width: 48rem;
 }
-.nq-war__actions, .nq-rules__actions { display: flex; gap: var(--nq-s2); flex-wrap: wrap; }
-.nq-rescue__case { display: grid; gap: var(--nq-s3); }
+.nq-war__actions, .nq-rules__actions { display: flex; gap: var(--nq-s2); flex-wrap: wrap; }.nq-rescue__case { display: grid; gap: var(--nq-s3); }
 .nq-rescue__nguon {
   margin: 0.35rem 0 0;
   font-size: 0.78rem;

@@ -261,10 +261,17 @@ def tour_start(
     _role_of(authorization)
     repo = _get_repo()
     memories = repo.all_memories()
-    # Không truyền `tour_id` → luôn dùng route mặc định, không bao giờ None.
     tour = plan_tour(memories=memories)
-    assert tour is not None
-    return cast(dict[str, Any], tour.model_dump(mode="json"))
+    payload = tour.model_dump(mode="json")
+    # Diễn đạt lại lời dẫn khi có LLM (live); replay giữ nguyên bản tất định.
+    # Bước/anchor/ký ức KHÔNG đổi — chỉ câu chữ. Lỗi ở đây không làm hỏng tour.
+    try:
+        from ca_agents.ag_spatial_memory.narrate import enrich_narration
+
+        payload["steps"] = enrich_narration(payload.get("steps", []) or [])
+    except Exception:
+        pass
+    return cast(dict[str, Any], payload)
 
 
 @router.post("/api/v1/experience/voice/turn")

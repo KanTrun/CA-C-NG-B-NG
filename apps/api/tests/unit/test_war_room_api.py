@@ -64,6 +64,18 @@ def test_simulate_returns_comparison() -> None:
     assert "baseline_snapshot_hash" in body
 
 
+def test_moi_phuong_an_co_loi_giai_thich() -> None:
+    """Bấm 'Đề xuất' phải thấy nội dung, không chỉ số khô.
+
+    Ở replay, lời giải thích là bản TẤT ĐỊNH (không gọi LLM) nhưng vẫn phải có.
+    """
+    r = _simulate()
+    options = r.json()["options"]
+    for opt in options:
+        assert opt.get("reason"), f"phương án {opt['option_id']} thiếu lời giải thích"
+        assert opt.get("reason_provider") == "replay"
+
+
 def test_get_scenarios_after_simulate() -> None:
     r = _simulate()
     sim_id = r.json()["simulation_id"]

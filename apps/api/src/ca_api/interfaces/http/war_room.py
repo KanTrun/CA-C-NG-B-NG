@@ -108,6 +108,22 @@ def war_room_simulate(
         current_snapshot_hash=effective_hash,
     )
     payload = comparison.model_dump(mode="json")
+    # Tầng GIẢI THÍCH: mỗi phương án kèm lời giải thích đọc được. Số liệu vẫn do
+    # engine tất định tính; đây chỉ diễn giải lại (LLM khi live, lưới tất định khi
+    # replay). Nhờ vậy bấm "Đề xuất" mới thấy nội dung thay vì chỉ con số khô.
+    try:
+        from ca_agents.ag_war_room.explain import explain_option
+
+        options = payload.get("options", []) or []
+        for opt in options:
+            info = explain_option(opt, all_options=options)
+            opt["reason"] = info["reason"]
+            opt["reason_provider"] = info["provider"]
+            if info["unsupported"]:
+                opt["reason_unsupported"] = info["unsupported"]
+    except Exception:
+        # Giải thích là lớp phụ trợ — lỗi ở đây KHÔNG được làm hỏng mô phỏng.
+        pass
     with _LOCK:
         _SIM_CACHE[comparison.simulation_id] = {
             "request_id": body.request_id,
