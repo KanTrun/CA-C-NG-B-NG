@@ -291,7 +291,7 @@ EXCLUDED_ROUTES: dict[str, str] = {
     # forecast thật, để `/quanverse` demo được khi quán chưa có đơn thật mà UI
     # không phải bịa số. Chúng KHÔNG phải chức năng điều phối: chỉ đọc, không gọi
     # LLM, không ghi DB, và ẩn khỏi `/openapi.json` (`include_in_schema=False`).
-    # Xoá cùng `interfaces/http/test_quanverse.py` khi hết nhu cầu demo.
+    # Xoá cùng `interfaces/http/quanverse_fixtures.py` khi hết nhu cầu demo.
     "/api/v1/test/quanverse/snapshot": "mock fixture cho UI /quanverse — chỉ đọc, ẩn khỏi OpenAPI",
     "/api/v1/test/quanverse/stations": "mock fixture cho UI /quanverse — chỉ đọc, ẩn khỏi OpenAPI",
     "/api/v1/test/quanverse/forecast": "mock fixture cho UI /quanverse — chỉ đọc, ẩn khỏi OpenAPI",

@@ -10,10 +10,19 @@ Mục đích: cho `/quanverse` chạy được khi quán CHƯA có đơn thật,
 nới lỏng hay bịa số ở tầng UI. Dữ liệu ở đây là fixture biên soạn tay, **không**
 đọc DB, **không** gọi LLM, **không** ghi gì.
 
-Vì sao KHÔNG nhét vào `quanverse.py`: tách file để (a) route test không lẫn vào
-router production có cổng vai thật (`_require_manager`), (b) xoá được bằng một
-`git rm` khi hết nhu cầu demo, (c) `include_in_schema=False` giữ `/openapi.json`
-sạch — bề mặt mock không phải hợp đồng sản phẩm.
+TÊN FILE — ĐỪNG ĐỔI THÀNH `test_*.py`
+--------------------------------------
+`pyproject.toml` khai `testpaths = ["apps", "packages"]` và dùng quy ước mặc
+định `python_files = test_*.py`. Một file trong `apps/` tên `test_quanverse.py`
+sẽ bị pytest **thu như module test** và gọi thẳng các hàm route với fixture
+của pytest — `scenario` nhận object `Query(...)` thay vì chuỗi `"cao_diem"`,
+rồi `_lay_kich_ban` ném 404 `scenario_khong_ton_tai`. Lỗi này **không thấy được**
+khi chạy `pytest <đúng file test>`; nó chỉ nổ ở job CI quét cả `apps/`.
+
+Vì sao KHÔNG nhét vào `quanverse.py`: tách file để (a) route fixture không lẫn
+vào router production có cổng vai thật (`_require_manager`), (b) xoá được bằng
+một `git rm` khi hết nhu cầu demo, (c) `include_in_schema=False` giữ
+`/openapi.json` sạch — bề mặt mock không phải hợp đồng sản phẩm.
 
 Đánh dấu nguồn: mọi payload trả `"nguon": "fixture_mock"` (stations/forecast)
 hoặc `data_quality[].code == "fixture_mock"` (snapshot) để UI luôn hiện được

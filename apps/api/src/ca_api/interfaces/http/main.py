@@ -94,7 +94,7 @@ from ca_api.interfaces.http.spatial_memory import router as spatial_memory_route
 from ca_api.interfaces.http.sprint3 import router as sprint3_router
 from ca_api.interfaces.http.sprint45 import _SHARED_ALLOWED
 from ca_api.interfaces.http.sprint45 import router as sprint45_router
-from ca_api.interfaces.http.test_quanverse import router as test_quanverse_router
+from ca_api.interfaces.http.quanverse_fixtures import router as quanverse_fixtures_router
 from ca_api.interfaces.http.trends import router as trends_router
 from ca_api.interfaces.http.war_room import router as war_room_router
 from ca_api.nhan_vien import list_nhan_vien_ops
@@ -331,7 +331,7 @@ app.include_router(spatial_memory_router)
 # Bề mặt MOCK của Quánverse (chỉ đọc, `include_in_schema=False`). Tách file để
 # xoá được bằng một `git rm` khi hết nhu cầu demo, và để route test không lẫn
 # vào router production có cổng vai thật.
-app.include_router(test_quanverse_router)
+app.include_router(quanverse_fixtures_router)
 app.include_router(skills_router)
 
 

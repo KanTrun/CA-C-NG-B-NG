@@ -12,7 +12,7 @@ Chốt ba điều:
 from __future__ import annotations
 
 import pytest
-from ca_api.interfaces.http.test_quanverse import _KICH_BAN
+from ca_api.interfaces.http.quanverse_fixtures import _KICH_BAN
 from fastapi.testclient import TestClient
 
 from ca_api.interfaces.http.main import app
