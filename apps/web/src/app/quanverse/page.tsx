@@ -41,6 +41,7 @@ import ForecastChart, {
   type ForecastPayload,
 } from "../../ui/experience/quanverse/ForecastChart";
 import GuestJourney from "../../ui/experience/quanverse/GuestJourney";
+import MemoryInline from "../../ui/experience/quanverse/MemoryInline";
 import dynamic from "next/dynamic";
 import { isManager } from "../../lib/session";
 
@@ -422,6 +423,15 @@ export default function QuanversePage() {
                 <span className="nq-opscard__src">từ lịch sử đơn</span>
               </div>
               <ForecastChart data={forecast} />
+            </section>
+            <section className="nq-opscard" aria-label="Ký ức quán">
+              <div className="nq-exp-section__head">
+                <Icon name="pin" size={16} />
+                <h3 className="nq-exp-section__title">Ký ức quán</h3>
+                <span className="nq-exp-section__spacer" />
+                <span className="nq-opscard__src">Hồn quán</span>
+              </div>
+              <MemoryInline />
             </section>
           </div>
 
