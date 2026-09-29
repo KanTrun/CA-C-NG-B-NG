@@ -286,6 +286,15 @@ EXCLUDED_ROUTES: dict[str, str] = {
     # giữa các bài e2e. Endpoint tự chặn 403 khi không ở chế độ replay.
     "/api/v1/experience/rules/reset": "test-isolation only — 403 ngoài chế độ replay",
     "/api/v1/experience/quanverse/reset": "test-isolation only — 403 ngoài chế độ replay",
+    # ── Bề mặt MOCK của Quánverse (plan quanverse-ops-cockpit) ──
+    # Ba route này trả fixture biên soạn tay ĐÚNG hình dạng của snapshot/stations/
+    # forecast thật, để `/quanverse` demo được khi quán chưa có đơn thật mà UI
+    # không phải bịa số. Chúng KHÔNG phải chức năng điều phối: chỉ đọc, không gọi
+    # LLM, không ghi DB, và ẩn khỏi `/openapi.json` (`include_in_schema=False`).
+    # Xoá cùng `interfaces/http/test_quanverse.py` khi hết nhu cầu demo.
+    "/api/v1/test/quanverse/snapshot": "mock fixture cho UI /quanverse — chỉ đọc, ẩn khỏi OpenAPI",
+    "/api/v1/test/quanverse/stations": "mock fixture cho UI /quanverse — chỉ đọc, ẩn khỏi OpenAPI",
+    "/api/v1/test/quanverse/forecast": "mock fixture cho UI /quanverse — chỉ đọc, ẩn khỏi OpenAPI",
 }
 
 _ROUTE_RE = re.compile(r'@router\.(?:get|post|patch|put|delete)\("([^"]+)"')
