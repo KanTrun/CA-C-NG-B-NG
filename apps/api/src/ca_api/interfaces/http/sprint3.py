@@ -515,28 +515,49 @@ def phieu_start(
     if body.mau not in catalog:
         raise HTTPException(status_code=404, detail="mau_phieu_khong_bat")
 
-    # Đã có phiếu CÙNG MẪU đang mở của chính mình → trả lại phiếu đó thay vì
-    # tạo phiếu mới. Bug QA đợt 5: bấm "Mở quán" nhiều lần (hoặc 3 request
-    # đồng thời) sinh ra ph_20/ph_21/ph_22 song song, cùng ca cùng người — mọi
-    # bước bị ghi rải rác vào các phiếu khác nhau nên không phiếu nào đủ bước.
-    bag = kv_get("phieu", {})
-    for raw in bag.values():
-        if not isinstance(raw, dict) or raw.get("closed"):
-            continue
-        if str(raw.get("mau") or "") != body.mau:
-            continue
-        if str(raw.get("nv_id") or "") != nv:
-            continue
-        return cast(dict[str, Any], raw)
-
     da_diem_danh = nv in set(diem_danh_hom_nay())
 
-    def next_seq(seq: int) -> int:
-        return int(seq) + 1
+    # Kiểm "đã có phiếu đang mở" và TẠO phiếu phải nằm trong CÙNG một
+    # `kv_mutate` — vì đây là read-then-write. Tách ra hai bước thì 8 request
+    # song song cùng đọc bag rỗng, cùng thấy "chưa có phiếu", rồi cùng tạo →
+    # sinh 5 phiếu cho cùng một người/ca (bug QA đợt 5, tái hiện: ph_1..ph_5).
+    # `kv_mutate` giữ khoá ghi nên chỉ một request đi qua được.
+    #
+    # Số phiếu lấy từ chính bag (`ph_<n>` lớn nhất + 1) thay vì đọc khoá
+    # `phieu_seq` riêng — tránh lồng hai `kv_mutate`, mà vẫn duy nhất vì cả hai
+    # thao tác nằm trong một khoá.
+    ket_qua: dict[str, Any] = {}
+    # Phiếu cũ trả về NGUYÊN payload đã lưu; phiếu mới trả `run_to_dict` (có
+    # `so_buoc`, `buocs`, `treo`…). Hai dạng khác nhau nên phải theo dõi cờ.
+    la_phieu_cu = False
 
-    seq = kv_mutate("phieu_seq", next_seq, 0)
-    run_id = f"ph_{seq}"
-    try:
+    def _so_tiep_theo(bag: dict[str, Any]) -> int:
+        lon_nhat = 0
+        for key in bag:
+            if isinstance(key, str) and key.startswith("ph_"):
+                try:
+                    lon_nhat = max(lon_nhat, int(key[3:]))
+                except ValueError:
+                    continue
+        return lon_nhat + 1
+
+    def mut(bag: dict[str, Any]) -> dict[str, Any]:
+        nonlocal la_phieu_cu
+        for raw in bag.values():
+            if not isinstance(raw, dict) or raw.get("closed"):
+                continue
+            if str(raw.get("mau") or "") != body.mau:
+                continue
+            if str(raw.get("nv_id") or "") != nv:
+                continue
+            # Đã có phiếu cùng mẫu đang mở của chính mình → trả lại phiếu đó,
+            # qua `load_run` + `run_to_dict` để payload giống hệt phiếu mới tạo.
+            ket_qua.update(run_to_dict(load_run(raw)))
+            la_phieu_cu = True
+            return bag
+
+        seq = _so_tiep_theo(bag)
+        run_id = f"ph_{seq}"
         run = start_phieu(
             run_id=run_id,
             mau=body.mau,
@@ -545,13 +566,22 @@ def phieu_start(
             now_ms=_clock.now_ms(),
             diem_danh=da_diem_danh,
         )
+        bag[run_id] = dump_run(run)
+        ket_qua.update(run_to_dict(run))
+        return bag
+
+    try:
+        kv_mutate("phieu", mut, {})
     except PermissionError as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
-    _save_run(run)
-    sm = StateMachine()
-    sm.transition("dang_chay")
-    _sm_by_phieu[run_id] = sm
-    return cast(dict[str, Any], run_to_dict(run))
+
+    # Khởi tạo state machine cho phiếu vừa tạo (phiếu cũ đã có sẵn thì bỏ qua).
+    run_id = str(ket_qua.get("id") or "")
+    if run_id and not la_phieu_cu and run_id not in _sm_by_phieu:
+        sm = StateMachine()
+        sm.transition("dang_chay")
+        _sm_by_phieu[run_id] = sm
+    return cast(dict[str, Any], ket_qua)
 
 
 @router.get("/api/v1/phieu/{phieu_id}")
