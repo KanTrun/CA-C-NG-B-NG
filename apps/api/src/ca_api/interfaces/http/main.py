@@ -87,6 +87,7 @@ try:
 except ImportError:
     pricing_radar_router = None  # type: ignore[assignment]
     serpapi_system_router = None  # type: ignore[assignment]
+from ca_api.interfaces.http.quanverse_fixtures import router as quanverse_fixtures_router
 from ca_api.interfaces.http.reservations import router as reservations_router
 from ca_api.interfaces.http.shift_rescue import router as shift_rescue_router
 from ca_api.interfaces.http.skills import router as skills_router
@@ -94,7 +95,6 @@ from ca_api.interfaces.http.spatial_memory import router as spatial_memory_route
 from ca_api.interfaces.http.sprint3 import router as sprint3_router
 from ca_api.interfaces.http.sprint45 import _SHARED_ALLOWED
 from ca_api.interfaces.http.sprint45 import router as sprint45_router
-from ca_api.interfaces.http.quanverse_fixtures import router as quanverse_fixtures_router
 from ca_api.interfaces.http.trends import router as trends_router
 from ca_api.interfaces.http.war_room import router as war_room_router
 from ca_api.nhan_vien import list_nhan_vien_ops
