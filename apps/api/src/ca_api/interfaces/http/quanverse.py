@@ -319,6 +319,31 @@ def quanverse_modes(
     return {"modes": with_state, "role": role, "can_activate": can_activate_mode(role)}
 
 
+@router.get("/api/v1/experience/quanverse/stations")
+def quanverse_stations(
+    authorization: Annotated[str | None, Header()] = None,
+) -> dict[str, Any]:
+    """Tải + hàng chờ theo khu vực, tính từ ĐƠN QUẦY THẬT + nhân sự trong ca.
+
+    Read-only. Chưa có đơn → `co_du_lieu=False` để UI bày chế độ mẫu có nhãn.
+    """
+    _require_role(authorization)
+    from ca_api.services.quanverse_live import stations
+
+    return stations()
+
+
+@router.get("/api/v1/experience/quanverse/forecast")
+def quanverse_forecast(
+    authorization: Annotated[str | None, Header()] = None,
+) -> dict[str, Any]:
+    """Nhu cầu/hàng đợi theo GIỜ, tất định từ lịch sử đơn quầy. Read-only."""
+    _require_role(authorization)
+    from ca_api.services.quanverse_live import forecast
+
+    return forecast()
+
+
 @router.post("/api/v1/experience/quanverse/modes/{mode}/propose")
 def quanverse_mode_propose(
     mode: str,
