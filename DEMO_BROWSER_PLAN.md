@@ -1,5 +1,17 @@
 # DEMO BROWSER PLAN — Kế hoạch demo/QA từng chức năng NHỊP QUÁN (thực thi trực tiếp trên trình duyệt)
 
+> ## ⚠️ ĐÃ LỖI THỜI — DÙNG [`docs/KE-HOACH-TEST-TOAN-BO-CHUC-NANG.md`](./docs/KE-HOACH-TEST-TOAN-BO-CHUC-NANG.md) THAY THẾ
+>
+> Tài liệu này lập ngày **2026-09-25**; từ đó route và nhãn UI đã đổi:
+> - Route chính nay là **`/lich-tuan`** (tài liệu cũ nhắc `/roster`), `/giai-thich` (cũ: `/vet`),
+>   và sidebar hiện có **42 route chia 5 nhóm** khác cấu trúc cũ.
+> - Bảng nhãn nút ở §F dưới **không còn khớp** UI hiện tại (nhiều nút đã đổi tên/gộp lại).
+> - Kế hoạch mới có **50 mục test** đã kiểm chứng độ phủ 42/42 route, RBAC đọc trực tiếp từ
+>   `session.ts`, và bảng payload đã xác minh để tránh lỗi 422.
+>
+> **Giữ lại tài liệu này chỉ để tra cứu lịch sử QA** (nhật ký bug #1–#12, các đợt QA 1–4).
+> Nếu bạn là AI Agent cần chạy test → mở file kế hoạch mới.
+
 > **Ngày:** 2026-09-25 · **Môi trường:** https://nhipquan.duckdns.org (production — trang đang mở `/vet`, phiên đăng nhập `hung` — Chủ quán)
 > **Mục đích:** Kế hoạch cho AI Agent chạy demo/QA **từng chức năng** trên trình duyệt thật, bấm đúng nút như UI hiển thị.
 > **Nguồn nhãn nút:** trích trực tiếp từ mã `apps/web/src` (dẫn chứng file:dòng) — **không phịa nhãn**.
