@@ -382,6 +382,8 @@
    đều nhau (trước đây cột phải cứng 420px làm bản đồ hẹp và panel bị bó chữ). */
 .nq-spatial__side { display: grid; gap: var(--nq-s4); align-content: start; grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr)); align-items: start; }
 .nq-spatial__side > * { align-self: start; }
+/* Tour trải HẾT chiều ngang để các bước đọc đều (mỗi bước là một hàng có số). */
+.nq-spatial__side > .nq-tour { grid-column: 1 / -1; }
 .nq-map2d { align-self: start; border: 2px solid var(--nq-line); border-radius: var(--nq-radius-bubble, 18px); background: var(--nq-bg-elevated); overflow: hidden; }
 .nq-map2d__svg { display: block; width: 100%; height: auto; color: var(--nq-fg); }
 .nq-map2d__anchor { cursor: pointer; outline: none; }
@@ -413,11 +415,34 @@
 .nq-timeline__content { margin: 0.3rem 0 0; line-height: 1.5; font-size: 0.92rem; }
 .nq-timeline__meta { margin: 0.3rem 0 0; color: var(--nq-dim); font-size: 0.75rem; font-family: var(--nq-font-mono, monospace); }
 
-.nq-tour__steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.5rem; counter-reset: step; }
-.nq-tour__step { display: flex; gap: 0.6rem; align-items: baseline; counter-increment: step; }
-.nq-tour__step::before { content: counter(step); min-width: 1.5rem; height: 1.5rem; display: grid; place-items: center; border-radius: 999px; background: var(--nq-accent-soft); color: var(--nq-accent); font-family: var(--nq-font-mono, monospace); font-size: 0.7rem; }
-.nq-tour__anchor { font-weight: 700; font-size: 0.9rem; }
-.nq-tour__narrative { color: var(--nq-dim); font-size: 0.85rem; line-height: 1.5; }
+.nq-tour__steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.6rem; counter-reset: step; }
+/* Mỗi bước: số | cột nội dung (neo → lời dẫn → dẫn chứng xếp dọc). Trước đây
+   dùng flex baseline nên neo/lời dẫn/dẫn chứng chen trên MỘT hàng và gãy so le. */
+.nq-tour__step {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0.15rem 0.6rem;
+  align-items: start;
+  counter-increment: step;
+  padding: 0.5rem 0.6rem;
+  border: 1px solid var(--nq-line);
+  border-radius: var(--nq-radius);
+  background: var(--nq-bg-elevated);
+}
+.nq-tour__step::before {
+  content: counter(step);
+  grid-row: 1 / -1;
+  grid-column: 1;
+  width: 1.5rem; height: 1.5rem;
+  display: grid; place-items: center;
+  border-radius: 999px;
+  background: var(--nq-accent-soft); color: var(--nq-accent);
+  font-family: var(--nq-font-mono, monospace); font-size: 0.7rem;
+  align-self: start;
+}
+.nq-tour__anchor { grid-column: 2; font-weight: 700; font-size: 0.9rem; }
+.nq-tour__narrative { grid-column: 2; color: var(--nq-dim); font-size: 0.85rem; line-height: 1.5; }
+.nq-tour__cite { grid-column: 2; color: var(--nq-dim); font-size: 0.75rem; display: inline-flex; align-items: center; gap: 0.3rem; }
 
 .nq-voicedock { margin-top: 1rem; border: 2px solid var(--nq-line-strong); border-radius: var(--nq-radius-bubble, 18px); background: var(--nq-surface); padding: 1rem; display: grid; gap: 0.75rem; }
 .nq-voicedock__input { display: flex; gap: 0.5rem; }
@@ -843,21 +868,15 @@
 .nq-moderail__count { font-family: var(--nq-font-mono, monospace); font-size: 0.72rem; color: var(--nq-dim); }
 .nq-moderail__list { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--nq-s2); }
 .nq-moderail__item {
-  /* Bố cục 2 HÀNG rõ ràng, không để cột chữ bị bóp:
-     hàng 1: glyph | chữ (nhãn + hiệu ứng) | công tắc + trạng thái
-     hàng 2:                               hành động (nút Duyệt/Đề xuất/Tắt)
-     Trước đây chỉ khai `auto 1fr auto` cho 5 phần tử + ép `grid-column: 3`
-     cho trạng thái/hành động → nút rộng đè vào cột `1fr`, cột chữ co còn ~1 ký
-     tự và chảy dọc từng chữ. */
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  grid-template-areas:
-    "glyph text  switch"
-    "glyph text  state"
-    ".     .     actions";
+  /* MỘT HÀNG NGANG: icon | chữ (co giãn) | công tắc | trạng thái | hành động.
+     Mục trải NGANG màn hình thay vì chồng dọc. Chữ là flex:1 nên luôn rộng nhất;
+     hành động `nowrap` đẩy về cuối hàng. Màn hẹp thì `flex-wrap` cho hành động
+     xuống dòng, không bóp cột chữ. */
+  display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: var(--nq-s2) var(--nq-s3);
-  padding: 0.7rem 0.85rem;
+  padding: 0.65rem 0.85rem;
   border: 1px solid var(--nq-line);
   border-radius: var(--nq-radius-bubble);
   background: var(--nq-bg-elevated);
@@ -870,38 +889,34 @@
 }
 .nq-moderail__glyph {
   display: grid; place-items: center;
-  width: 36px; height: 36px;
+  width: 34px; height: 34px;
+  flex: none;
   border-radius: var(--nq-radius-bubble);
   background: color-mix(in srgb, var(--nq-fg) 6%, transparent);
   border: 1px solid var(--nq-line);
   color: var(--nq-dim);
-  grid-area: glyph;
   align-self: center;
 }
 .nq-moderail__item.is-active .nq-moderail__glyph { color: var(--nq-accent); border-color: var(--nq-line-strong); }
-.nq-moderail__text { grid-area: text; display: grid; gap: 0.15rem; min-width: 0; }
+.nq-moderail__text { flex: 1 1 12rem; display: grid; gap: 0.15rem; min-width: 0; }
 .nq-moderail__label { font-weight: 600; font-size: 0.92rem; }
 .nq-moderail__effect { font-size: 0.78rem; color: var(--nq-dim); line-height: 1.45; }
-.nq-moderail__state { grid-area: state; font-size: 0.74rem; color: var(--nq-dim); justify-self: end; align-self: start; }
+.nq-moderail__state { flex: none; font-size: 0.74rem; color: var(--nq-dim); white-space: nowrap; }
 .nq-moderail__note { margin: 0; font-size: 0.78rem; color: var(--nq-dim); font-style: italic; line-height: 1.5; }
-.nq-modebtn { justify-self: end; }
-/* Công tắc nằm góc phải hàng 1. */
-.nq-moderail__item > .nq-switch { grid-area: switch; justify-self: end; align-self: start; }
+.nq-modebtn { flex: none; }
+.nq-moderail__item > .nq-switch { flex: none; }
 .nq-moderail__actions {
-  grid-area: actions;
-  justify-self: end;
-  align-self: center;
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: var(--nq-s2);
+  margin-left: auto;
+  flex-wrap: wrap;
 }
-@media (max-width: 560px) {
-  .nq-moderail__item {
-    grid-template-columns: auto minmax(0, 1fr);
-    grid-template-areas:
-      "glyph text"
-      ".     switch"
-      ".     state"
-      ".     actions";
-  }
-  .nq-moderail__actions { justify-self: start; }
+@media (max-width: 640px) {
+  /* Màn hẹp: hành động xuống dòng dưới, chữ vẫn giữ bề ngang. */
+  .nq-moderail__text { flex-basis: 100%; order: 2; }
+  .nq-moderail__actions { order: 3; margin-left: 0; flex-basis: 100%; justify-content: flex-start; }
 }
 
 /* Công tắc trạng thái (hình dạng, không chỉ chữ) */
@@ -1831,6 +1846,8 @@
   align-items: start; min-width: 0;
 }
 .nq-quanverse__panels > * { align-self: start; }
+/* "Chế độ quán" trải HẾT chiều ngang hàng panel (mỗi mục là một hàng ngang). */
+.nq-quanverse__panels > .nq-moderail { grid-column: 1 / -1; }
 .nq-quanverse__panels .nq-living-map { align-self: start; }
 
 /* Ba panel khách chia ĐỀU: mỗi panel một cột khi đủ chỗ, không để panel thứ ba

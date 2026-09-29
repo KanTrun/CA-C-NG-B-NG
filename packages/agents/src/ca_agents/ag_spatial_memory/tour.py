@@ -88,3 +88,41 @@ def plan_tour(
             )
         )
     return TourPlan(tour_id=ten_tour, steps=steps, grounded=True)
+
+
+def plan_tour_from_anchors(
+    anchors: list[tuple[str, str]],
+    memories: list[ExperienceMemory] | None = None,
+    *,
+    tour_id: str = "tour_that",
+) -> TourPlan:
+    """Tour dựng TỪ NEO THẬT của quán (không dùng route cứng).
+
+    `anchors` = danh sách ``(anchor_id, nhãn)`` đang tồn tại thật. Thứ tự neo
+    theo đúng thứ tự truyền vào (thứ tự hiển thị/khai báo của quán). Ký ức đã
+    xác nhận gắn vào bước tương ứng; neo không có ký ức vẫn thành bước nhưng
+    `grounded=False` để UI nói rõ "chưa gắn ký ức".
+
+    Khác `plan_tour`: đây là đường dữ liệu THẬT — dùng khi API đọc được neo thật
+    từ kho ký ức thay vì route mẫu `OPENING_ROUTE`.
+    """
+    confirmed = [m for m in (memories or []) if m.status.value == "confirmed"]
+    steps: list[TourStep] = []
+    for idx, (anchor_id, label) in enumerate(anchors, start=1):
+        related = [m for m in confirmed if m.anchor_id == anchor_id]
+        citation_ids = [m.memory_id for m in related[:3]]
+        if related:
+            extra = "; ".join(m.content for m in related[:2])
+            narrative = f"{label}. Ký ức: {extra}"
+        else:
+            narrative = label
+        steps.append(
+            TourStep(
+                step_id=f"step_{idx:02d}",
+                anchor_id=anchor_id,
+                narrative=narrative,
+                citation_memory_ids=citation_ids,
+            )
+        )
+    grounded = any(s.citation_memory_ids for s in steps)
+    return TourPlan(tour_id=tour_id, steps=steps, grounded=grounded)
