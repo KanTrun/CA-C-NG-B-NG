@@ -266,7 +266,14 @@ def test_session_co_ham_nhan_biet_route_ton_tai() -> None:
     assert "isKnownPath" in shell_src, "AppShell chưa dùng isKnownPath"
     assert "Không tìm thấy trang" in shell_src, "thiếu thông báo cho route không tồn tại"
     # Route hợp lệ phải có trong tập để không báo nhầm 404.
-    for duong_dan in ('"/lich-tuan"', '"/quanverse/war-room"', '"/page-quan/fb-inbox"'):
+    #
+    # LƯU Ý: `/quanverse/war-room` từng nằm trong danh sách này, nhưng Quánverse
+    # đã thu về MỘT màn điều hành (`/quanverse`) và bốn route phụ được chuyển
+    # hướng ở `next.config.js`. Giữ một đường dẫn đã chết trong `KNOWN_PATHS`
+    # chỉ để thoả một phép so khớp chuỗi là tự tạo ảo giác an toàn — nên bài
+    # kiểm tra đổi sang route còn thật, giữ nguyên BẤT BIẾN cần chốt:
+    # "KNOWN_PATHS chứa đường dẫn có thật".
+    for duong_dan in ('"/lich-tuan"', '"/quanverse"', '"/page-quan/fb-inbox"'):
         assert duong_dan in session_src, f"KNOWN_PATHS thiếu {duong_dan}"
 
 
