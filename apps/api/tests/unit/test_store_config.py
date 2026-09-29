@@ -28,7 +28,8 @@ def client() -> TestClient:
 
 def test_profile_mac_dinh_rong_khong_co_du_lieu_bia(client: TestClient) -> None:
     """DB mới (chưa cấu hình) phải trả mọi trường rỗng — không địa chỉ/hotline giả."""
-    r = client.get("/api/v1/store/profile")
+    ql = headers(client, "lan")
+    r = client.get("/api/v1/store/profile", headers=ql)
     assert r.status_code == 200, r.text
     p = r.json()
     # Các giá trị giả từng hardcode — phải không còn xuất hiện.
@@ -36,6 +37,18 @@ def test_profile_mac_dinh_rong_khong_co_du_lieu_bia(client: TestClient) -> None:
         assert str(p.get(key) or "").strip() == "", f"{key} phải rỗng khi chưa cấu hình, được {p.get(key)!r}"
     assert "123 Đường Cà Phê" not in str(p)
     assert "0901234567" not in str(p)
+
+
+def test_profile_chan_nguoi_chua_dang_nhap(client: TestClient) -> None:
+    """Bug QA đợt 6 (#38): hồ sơ quán KHÔNG được đọc khi chưa đăng nhập.
+
+    Trước đây `get_profile()` không nhận `authorization` nên trả 200 cho mọi
+    người — kể cả `wifi_pass` và `huong_dan_agent` (hướng dẫn nội bộ cho AI).
+    """
+    assert client.get("/api/v1/store/profile").status_code == 401
+    assert client.get("/api/v1/store/profile", headers={"Authorization": "Bearer token_bom"}).status_code == 401
+    # Cùng lỗ hổng ở endpoint khuyến mãi.
+    assert client.get("/api/v1/store/promotions").status_code == 401
 
 
 def test_prompt_mac_dinh_noi_chua_cap_nhat(client: TestClient) -> None:
@@ -59,7 +72,7 @@ def test_quan_ly_put_profile_va_doc_lai(client: TestClient) -> None:
     r = client.put("/api/v1/store/profile", json=payload, headers=ql)
     assert r.status_code == 200, r.text
 
-    got = client.get("/api/v1/store/profile").json()
+    got = client.get("/api/v1/store/profile", headers=ql).json()
     assert got["ten_quan"] == "Cà phê Thật Là Thật"
     assert got["dia_chi"] == "45 Nguyễn Huệ, Q.1, TP. HCM"
     assert got["huong_dan_agent"] == "Luôn xưng em, không hứa giảm giá."
@@ -80,7 +93,7 @@ def test_put_profile_bo_key_la_khong_ghi(client: TestClient) -> None:
         headers=ql,
     )
     assert r.status_code == 200, r.text
-    got = client.get("/api/v1/store/profile").json()
+    got = client.get("/api/v1/store/profile", headers=ql).json()
     assert "admin_password" not in got
     assert got["ten_quan"] == "Quán A"
 

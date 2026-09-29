@@ -204,8 +204,11 @@ class IPAuthRateLimiter:
 # Dùng chung một bộ đếm thì chỉ cần vài token phiên hết hạn (client tự
 # reconnect) là cả IP đó bị khóa luôn trang đăng nhập trong 10 phút — người
 # dùng thật không vào lại được đúng lúc họ cần đăng nhập lại.
+#   - register_ip_limiter: TẠO TÀI KHOẢN qua POST /api/v1/auth/register
+# (Bug QA đợt 6 #37: register trước đây không giới hạn → spam tài khoản.)
 login_ip_limiter = IPAuthRateLimiter()
 ws_auth_ip_limiter = IPAuthRateLimiter()
+register_ip_limiter = IPAuthRateLimiter()
 
 
 class MessageRateLimiter:

@@ -27,7 +27,7 @@ from ca_contracts.ops_predict import (
 from fastapi import APIRouter, Header, HTTPException
 from pydantic import BaseModel, Field
 
-from ca_api.interfaces.http.sprint3 import _require_manager, _require_role
+from ca_api.interfaces.http.sprint3 import _require_manager
 from ca_api.persist import kv_get, kv_mutate
 
 router = APIRouter(tags=["ops_predict"])
@@ -97,8 +97,12 @@ class TwinSimulateBody(BaseModel):
 def get_predict_suggestions(
     authorization: Annotated[str | None, Header()] = None,
 ) -> dict[str, Any]:
-    """Lấy danh sách đề xuất luật tích cực + mẫu thành công."""
-    _require_role(authorization)
+    """Đề xuất luật tích cực — CHỈ quản lý/chủ quán (bug QA đợt 6 #39).
+
+    UI `/de-xuat-thong-minh` nằm trong `MANAGER_ONLY` nhưng API chỉ đòi token,
+    nên nhân viên gọi thẳng vẫn đọc được đề xuất kèm số liệu doanh thu.
+    """
+    _require_manager(authorization)
     rules = kv_get("ops_predict_rules", [])
     patterns = kv_get("ops_predict_patterns", [])
     scenarios = kv_get("ops_twin_scenarios", [])
@@ -217,8 +221,8 @@ def twin_simulate(
 def list_twin_scenarios(
     authorization: Annotated[str | None, Header()] = None,
 ) -> dict[str, Any]:
-    """Lấy danh sách kịch bản đã chạy."""
-    _require_role(authorization)
+    """Kịch bản digital twin đã chạy — CHỈ quản lý/chủ quán (bug QA đợt 6 #39)."""
+    _require_manager(authorization)
     scenarios = kv_get("ops_twin_scenarios", [])
     return {"items": scenarios}
 

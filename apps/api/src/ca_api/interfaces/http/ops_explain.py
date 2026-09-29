@@ -15,7 +15,7 @@ from ca_agents.ag_explain import answer_reflection, build_causal_chain
 from fastapi import APIRouter, Header
 from pydantic import BaseModel, Field
 
-from ca_api.interfaces.http.sprint3 import _require_role
+from ca_api.interfaces.http.sprint3 import _require_manager, _require_role
 from ca_api.persist import kv_get, kv_mutate
 
 router = APIRouter(tags=["ops_explain"])
@@ -72,8 +72,14 @@ def list_chains(
 
     Lọc trùng theo câu hỏi (đã chuẩn hoá) trước khi trả — an toàn cho các bản
     ghi cũ được tạo trước khi `chain_id` đổi sang băm ổn định (`sha1`); mỗi
-    lần gọi `explain` mới vẫn tiếp tục ghi đè đúng theo `chain_id`."""
-    _require_role(authorization)
+    lần gọi `explain` mới vẫn tiếp tục ghi đè đúng theo `chain_id`.
+
+    Bug QA đợt 6 (#39): đổi `_require_role` → `_require_manager` cho khớp
+    `MANAGER_ONLY` của giao diện (`session.ts`: `/giai-thich` chỉ quản lý/chủ
+    quán). Trước đây nhân viên gọi thẳng API vẫn đọc được toàn bộ chuỗi nhân
+    quả kèm bằng chứng nội bộ (doanh thu, hao hụt) dù UI đã ẩn trang.
+    """
+    _require_manager(authorization)
     chains = kv_get("ops_explain_chains", [])
     seen: set[str] = set()
     deduped: list[dict[str, Any]] = []

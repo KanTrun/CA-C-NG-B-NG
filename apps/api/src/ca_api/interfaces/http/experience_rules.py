@@ -108,7 +108,11 @@ def _snapshot_hash() -> str:
 def rules_candidates(
     authorization: Annotated[str | None, Header()] = None,
 ) -> dict[str, Any]:
-    _require_role(authorization)
+    """Ứng viên luật — CHỈ quản lý/chủ quán (bug QA đợt 6 #39).
+
+    UI `/quanverse/rules` nằm trong `MANAGER_ONLY` nhưng API chỉ đòi token.
+    """
+    _require_manager(authorization)
     with _LOCK:
         items = [
             {"candidate_id": cid, "sentence": c["sentence"], "confidence": c["confidence"], "status": c.get("status", "draft")}

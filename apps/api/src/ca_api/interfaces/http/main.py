@@ -119,7 +119,7 @@ from ca_api.persist import login as persist_login
 from ca_api.persist import logout as persist_logout
 from ca_api.persist import register as persist_register
 from ca_api.persist import session as auth_session
-from ca_api.services.chat_ws import login_ip_limiter, notify_ops_changed
+from ca_api.services.chat_ws import login_ip_limiter, notify_ops_changed, register_ip_limiter
 
 
 @asynccontextmanager
@@ -1327,13 +1327,26 @@ async def post_nv_self_confirm(
 
 
 @app.post("/api/v1/auth/register", response_model=LoginOut, status_code=201)
-def register(body: RegisterBody) -> LoginOut:
+async def register(body: RegisterBody, request: Request) -> LoginOut:
     """Tạo tài khoản nhân viên mới rồi mở phiên luôn.
 
     Vai trò luôn là `nhan_vien` (xem `persist.VAI_TU_DANG_KY`): tự đăng ký mà
     lấy được vai quản lý thì ai cũng duyệt được ràng buộc và phát được mã điểm
     danh. Nâng vai là việc của chủ quán, làm ngoài luồng này.
     """
+    # Bug QA đợt 6 (#37): endpoint này CÔNG KHAI và trước đây không có giới hạn
+    # nào — đo được 10/10 tài khoản tạo liên tiếp trong 1 giây từ cùng một IP,
+    # mỗi tài khoản chiếm 1 `nv_id` vĩnh viễn và lọt vào mọi danh sách nhân sự.
+    #
+    # KHÁC login: ở đây đếm MỌI lần gọi chứ không chỉ lần lỗi — kẻ spam thành
+    # công mới là vấn đề, còn đăng ký hỏng thì đã bị validate chặn. Không
+    # `clear()` sau thành công: quán nhỏ không có nhu cầu tạo 5 tài khoản trong
+    # 10 phút, vượt ngưỡng đó là bất thường. Dùng bộ đếm RIÊNG để người dùng
+    # thật đăng ký không bị ảnh hưởng bởi các lần đăng nhập sai.
+    ip = _client_ip(request)
+    if await register_ip_limiter.is_blocked(ip):
+        raise HTTPException(status_code=429, detail="dang_ky_qua_nhieu_lan_thu_lai_sau")
+    await register_ip_limiter.record_failure(ip)
     try:
         row = persist_register(body.username, body.password, body.display_name)
     except DangKyLoi as exc:
