@@ -1866,6 +1866,36 @@ def apply_reflection_proposal(
     return {"ok": True, "message": f"Đã bổ sung '{body.title}' vào cẩm nang quán thành công!"}
 
 
+class StoreProfileBody(BaseModel):
+    """Thông tin quán — đi thẳng vào prompt trả lời khách, nên phải chặn dữ liệu rác.
+
+    Bug QA đợt 5: endpoint nhận `dict[str, Any]` trần nên không kiểm gì —
+    nhận cả `<script>` trong tên quán, hotline không phải số, và địa chỉ dài
+    5.000 ký tự. Ba trường này đều được nhúng vào prompt của bot chăm sóc khách,
+    nên rác ở đây thành rác trả lời khách thật.
+    """
+
+    ten_quan: str = Field(default="", max_length=120)
+    dia_chi: str = Field(default="", max_length=300)
+    hotline: str = Field(default="", max_length=40)
+    gio_mo_cua: str = Field(default="", max_length=120)
+    wifi_ssid: str = Field(default="", max_length=60)
+    wifi_pass: str = Field(default="", max_length=60)
+    mo_ta: str = Field(default="", max_length=1000)
+    chinh_sach_dat_ban: str = Field(default="", max_length=1000)
+    huong_dan_agent: str = Field(default="", max_length=4000)
+
+
+def _text_sach(value: str) -> str:
+    """Bỏ thẻ HTML và ký tự điều khiển khỏi văn bản người dùng nhập.
+
+    Không thay thế escape của React/Pydantic (chuỗi vẫn được escape khi render),
+    nhưng chặn rác vô nghĩa đi vào prompt AI và log audit.
+    """
+    khong_the = re.sub(r"<[^>]*>", "", value)
+    return "".join(ch for ch in khong_the if ch == "\n" or ch == "\t" or ord(ch) >= 32).strip()
+
+
 @router.get("/api/v1/store/profile")
 def get_profile() -> dict[str, Any]:
     return get_store_profile()
@@ -1873,12 +1903,18 @@ def get_profile() -> dict[str, Any]:
 
 @router.put("/api/v1/store/profile")
 def update_profile(
-    data: dict[str, Any],
+    data: StoreProfileBody,
     authorization: Annotated[str | None, Header()] = None,
 ) -> dict[str, Any]:
     role = _require_manager(authorization)
-    set_store_profile(data)
-    _audit(role, "store_profile_update", data)
+    sach = {k: _text_sach(v) for k, v in data.model_dump().items()}
+    # Hotline: chỉ nhận chữ số và các ký tự ngăn cách thông dụng. Bỏ trống vẫn hợp lệ
+    # (quán chưa cấu hình → bot trả "chưa cập nhật", xem ADR-008).
+    hotline = sach["hotline"]
+    if hotline and not re.fullmatch(r"[0-9+()\-.\s]{6,40}", hotline):
+        raise HTTPException(status_code=422, detail="hotline_khong_hop_le")
+    set_store_profile(sach)
+    _audit(role, "store_profile_update", sach)
     return {"ok": True, "profile": get_store_profile()}
 
 

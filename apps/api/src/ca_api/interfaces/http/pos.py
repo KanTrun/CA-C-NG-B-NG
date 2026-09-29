@@ -42,6 +42,7 @@ from ca_api.persist import (
     audit_add,
     da_diem_danh,
     db_path,
+    don_chuyen_trang_thai,
     don_get,
     don_insert,
     don_list,
@@ -90,7 +91,9 @@ class MonBody(BaseModel):
     an: bool = False
     hinh_url: str = Field(default="", max_length=500)
     nhom: str = Field(default="", max_length=40)
-    bom: dict[str, float] = Field(default_factory=dict)
+    # `bom` (định mức nguyên liệu) là tuỳ chọn: client cũ chỉ sửa giá/tên không
+    # gửi lên. Phân biệt "không gửi" với "gửi rỗng" để không xoá mất định mức.
+    bom: dict[str, float] | None = None
 
 
 class DongDatBody(BaseModel):
@@ -275,8 +278,20 @@ def menu_luu(
     mid = mon_id.strip().lower()
     if not _MON_ID.fullmatch(mid):
         raise HTTPException(status_code=422, detail="ma_mon_khong_hop_le")
+    cu = menu_get(mid)
+    du_lieu = body.model_dump()
+    # PUT không gửi `bom`/`nhom`/`hinh_url` thì GIỮ giá trị đang có, không xoá.
+    # Bug QA đợt 5: quản lý chỉ sửa giá nhưng `bom` về `{}` → mất định mức
+    # nguyên liệu, tiêu thụ BOM ngừng ghi cho món đó. Chỉ khi món CHƯA tồn tại
+    # mới thực sự rỗng.
+    if du_lieu.get("bom") is None:
+        du_lieu["bom"] = (cu or {}).get("bom") or {}
+    if not str(du_lieu.get("nhom") or "").strip():
+        du_lieu["nhom"] = str((cu or {}).get("nhom") or "")
+    if not str(du_lieu.get("hinh_url") or "").strip():
+        du_lieu["hinh_url"] = str((cu or {}).get("hinh_url") or "")
     try:
-        mon = MonNuoc(id=mid, **body.model_dump()).model_dump()
+        mon = MonNuoc(id=mid, **du_lieu).model_dump()
     except ValueError as exc:
         raise HTTPException(status_code=422, detail="mon_khong_hop_le") from exc
     if not mon.get("nhom"):
@@ -860,13 +875,25 @@ def quay_don_chuyen(
         raise HTTPException(status_code=409, detail=f"chuyen_khong_hop_le:{cur}->{body.trang_thai}")
     if body.trang_thai == "huy" and not body.ly_do_huy.strip():
         raise HTTPException(status_code=422, detail="can_ly_do_huy")
-    don["trang_thai"] = body.trang_thai
-    don["ly_do_huy"] = body.ly_do_huy.strip() if body.trang_thai == "huy" else None
-    don_update(don)
+
+    # Đổi trạng thái bằng COMPARE-AND-SWAP: chỉ thắng khi DB vẫn đang ở `cur`.
+    # Hai request đồng thời (double-click, retry mạng) thì đúng MỘT request
+    # giành được; request thua nhận `None` → 409. Nhờ vậy khối ghi tiêu thụ BOM
+    # bên dưới chỉ chạy một lần, kho không bị trừ gấp đôi.
+    moi = don_chuyen_trang_thai(
+        don_id,
+        tu=cur,
+        sang=body.trang_thai,
+        ly_do_huy=body.ly_do_huy.strip() if body.trang_thai == "huy" else None,
+    )
+    if moi is None:
+        raise HTTPException(
+            status_code=409, detail=f"chuyen_khong_hop_le:{cur}->{body.trang_thai}"
+        )
     if body.trang_thai == "xong":
-        _ghi_tieu_thu_uoc_luong(don, s["role"])
+        _ghi_tieu_thu_uoc_luong(moi, s["role"])
     _audit(s["role"], "quay_chuyen_don", {"id": don_id, "from": cur, "to": body.trang_thai})
-    return don
+    return moi
 
 
 @router.post("/api/v1/quay/don/{don_id}/chinh")

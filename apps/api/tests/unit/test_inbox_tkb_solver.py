@@ -7,7 +7,7 @@ import pytest
 from ca_agents.ag_msg.extract import classify
 from ca_api.interfaces.http.main import app
 from ca_api.interfaces.http.sprint45 import _run_solver
-from ca_api.persist import audit_list, kv_get, kv_set
+from ca_api.persist import audit_list, kv_get, kv_mutate, kv_set
 from fastapi.testclient import TestClient
 
 from unit.auth_util import headers
@@ -72,6 +72,11 @@ def test_duyet_xin_nghi_co_ca_chi_chan_dung_ca_do(monkeypatch: pytest.MonkeyPatc
 
     Lỗi gốc: mọi xin_nghi đều bị ép về `nghi_phep` (nv, ngày) nên xoá cả ngày.
     Sau khi sửa, xin_nghi có start/end đi vào `tkb` và chỉ loại ca trùng khung.
+
+    CÔ LẬP: bài này đọc state do các bài khác trong file ghi (`inbox_rang_buoc`,
+    `phan_cong_by_week`, `tkb_nv_by_week`). Chạy riêng thì PASS, chạy cùng file
+    thì FAIL — test pollution, không phải lỗi logic. Dọn state trước khi chạy
+    để kết quả không phụ thuộc thứ tự.
     """
     monkeypatch.setenv("CA_AGENT_MODE", "replay")
     ql = headers(client, "lan")
@@ -88,7 +93,17 @@ def test_duyet_xin_nghi_co_ca_chi_chan_dung_ca_do(monkeypatch: pytest.MonkeyPatc
         "nv_id": "nv_01",
         "rang_buoc": {"thu": "T5", "start": "07:00", "end": "12:00", "tuan_id": "2026-W01"},
     }
+    # Chỉ để LẠI đúng ràng buộc của bài này — bỏ mọi mục do bài khác bơm vào.
     kv_set("inbox_rang_buoc", [item])
+    # Xoá state tuần đích do bài TRƯỚC ghi (`test_duyet_xin_nghi_wires_...` ghi
+    # `nghi_phep` CẢ NGÀY cho nv_01 T5, còn bài này khẳng định nv_01 vẫn xếp
+    # được ca KHÁC trong ngày T5 — hai kỳ vọng mâu thuẫn nếu state còn sót).
+    for khoa in ("nghi_phep", "nghi_phep_by_week", "phan_cong", "phan_cong_by_week", "tkb_nv", "tkb_nv_by_week"):
+        kv_mutate(
+            khoa,
+            lambda d: {k: v for k, v in d.items() if k != "2026-W01"} if isinstance(d, dict) else d,
+            {},
+        )
 
     res = client.post(
         f"/api/v1/inbox/rang-buoc/{item_id}",

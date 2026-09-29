@@ -3025,6 +3025,36 @@ def don_update(don: dict[str, Any]) -> dict[str, Any]:
     return don
 
 
+def don_chuyen_trang_thai(
+    don_id: str, *, tu: str, sang: str, ly_do_huy: str | None = None
+) -> dict[str, Any] | None:
+    """Chuyển trạng thái đơn quầy bằng COMPARE-AND-SWAP nguyên tử.
+
+    Vì sao không dùng `don_get` rồi `don_update`: đó là read-then-write không
+    khoá. Hai request đồng thời (double-click, retry mạng) cùng đọc
+    ``cho_pha``, cùng thấy hợp lệ, rồi cùng ghi ``xong`` — cả hai đều qua cổng
+    `_STATUS_NEXT` nên đều trả 200, và `_ghi_tieu_thu_uoc_luong` chạy HAI lần
+    → kho bị trừ gấp đôi (bug QA đợt 5, tái hiện được: +6 dòng thay vì +3).
+
+    Câu UPDATE dưới đây chỉ khớp khi trạng thái trong DB VẪN là ``tu``; kẻ đến
+    sau thấy ``rowcount == 0`` nên biết mình thua cuộc đua và trả ``None``.
+    Cách này đúng trên cả SQLite (ghi tuần tự, ``rowcount`` đáng tin) lẫn
+    Postgres (row bị khoá khi UPDATE), không cần thêm lock ngoài.
+    """
+    init_db()
+    with _conn() as cx:
+        cur = cx.execute(
+            """
+            UPDATE don_quay SET trang_thai=?, ly_do_huy=?
+            WHERE id=? AND trang_thai=?
+            """,
+            (sang, ly_do_huy, don_id, tu),
+        )
+        if cur.rowcount != 1:
+            return None
+    return don_get(don_id)
+
+
 def _don_row(r: tuple[Any, ...]) -> dict[str, Any]:
     return {
         "id": str(r[0]),

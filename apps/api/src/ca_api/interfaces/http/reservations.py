@@ -12,6 +12,7 @@ với `nhan_vien`):
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Header, HTTPException, Query
@@ -37,13 +38,39 @@ class CancelBody(BaseModel):
 class CreateReservationBody(BaseModel):
     """Đơn đặt bàn do quản lý tạo tại quầy (khách gọi điện / khách tới trực tiếp)."""
 
-    customer_name: str = Field(min_length=1)
-    phone: str = Field(min_length=1)
+    customer_name: str = Field(min_length=1, max_length=120)
+    phone: str = Field(min_length=1, max_length=40)
     booking_time: str = Field(min_length=1, description="ISO hoặc YYYY-MM-DD HH:MM (giờ ICT)")
     party_size: int = Field(ge=1, le=20)
     duration_minutes: int = Field(default=120, ge=15, le=480)
-    email: str = ""
-    notes: str = ""
+    email: str = Field(default="", max_length=200)
+    notes: str = Field(default="", max_length=1000)
+
+
+def _kiem_thoi_gian_dat_ban(raw: str) -> None:
+    """Chặn thời gian đặt bàn vô lý: quá khứ xa và quá xa tương lai.
+
+    Bug QA đợt 5: POST với `booking_time='2020-01-01 19:00'` vẫn tạo đơn
+    `confirmed` — đơn quá khứ nằm lẫn trong danh sách đang phục vụ, làm sai
+    cả sơ đồ bàn lẫn báo cáo. Cho phép lùi 15 phút để bù lệch đồng hồ khi
+    khách tới trực tiếp và quản lý nhập ngay sau giờ hẹn.
+    """
+    # Giờ quán (ICT). Không có offset trong chuỗi thì hiểu theo ICT — cùng quy
+    # ước với `ngay_hom_nay_vn()` trong `context_providers`.
+    vn_tz = timezone(timedelta(hours=7))
+    text = raw.strip().replace("Z", "+00:00")
+    try:
+        moc = datetime.fromisoformat(text)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=422, detail=f"du_lieu_khong_hop_le: {exc}"
+        ) from exc
+    moc = moc.replace(tzinfo=vn_tz) if moc.tzinfo is None else moc.astimezone(vn_tz)
+    now = datetime.now(vn_tz)
+    if moc < now - timedelta(minutes=15):
+        raise HTTPException(status_code=422, detail="thoi_gian_dat_ban_da_qua")
+    if moc > now + timedelta(days=365):
+        raise HTTPException(status_code=422, detail="thoi_gian_dat_ban_qua_xa")
 
 
 @router.get("/api/v1/reservations")
@@ -78,6 +105,7 @@ def create_reservation(
 
     _require_manager(authorization)
     nv_id = _nv_from_token(authorization)
+    _kiem_thoi_gian_dat_ban(body.booking_time)
 
     try:
         res = atomic_hold_or_book_table(
