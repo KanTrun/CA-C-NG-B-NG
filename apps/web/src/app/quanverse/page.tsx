@@ -40,6 +40,21 @@ import StationBoard, {
 import ForecastChart, {
   type ForecastPayload,
 } from "../../ui/experience/quanverse/ForecastChart";
+import dynamic from "next/dynamic";
+import { isManager } from "../../lib/session";
+
+// Nhúng thẳng War Room + Cứu ca vào /quanverse (không cần sang trang riêng).
+// `ssr:false` vì cả hai là bảng điều khiển phía client (gọi API bằng token).
+const WarRoom = dynamic(() => import("../../ui/experience/war-room/WarRoom"), {
+  ssr: false,
+  loading: () => <ExpSkeleton rows={5} grid />,
+});
+const ShiftRescuePanel = dynamic(
+  () => import("../../ui/experience/shift-rescue/ShiftRescuePanel"),
+  { ssr: false, loading: () => <ExpSkeleton rows={4} grid /> },
+);
+
+type QuanverseTab = "live" | "war_room" | "shift_rescue";
 import type {
   LiveSnapshotUI,
   ZoneUI,
@@ -72,6 +87,8 @@ export default function QuanversePage() {
   const [canActivateMode, setCanActivateMode] = useState(false);
   const [stations, setStations] = useState<StationsPayload | null>(null);
   const [forecast, setForecast] = useState<ForecastPayload | null>(null);
+  const [tab, setTab] = useState<QuanverseTab>("live");
+  const [manager, setManager] = useState(false);
 
   const base = process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8000";
 
@@ -79,6 +96,7 @@ export default function QuanversePage() {
     setToken(getToken());
     const r = getRole() as RoleId;
     if (ALL_ROLES.includes(r)) setRole(r);
+    setManager(isManager());
     setReady(true);
   }, []);
 
@@ -251,10 +269,64 @@ export default function QuanversePage() {
         </span>
       </div>
 
-      {!snap ? (
-        <ExpSkeleton rows={6} grid />
-      ) : (
-        <RoleProjection role={snap.role}>
+      {/* Tab chức năng: Bản đồ sống · War Room · Cứu ca — gộp một trang. */}
+      <div className="nq-qvtabs" role="tablist" aria-label="Chức năng Quánverse">
+        {(
+          [
+            ["live", "Bản đồ sống"],
+            ["war_room", "War Room"],
+            ["shift_rescue", "Cứu ca"],
+          ] as const
+        ).map(([id, label]) => {
+          const locked = id !== "live" && !manager;
+          return (
+            <button
+              key={id}
+              type="button"
+              role="tab"
+              aria-selected={tab === id}
+              className={`nq-qvtab${tab === id ? " is-on" : ""}`}
+              data-testid={`qv-tab-${id}`}
+              disabled={locked}
+              title={locked ? "Cần vai trò Quản lý hoặc Chủ quán" : undefined}
+              onClick={() => setTab(id)}
+            >
+              {label}
+            </button>
+          );
+        })}
+      </div>
+
+      {tab === "war_room" ? (
+        manager ? (
+          <div className="nq-quanverse-sub">
+            <WarRoom />
+          </div>
+        ) : (
+          <div className="nq-alert nq-alert--error" role="alert">
+            War Room yêu cầu vai trò Quản lý hoặc Chủ quán.
+          </div>
+        )
+      ) : null}
+
+      {tab === "shift_rescue" ? (
+        manager ? (
+          <div className="nq-quanverse-sub">
+            <ShiftRescuePanel />
+          </div>
+        ) : (
+          <div className="nq-alert nq-alert--error" role="alert">
+            Cứu ca yêu cầu vai trò Quản lý hoặc Chủ quán.
+          </div>
+        )
+      ) : null}
+
+      {tab === "live" ? (
+        <>
+          {!snap ? (
+            <ExpSkeleton rows={6} grid />
+          ) : (
+            <RoleProjection role={snap.role}>
           {/* Tóm tắt trạng thái — bốn con số đọc được trong một lần liếc */}
           <ul className="nq-summary" data-testid="quanverse-summary">
             <li className="nq-statcard">
@@ -419,8 +491,10 @@ export default function QuanversePage() {
               )}
             </ul>
           </section>
-        </RoleProjection>
-      )}
+            </RoleProjection>
+          )}
+        </>
+      ) : null}
     </div>
   );
 }

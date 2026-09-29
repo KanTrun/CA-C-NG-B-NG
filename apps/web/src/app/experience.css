@@ -511,6 +511,26 @@
 .nq-forecast__tick.is-peak .nq-forecast__gio { color: var(--nq-st-warn-ink-strong, var(--nq-ink)); font-weight: 700; }
 .nq-forecast__meta { margin: 0; font-size: 0.72rem; color: var(--nq-dim); }
 
+/* Tab chức năng Quánverse — gộp Bản đồ sống · War Room · Cứu ca một trang. */
+.nq-qvtabs { display: flex; gap: var(--nq-s2); flex-wrap: wrap; border-bottom: 1px solid var(--nq-line); padding-bottom: var(--nq-s2); }
+.nq-qvtab {
+  padding: 0.4rem 0.9rem;
+  border: 1px solid var(--nq-line);
+  border-radius: var(--nq-radius-pill);
+  background: var(--nq-bg-elevated);
+  color: var(--nq-ink);
+  font-weight: 600;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: border-color var(--nq-dur-t0), background var(--nq-dur-t0);
+}
+.nq-qvtab:hover:not(:disabled) { border-color: var(--nq-line-strong); }
+.nq-qvtab.is-on { border-color: var(--nq-accent); color: var(--nq-accent); background: color-mix(in srgb, var(--nq-accent) 12%, transparent); }
+.nq-qvtab:disabled { opacity: 0.5; cursor: not-allowed; }
+/* Khối con (War Room / Cứu ca) nhúng vào: lấp kín bề ngang, không thêm lề. */
+.nq-quanverse-sub { display: grid; gap: var(--nq-s4); width: 100%; }
+
+
 /* MỘT cột: mặt bằng FULL chiều ngang, các panel xuống dưới thành lưới nhiều cột.
    Trước đây chia hai cột (map 1fr + rail 26–32%) làm nội dung bên phải bị ép
    thành dải hẹp, chữ bó và kéo dài xuống màn hình — nay trả bề ngang cho map,
