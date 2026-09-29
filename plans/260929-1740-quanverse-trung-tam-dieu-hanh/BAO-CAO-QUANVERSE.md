@@ -2,8 +2,8 @@
 
 - **Kế hoạch**: `260929-1740-quanverse-trung-tam-dieu-hanh`
 - **Ngày thực hiện**: 2026-09-29
-- **Nhánh**: `main` (đã push) · `fa4b05f..ae50b6b`
-- **7 commit**: `fd1f7a6` → `ae50b6b`
+- **Nhánh**: `main` (đã push) · `fa4b05f..8631122`
+- **9 commit** (6 tính năng + 3 fix CI): `fd1f7a6` → `8631122`
 
 ---
 
@@ -263,8 +263,38 @@ Route (app)
 
 ### CI
 
-- Run `36606553057` trên `main` — đang chạy khi viết báo cáo này, xem `gh run list --branch main`.
-- Bước mới: `Vitest (web unit)` ở job `01 lint + type`.
+- **Run `36609562876`** (sau fix Ruff) — xem `gh run list --branch main`.
+- Lịch sử vòng lặp CI trong phiên này:
+
+| Run | Commit | Kết quả | Ghi chú |
+|---|---|---|---|
+| `36606553057` | `714c755` | ❌ `02 unit` đỏ 3 bài | file router tên `test_*.py` bị pytest thu |
+| `36608128600` | `ae50b6b` | ✅ `02 unit` (10m23s) · ✅ `08 e2e` (6m5s) · ❌ `01 lint` (Ruff I001) | rename đúng; còn lỗi thứ tự import |
+| `36609562876` | `8631122` | (đang chạy) | sửa thứ tự import |
+
+- Bước mới thêm vào job 01: `Vitest (web unit)` — chạy 84 test hợp đồng/mock.
+
+### 7. Bài học về quy trình (tự đánh giá)
+
+Hai lỗi CI trong phiên này **lẽ ra bắt được ở máy**:
+
+1. **File router tên `test_*.py`** — chỉ lộ khi quét cả `apps/`. Tôi đã chạy
+   `pytest <đúng file test>` và thấy xanh, rồi kết luận suite xanh. **Sai.**
+   Cách đúng: chạy `pytest --collect-only -q` hoặc chạy suite đầy đủ từ ROOT.
+2. **Thứ tự import Ruff** — tôi chạy `tsc`, `vitest`, `pytest`, `next build`,
+   `playwright` nhưng **thiếu `ruff`**, vốn là cổng ĐỎ (hard) trong CI. Một
+   lệnh một giây (`ruff check apps/api/src packages scripts`) đã chặn được cả
+   vòng CI 10 phút.
+
+**Bổ sung vào danh sách cổng phải chạy trước khi push:**
+
+```
+ruff check apps/api/src packages scripts
+mypy apps/api/src packages/*/src        (glob phải tự expand trên PowerShell)
+pytest -q                                (từ ROOT, không phải apps/api)
+tsc --noEmit && vitest run && next build && playwright test
+```
+
 
 ---
 
