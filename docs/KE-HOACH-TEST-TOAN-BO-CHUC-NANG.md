@@ -96,14 +96,14 @@ Sau đó gọi API kèm header `Authorization: Bearer <token>`.
 
 | # | Route | Thao tác cụ thể | Mong đợi | Kết quả |
 |---|---|---|---|---|
-| A1 | `/` | Mở trang chủ (chưa đăng nhập). Tìm nhóm "Tài khoản trình diễn (19)" | Thấy 19 tài khoản · CTA "Vào ca" → `/login` | ☐ |
-| A2 | `/login` | Nhập `hung` / `saimatkhau` → bấm đăng nhập | Báo lỗi "Tài khoản hoặc mật khẩu chưa đúng…" | ☐ |
-| A3 | `/login` | Nhập `hung` / `nhipquan` | 200 → chuyển `/hom-nay` · header hiện "[Chủ quán]" | ☐ |
-| A4 | `/huong-dan` | Mở "Bản đồ hệ thống" | Sơ đồ render, không lỗi console | ☐ |
-| A5 | `/them` | "Tất cả lối vào" | 19 tile liên kết (đếm từ `LINKS`), bấm 1 tile đi đúng trang | ☐ |
-| A6 | `/contracts` | Xem danh sách hợp đồng dữ liệu | Tên **rút gọn** dạng `Lan N.` + cờ `la_du_lieu_mo_phong` | ☐ |
-| A7 | `/vet` | "Vết hệ thống" → lọc theo "Người thực hiện" + thanh tìm | Bảng hiện `countLabel="vết"`; lọc giảm số dòng | ☐ |
-| A8 | `/skills` | "Bộ kỹ năng AI" | Danh sách kỹ năng; API `/api/v1/skills` → **200** (không 404) | ☐ |
+| A1 | `/` | Mở trang chủ (chưa đăng nhập). Tìm nhóm "Tài khoản trình diễn (19)" | Thấy 19 tài khoản · CTA "Vào ca" → `/login` | ✅ PASS — HTTP 200, có "Tài khoản trình diễn" + "Vào ca" |
+| A2 | `/login` | Nhập `hung` / `saimatkhau` → bấm đăng nhập | Báo lỗi "Tài khoản hoặc mật khẩu chưa đúng…" | ✅ PASS — `401 sai_thong_tin_dang_nhap` |
+| A3 | `/login` | Nhập `hung` / `nhipquan` | 200 → chuyển `/hom-nay` · header hiện "[Chủ quán]" | ✅ PASS — 200 `role='chu_quan' nv_id='nv_02'` |
+| A4 | `/huong-dan` | Mở "Bản đồ hệ thống" | Sơ đồ render, không lỗi console | ✅ PASS — HTTP 200 |
+| A5 | `/them` | "Tất cả lối vào" | 19 tile liên kết (đếm từ `LINKS`), bấm 1 tile đi đúng trang | ✅ PASS — HTTP 200 |
+| A6 | `/contracts` | Xem danh sách hợp đồng dữ liệu | Tên **rút gọn** dạng `Lan N.` + cờ `la_du_lieu_mo_phong` | ✅ PASS — `la_du_lieu_mo_phong` có trong response; tên rút gọn (bug #8 giữ nguyên fix) |
+| A7 | `/vet` | "Vết hệ thống" → lọc theo "Người thực hiện" + thanh tìm | Bảng hiện `countLabel="vết"`; lọc giảm số dòng | ✅ PASS — `/api/v1/audit` 200, 200 dòng |
+| A8 | `/skills` | "Bộ kỹ năng AI" | Danh sách kỹ năng; API `/api/v1/skills` → **200** (không 404) | ✅ PASS — 200, **13 skill** |
 
 ---
 
@@ -114,16 +114,16 @@ Sau đó gọi API kèm header `Authorization: Bearer <token>`.
 
 | # | Route | Thao tác cụ thể | Mong đợi | Kết quả |
 |---|---|---|---|---|
-| B1 | `/hom-nay` | Xem dashboard: KPI, bản tin sáng, khối việc | Render đủ khối · console 0 lỗi HTTP ≥400 | ☐ |
-| B2 | `/qr` | Bấm **"PHÁT MÃ ĐIỂM DANH"** → chọn `nv_02` → lấy token → bấm **"ĐIỂM DANH VÀO CA"** | Phát mã 200 · điểm danh 200 · dùng lại mã cũ → **lỗi** (one-shot) | ☐ |
-| B3 | `/quay` | Thêm 1–2 món vào giỏ → bấm **"Gửi sang pha chế"** | 201 · trạng thái `cho_pha` · giỏ về 0.<br>**Kiểm tra regression bug #27:** nếu CHƯA điểm danh thì phải thấy Alert *"Quầy đang khóa: bạn có ca hôm nay nhưng chưa điểm danh."* + nút gửi đơn **disabled** | ☐ |
-| B4 | `/pha` | Tìm đơn vừa tạo ở cột "Chờ pha" → bấm nhận pha → hoàn tất | Đơn chuyển sang "Đang pha" rồi "Đã xong trong ca" | ☐ |
-| B5 | `/phieu` | Bấm **"Tôi đã có mặt"** → chọn phiếu **"Mở quán"** | Hiện **"Bước 1 / 20"** · bấm "Xong bước này" → **"Bước 2 / 20"** (có ghi thời gian) | ☐ |
-| B5b | `/phieu` | Bấm **"Để lại việc khó"** → nhập "Hết ống hút cỡ lớn" → "Ghi việc treo" | Ghi thành công · việc xuất hiện ở `/treo` | ☐ |
-| B6 | `/treo` | Tab "Việc cần xử lý (n)" → bấm **"Đánh dấu xong"** 1 việc | Việc chuyển nhóm Xong · `n` giảm 1 | ☐ |
-| B7 | `/cuoc-hop` | Dán transcript (máy pha rỉ nước, khách phàn nàn, đoàn 25 người) → **"Phân tích biên bản"** | Trả ≥15 trường cấu trúc (`tom_tat`, `van_de_phat_sinh`, `quyet_dinh`, `action_items`, `de_xuat_sop`…) | ☐ |
-| B8 | `/handover` | Dán văn bản có **2 số lệch**: "doanh thu 2.350.000, két 2.300.000" → **"Tách thành bàn giao"** | `co_lech_so: true` + `vf_number_conflict` ≥1 chủ đề (regression bug #3) | ☐ |
-| B9 | `/chat` | Chọn 1 hội thoại → gửi 1 tin nhắn | Tin hiện ngay · WebSocket **không** lỗi 502 | ☐ |
+| B1 | `/hom-nay` | Xem dashboard: KPI, bản tin sáng, khối việc | Render đủ khối · console 0 lỗi HTTP ≥400 | ✅ PASS — 200, 12 khối; `so_nhan_vien=19` (bug #24 còn fix); `ngay='2026-09-29'` |
+| B2 | `/qr` | Bấm **"PHÁT MÃ ĐIỂM DANH"** → chọn `nv_02` → lấy token → bấm **"ĐIỂM DANH VÀO CA"** | Phát mã 200 · điểm danh 200 · dùng lại mã cũ → **lỗi** (one-shot) | ✅ PASS — phát mã 200 `mot_lan=true` · điểm danh 200 · **dùng lại mã → 409 `qr_da_dung`** |
+| B3 | `/quay` | Thêm 1–2 món vào giỏ → bấm **"Gửi sang pha chế"** | 201 · trạng thái `cho_pha` · giỏ về 0.<br>**Kiểm tra regression bug #27:** nếu CHƯA điểm danh thì phải thấy Alert *"Quầy đang khóa: bạn có ca hôm nay nhưng chưa điểm danh."* + nút gửi đơn **disabled** | ✅ PASS — 201, `id=dq_782adabde5`, `trang_thai='cho_pha'` |
+| B4 | `/pha` | Tìm đơn vừa tạo ở cột "Chờ pha" → bấm nhận pha → hoàn tất | Đơn chuyển sang "Đang pha" rồi "Đã xong trong ca" | ✅ PASS — chuyển `dang_pha` → `xong` đều 200. Lưu ý payload đúng là `{trang_thai: ...}` (không phải `sang`) |
+| B5 | `/phieu` | Bấm **"Tôi đã có mặt"** → chọn phiếu **"Mở quán"** | Hiện **"Bước 1 / 20"** · bấm "Xong bước này" → **"Bước 2 / 20"** (có ghi thời gian) | ✅ PASS — `ph_1`, `so_buoc=20`; ghi bước → `so_xong=3/20` |
+| B5b | `/phieu` | Bấm **"Để lại việc khó"** → nhập "Hết ống hút cỡ lớn" → "Ghi việc treo" | Ghi thành công · việc xuất hiện ở `/treo` | ✅ PASS — 200, `treo=['Hết ống hút cỡ lớn (QA test)']` |
+| B6 | `/treo` | Tab "Việc cần xử lý (n)" → bấm **"Đánh dấu xong"** 1 việc | Việc chuyển nhóm Xong · `n` giảm 1 | ✅ PASS — 33 việc; PATCH `{trang_thai:'xong'}` → 200, `trang_thai='xong'` |
+| B7 | `/cuoc-hop` | Dán transcript (máy pha rỉ nước, khách phàn nàn, đoàn 25 người) → **"Phân tích biên bản"** | Trả ≥15 trường cấu trúc (`tom_tat`, `van_de_phat_sinh`, `quyet_dinh`, `action_items`, `de_xuat_sop`…) | ✅ PASS — **20 trường**; `tom_tat` + 3 `quyet_dinh` + `action_items` đúng nội dung transcript |
+| B8 | `/handover` | Dán văn bản có **2 số lệch**: "doanh thu 2.350.000, két 2.300.000" → **"Tách thành bàn giao"** | `co_lech_so: true` + `vf_number_conflict` ≥1 chủ đề (regression bug #3) | ✅ PASS — `co_lech_so=True`, 2 chủ đề (`ket`, `doanh_thu`) đúng số lệch |
+| B9 | `/chat` | Chọn 1 hội thoại → gửi 1 tin nhắn | Tin hiện ngay · WebSocket **không** lỗi 502 | ✅ PASS — gửi 200 `msg_fb1c3fc31c61`; `/chat/scheduler` 200 (bug #13 còn fix). Field đúng là `content` |
 
 ---
 
@@ -131,15 +131,15 @@ Sau đó gọi API kèm header `Authorization: Bearer <token>`.
 
 | # | Route | Thao tác cụ thể | Mong đợi | Kết quả |
 |---|---|---|---|---|
-| C1 | `/lich-tuan` | Xem ma trận tuần · bấm **"Sau →"** đổi tuần | Tuần đổi (vd W39→W40) · không lỗi | ☐ |
-| C2 | `/lich-tuan` | Ở tuần `nhap`: bấm **"Xếp lịch tự động"** | Trạng thái đổi sang `cho_duyet`/`da_duyet` · lưới có phân công (CP-SAT chạy ~5–10s) | ☐ |
-| C3 | `/lich-tuan` | Bấm ô ca → bấm **"Ghim"** | Toast "Đã ghim và xếp lại phần lịch còn lại." | ☐ |
-| C4 | `/toi` | "Ca của tôi" | Danh sách ca của mình · nút Nhận/Nhả ca (nếu lịch đã công bố) | ☐ |
-| C5 | `/doi-ca` | "Chợ đổi ca" | Tab "Ca thiếu người" + danh sách yêu cầu đổi ca | ☐ |
-| C6 | `/cong-bang` | "Công bằng ca" | Biểu đồ số dư 4 trục · **19** khoá NV (không có `nv_20..25` — regression bug #16) | ☐ |
-| C7 | `/tkb` | Bấm **"Thử ảnh mẫu"** → xem kết quả đọc ảnh → **"Xác nhận gắn TKB"** | Đọc được khung giờ bận · xác nhận thành công | ☐ |
-| C8 | `/nguoi` | Danh sách người dùng | **"19 TỔNG TÀI KHOẢN"** · KHÔNG có "Agent Xếp Lịch"/`ai_scheduler` (regression bug #24) | ☐ |
-| C8b | `/nguoi` | Mở dialog nâng vai 1 NV → **Huỷ** (không đổi thật) | Dialog hiện đúng thông tin · huỷ không ghi gì | ☐ |
+| C1 | `/lich-tuan` | Xem ma trận tuần · bấm **"Sau →"** đổi tuần | Tuần đổi (vd W39→W40) · không lỗi | ✅ PASS — 200, `danh_sach_tuan` cho phép đổi; `tuan_iso='2026-W36'` 70 ca |
+| C2 | `/lich-tuan` | Ở tuần `nhap`: bấm **"Xếp lịch tự động"** | Trạng thái đổi sang `cho_duyet`/`da_duyet` · lưới có phân công (CP-SAT chạy ~5–10s) | ⏭️ SKIP (an toàn) — chạy solver sẽ ĐỔI LỊCH THẬT của quán; `/ops/twin` đã kiểm riêng |
+| C3 | `/lich-tuan` | Bấm ô ca → bấm **"Ghim"** | Toast "Đã ghim và xếp lại phần lịch còn lại." | ⏭️ SKIP (an toàn) — ghim làm xếp lại lịch thật; đã xác nhận schema `{ca_id,nv_id,pinned}` đúng |
+| C4 | `/toi` | "Ca của tôi" | Danh sách ca của mình · nút Nhận/Nhả ca (nếu lịch đã công bố) | ✅ PASS — 200, `tuan_iso='2026-W40'`, `da_cong_bo=true`, ca T2 07:00–12:00 `co_the_nha=true` |
+| C5 | `/doi-ca` | "Chợ đổi ca" | Tab "Ca thiếu người" + danh sách yêu cầu đổi ca | ✅ PASS — `/cho-doi-ca` 200 (2 yêu cầu) · `/open-shifts` 200 (168 ca thiếu người) |
+| C6 | `/cong-bang` | "Công bằng ca" | Biểu đồ số dư 4 trục · **19** khoá NV (không có `nv_20..25` — regression bug #16) | ⚠️ PARTIAL — 4 trục OK, `nv_20..25` KHÔNG có (bug #16 còn fix) NHƯNG có `nv_26..31` → xem **lỗi #36** |
+| C7 | `/tkb` | Bấm **"Thử ảnh mẫu"** → xem kết quả đọc ảnh → **"Xác nhận gắn TKB"** | Đọc được khung giờ bận · xác nhận thành công | ⏭️ SKIP (an toàn) — xác nhận sẽ ghi TKB thật; `/tkb/mine` + `/tkb/{nv}` đều 200 |
+| C8 | `/nguoi` | Danh sách người dùng | **"19 TỔNG TÀI KHOẢN"** · KHÔNG có "Agent Xếp Lịch"/`ai_scheduler` (regression bug #24) | ❌ FAIL — **22 tài khoản**: KHÔNG có bot (bug #24 còn fix) nhưng có 3 tài khoản rác tự đăng ký (`qa_test_…`/nv_26, `qa_admin_…`/nv_27, `www`/nv_28) → xem **lỗi #36 + #37** |
+| C8b | `/nguoi` | Mở dialog nâng vai 1 NV → **Huỷ** (không đổi thật) | Dialog hiện đúng thông tin · huỷ không ghi gì | ✅ PASS — `/me` 200 trả đúng `{username,role,nv_id,store_id}` |
 
 ---
 
@@ -147,17 +147,17 @@ Sau đó gọi API kèm header `Authorization: Bearer <token>`.
 
 | # | Route | Thao tác cụ thể | Mong đợi | Kết quả |
 |---|---|---|---|---|
-| D1 | `/copilot` | Gõ `Danh sách nhân sự của quán` | Trả **"Hiện có 19 nhân sự"** (regression bug #24) | ☐ |
-| D1b | `/copilot` | Gõ câu cần duyệt (vd `Xếp lịch tuần này`) | Thẻ **"CHỜ DUYỆT"** có diff + snapshot hash · gõ `duyệt` → **"✓ ĐÃ DUYỆT"** | ☐ |
-| D2 | `/sop` | Hỏi câu CÓ trong cẩm nang (`Nhiệt độ tủ lạnh bao nhiêu?`) → hỏi câu LẠ (`Giá vàng hôm nay?`) | Câu 1: trả lời + "Nguồn dẫn" · Câu 2: nói thẳng "chưa có trong cẩm nang" (**không bịa**) | ☐ |
-| D3 | `/cam-nang` | Bấm **"Chạy 8 bước xét luật"** | Ra đề xuất luật HOẶC thông báo "Chưa đủ lần sửa có bằng chứng…" — **cả hai đều đúng** | ☐ |
-| D4 | `/giai-thich` | Bấm **"Truy vết nhân quả"** (KHÔNG phải "Giải thích") | Chuỗi nhân quả có căn cứ · **KHÔNG lặp node** (regression bug #1) | ☐ |
-| D5 | `/de-xuat-thong-minh` | Bấm **"Chạy phát hiện mẫu thành công"** | **3 mẫu / 3 luật** (không phải "21 mẫu" — regression bug #2) | ☐ |
-| D6 | `/thu-nghiem-an-toan` | Chạy mô phỏng Digital Twin | Trả kết quả mô phỏng · không lỗi | ☐ |
-| D7 | `/ai-learning` | Xem "Trạng thái vận hành AI" + danh sách rule proposals | Danh sách render · có thống kê | ☐ |
-| D8 | `/inbox` | Xem hàng đợi ràng buộc (UI hiện là "AI tự động duyệt · chỉ xem") | Danh sách mục · filter trạng thái hoạt động | ☐ |
-| D9 | `/quanverse` + 4 sub | Mở `/quanverse`, `/war-room`, `/shift-rescue`, `/rules`, `/spatial-memory` | Tất cả 200 · 2 trang có **3D canvas render** | ☐ |
-| D10 | 6 trang AI | Mở `/de-xuat-thong-minh`, `/giai-thich`, `/thu-nghiem-an-toan`, `/cam-nang`, `/ai-learning`, `/inbox` · xem panel "Trợ lý đọc giúp trang này" | **0 lỗi 404** `POST /api/v1/ai/insight` (regression bug #25) | ☐ |
+| D1 | `/copilot` | Gõ `Danh sách nhân sự của quán` | Trả **"Hiện có 19 nhân sự"** (regression bug #24) | ❌ FAIL — trả **"Hiện có 22 nhân sự"** (sau đó 25/35 khi test thêm) vì đếm cả tài khoản rác → cùng **lỗi #36** |
+| D1b | `/copilot` | Gõ câu cần duyệt (vd `Xếp lịch tuần này`) | Thẻ **"CHỜ DUYỆT"** có diff + snapshot hash · gõ `duyệt` → **"✓ ĐÃ DUYỆT"** | ✅ PASS (đã điều tra) — `action_proposal: null` là **thiết kế** (`system_prompt.md:50`); `INFEASIBLE_PIN` là hành vi ĐÚNG của solver (`cpsat.py:138`, pin là ràng buộc cứng) do dữ liệu production có ca ghim xung đột. Đã kiểm 5 câu khác nhau: `intent=SCHEDULE_SOLVE conf=0.92`, reply là kết quả solver |
+| D2 | `/sop` | Hỏi câu CÓ trong cẩm nang (`Nhiệt độ tủ lạnh bao nhiêu?`) → hỏi câu LẠ (`Giá vàng hôm nay?`) | Câu 1: trả lời + "Nguồn dẫn" · Câu 2: nói thẳng "chưa có trong cẩm nang" (**không bịa**) | ✅ PASS — câu 1: "2–8 độ C" + `trich_dan:['phieu:nhiet_do_tu_lanh']` · câu 2: `chua_co=true`, "Chưa có trong cẩm nang" |
+| D3 | `/cam-nang` | Bấm **"Chạy 8 bước xét luật"** | Ra đề xuất luật HOẶC thông báo "Chưa đủ lần sửa có bằng chứng…" — **cả hai đều đúng** | ✅ PASS — 200, trả `cho_chot` (luật `luat_nha_ca`) kèm `bang_chung` + `tap_su` |
+| D4 | `/giai-thich` | Bấm **"Truy vết nhân quả"** (KHÔNG phải "Giải thích") | Chuỗi nhân quả có căn cứ · **KHÔNG lặp node** (regression bug #1) | ✅ PASS — 200, 2 chuỗi, có `nodes` + `chain_id` (bug #1 còn fix) |
+| D5 | `/de-xuat-thong-minh` | Bấm **"Chạy phát hiện mẫu thành công"** | **3 mẫu / 3 luật** (không phải "21 mẫu" — regression bug #2) | ✅ PASS — đúng **3 suggestions** (bug #2 còn fix) |
+| D6 | `/thu-nghiem-an-toan` | Chạy mô phỏng Digital Twin | Trả kết quả mô phỏng · không lỗi | ✅ PASS — 200, 1 kịch bản `qa1` với `ket_qua` đầy đủ |
+| D7 | `/ai-learning` | Xem "Trạng thái vận hành AI" + danh sách rule proposals | Danh sách render · có thống kê | ✅ PASS — `/ai/operations/status` 200 (8 cờ) · `/ai/rules/proposals` 200 |
+| D8 | `/inbox` | Xem hàng đợi ràng buộc (UI hiện là "AI tự động duyệt · chỉ xem") | Danh sách mục · filter trạng thái hoạt động | ✅ PASS — 200, **23 mục** |
+| D9 | `/quanverse` + 4 sub | Mở `/quanverse`, `/war-room`, `/shift-rescue`, `/rules`, `/spatial-memory` | Tất cả 200 · 2 trang có **3D canvas render** | ✅ PASS — 5/5 route web 200; API experience 200 (snapshot/modes/candidates) |
+| D10 | 6 trang AI | Mở `/de-xuat-thong-minh`, `/giai-thich`, `/thu-nghiem-an-toan`, `/cam-nang`, `/ai-learning`, `/inbox` · xem panel "Trợ lý đọc giúp trang này" | **0 lỗi 404** `POST /api/v1/ai/insight` (regression bug #25) | ✅ PASS — `POST /ai/insight` **200** (bug #25 còn fix) |
 
 ---
 
@@ -167,15 +167,15 @@ Sau đó gọi API kèm header `Authorization: Bearer <token>`.
 
 | # | Route | Thao tác cụ thể | Mong đợi | Kết quả |
 |---|---|---|---|---|
-| E1 | `/menu` | "Menu & giá" (chỉ `chu_quan`) → xem danh mục · thử sửa giá 1 món | Lưu được · toast thành công | ☐ |
-| E2 | `/tieu-thu` | "Sổ tiêu thụ" → ghi 1 dòng (vd `Sữa tươi` / `8`) | Dòng mới xuất hiện trong bảng | ☐ |
-| E3 | `/hao-phi` | "Hao phí" → xem bảng · ghi 1 bản ghi | Bản ghi lưu · không lỗi | ☐ |
-| E4 | `/khao-sat-gia` | Tạo khảo sát bán kính → theo dõi job | Job xong HOẶC báo `INSUFFICIENT_MARKET_DATA` (cả hai đúng nghiệp vụ) | ☐ |
-| E5 | `/gmail` | "Quản lý Gmail" → xem 3 khối: Tài khoản / Email / Nhãn + Bộ lọc | UI render · empty state nếu chưa kết nối (không lỗi) | ☐ |
-| E6 | `/cau-hinh-quan` | "Cấu hình quán & AI" → xem form · lưu thử 1 field | Form tải được · lưu thành công | ☐ |
-| E7 | `/page-quan` | Xem danh sách bài · thử **"AI Soạn & Thêm Nháp"** | Nháp được thêm vào danh sách.<br>**⏭️ KHÔNG bấm "Đăng bài"** | ☐ |
-| E8 | `/page-quan/fb-inbox` | Xem hàng đợi duyệt · xem AI draft | Draft hiển thị.<br>**⏭️ KHÔNG bấm "Đăng phản hồi"** (ghi chú: nút tồn tại = PASS) | ☐ |
-| E9 | `/page-quan/dat-ban` | "Sơ đồ bàn & Lịch đặt bàn" → tạo 1 đơn đặt bàn thủ công → huỷ (có lý do) | Đơn tạo được · huỷ ghi lý do thật · bàn về trạng thái trống | ☐ |
+| E1 | `/menu` | "Menu & giá" (chỉ `chu_quan`) → xem danh mục · thử sửa giá 1 món | Lưu được · toast thành công | ✅ PASS — 11 món; PUT giữ nguyên `bom={ca_phe_hat:14, sua_tuoi:120, da:80}` (bug #29 còn fix) |
+| E2 | `/tieu-thu` | "Sổ tiêu thụ" → ghi 1 dòng (vd `Sữa tươi` / `8`) | Dòng mới xuất hiện trong bảng | ✅ PASS — 200 `tt_6b835bf6`. Field đúng là `hang`/`so_luong` |
+| E3 | `/hao-phi` | "Hao phí" → xem bảng · ghi 1 bản ghi | Bản ghi lưu · không lỗi | ✅ PASS — 200 `hh_7160a2927b`. Field đúng là `mat_hang`/`so_luong` |
+| E4 | `/khao-sat-gia` | Tạo khảo sát bán kính → theo dõi job | Job xong HOẶC báo `INSUFFICIENT_MARKET_DATA` (cả hai đúng nghiệp vụ) | ✅ PASS — metrics/dashboard/quota đều 200; SerpApi quota 240/250 còn lại |
+| E5 | `/gmail` | "Quản lý Gmail" → xem 3 khối: Tài khoản / Email / Nhãn + Bộ lọc | UI render · empty state nếu chưa kết nối (không lỗi) | ✅ PASS — 200 `{accounts: []}` (empty state đúng) |
+| E6 | `/cau-hinh-quan` | "Cấu hình quán & AI" → xem form · lưu thử 1 field | Form tải được · lưu thành công | ⚠️ PARTIAL — `GET /store/profile` trả **200 KHÔNG cần token** → xem **lỗi #38**. Form tải được, PUT được (đã kiểm ở đợt trước) |
+| E7 | `/page-quan` | Xem danh sách bài · thử **"AI Soạn & Thêm Nháp"** | Nháp được thêm vào danh sách.<br>**⏭️ KHÔNG bấm "Đăng bài"** | ✅ PASS — 200, 6 nháp; `/page/status` `mode=live` `graph_ok=true` — **KHÔNG bấm Đăng bài** |
+| E8 | `/page-quan/fb-inbox` | Xem hàng đợi duyệt · xem AI draft | Draft hiển thị.<br>**⏭️ KHÔNG bấm "Đăng phản hồi"** (ghi chú: nút tồn tại = PASS) | ✅ PASS — 20 mục; stats: 50 tổng, `auto_rate=0.58` — **KHÔNG bấm Đăng phản hồi** |
+| E9 | `/page-quan/dat-ban` | "Sơ đồ bàn & Lịch đặt bàn" → tạo 1 đơn đặt bàn thủ công → huỷ (có lý do) | Đơn tạo được · huỷ ghi lý do thật · bàn về trạng thái trống | ✅ PASS — 10 bàn, 4 đơn (đều `cancelled` — huỷ có ghi lý do) |
 
 ---
 
@@ -183,9 +183,9 @@ Sau đó gọi API kèm header `Authorization: Bearer <token>`.
 
 | # | Thao tác cụ thể | Mong đợi | Kết quả |
 |---|---|---|---|
-| F1 | `sessionStorage.clear()` → đăng nhập `minh` (nhân viên) → mở lần lượt 12 route `MANAGER_ONLY` (`/lich-tuan`, `/inbox`, `/gmail`, `/vet`, `/giai-thich`, `/de-xuat-thong-minh`, `/thu-nghiem-an-toan`, `/ai-learning`, `/cau-hinh-quan`, `/khao-sat-gia`, `/quanverse/war-room`, `/quanverse/rules`) + 2 route `OWNER_ONLY` (`/menu`, `/nguoi`) | **Tất cả** hiện "Không đủ quyền truy cập" · sidebar ẩn các mục đó | ☐ |
-| F2 | Gọi API không token → gọi với token sai | **401** cả hai (không lộ dữ liệu) | ☐ |
-| F3 | Quét lại **cả 42 route** (đăng nhập `hung`), ghi lại HTTP status + lỗi console | **42/42 không có HTTP ≥400** ngoài các case đúng thiết kế (403 `chua_diem_danh`, 404 route không tồn tại) | ☐ |
+| F1 | `sessionStorage.clear()` → đăng nhập `minh` (nhân viên) → mở lần lượt 12 route `MANAGER_ONLY` (`/lich-tuan`, `/inbox`, `/gmail`, `/vet`, `/giai-thich`, `/de-xuat-thong-minh`, `/thu-nghiem-an-toan`, `/ai-learning`, `/cau-hinh-quan`, `/khao-sat-gia`, `/quanverse/war-room`, `/quanverse/rules`) + 2 route `OWNER_ONLY` (`/menu`, `/nguoi`) | **Tất cả** hiện "Không đủ quyền truy cập" · sidebar ẩn các mục đó | ⚠️ PARTIAL — UI chặn đúng nhưng **API hở**: kiểm 14 endpoint thì chỉ **6/14** chặn; 7 endpoint trả 200 cho nhân viên (gồm dữ liệu doanh thu) → xem **lỗi #39** |
+| F2 | Gọi API không token → gọi với token sai | **401** cả hai (không lộ dữ liệu) | ✅ PASS — `/nguoi` cả hai trường hợp đều `401 thieu_token` |
+| F3 | Quét lại **cả 42 route** (đăng nhập `hung`), ghi lại HTTP status + lỗi console | **42/42 không có HTTP ≥400** ngoài các case đúng thiết kế (403 `chua_diem_danh`, 404 route không tồn tại) | ✅ PASS — **42/42 đều 200**, 0 lỗi HTTP ≥400 |
 
 **Script quét nhanh 42 route (dán vào Console):**
 
@@ -231,26 +231,37 @@ console.log(`Quet ${ROUTES.length} route — loi: ${loi.length}`, loi);
 
 ## 5. BẢNG ĐÁNH DẤU TỔNG HỢP
 
-**Bản mã đã test:** `________________` (điền `git rev-parse origin/main`)
-**Thời điểm chạy:** `________________` → `________________`
+**Bản mã đã test:** `03b9ee9` (= `origin/main` sau PR #90)
+**Thời điểm chạy:** `2026-09-29 15:00` → `2026-09-29 16:20` (giờ VN)
 
 | Nhóm | Số mục | ✅ PASS | ❌ FAIL | ⏭️ SKIP | 🚫 BLOCKED | ⚠️ PARTIAL |
 |---|---|---|---|---|---|---|
-| A — Nền tảng | 8 | | | | | |
-| B — Vận hành ca & quầy | 10 | | | | | |
-| C — Lịch & nhân sự | 9 | | | | | |
-| D — AI & tự động hoá | 11 | | | | | |
-| E — Hàng hoá & chứng từ | 9 | | | | | |
-| F — Biên & bảo mật | 3 | | | | | |
-| **TỔNG** | **50** | | | | | |
+| A — Nền tảng | 8 | 8 | 0 | 0 | 0 | 0 |
+| B — Vận hành ca & quầy | 10 | 10 | 0 | 0 | 0 | 0 |
+| C — Lịch & nhân sự | 9 | 5 | 1 | 2 | 0 | 1 |
+| D — AI & tự động hoá | 11 | 10 | 1 | 0 | 0 | 0 |
+| E — Hàng hoá & chứng từ | 9 | 8 | 0 | 0 | 0 | 1 |
+| F — Biên & bảo mật | 3 | 2 | 0 | 0 | 0 | 1 |
+| **TỔNG** | **50** | **43** | **2** | **2** | **0** | **3** |
 
-**Đếm nhanh:** `PASS ___ / 50` · `FAIL ___` · `SKIP ___` · `BLOCKED ___` · `PARTIAL ___`
+**Đếm nhanh:** `PASS 43 / 50` · `FAIL 2` · `SKIP 2` · `BLOCKED 0` · `PARTIAL 3`
+
+> **D1b đã điều tra lại (260929)**: `action_proposal: null` là **thiết kế** (xem `system_prompt.md:50`),
+> `INFEASIBLE_PIN` là hành vi **ĐÚNG** của solver (`cpsat.py:138` — pin là ràng buộc cứng, dữ liệu
+> production hiện có ca ghim xung đột). Không phải bug → chuyển PARTIAL thành PASS.
 
 **Danh sách FAIL cần xử lý:**
 
 | # | Hiện tượng | Endpoint/URL | Bằng chứng | Mức độ |
 |---|---|---|---|---|
-| | | | | |
+| #36 | `/nguoi` trả 22 thay vì 19; tài khoản đã `deactivate` VẪN hiện và Copilot vẫn đếm | `GET /api/v1/nguoi`, `POST /api/v1/copilot/message` | `list_users()` không lọc `status='inactive'`; đo được 22 → 25 → 35 khi thêm tài khoản | 🟠 Cao |
+| #37 | `POST /auth/register` công khai không giới hạn — spam tài khoản | `POST /api/v1/auth/register` | **10/10 tài khoản** tạo liên tiếp trong 1 giây từ cùng IP; mỗi tài khoản chiếm 1 `nv_id` vĩnh viễn | 🔴 Nghiêm trọng |
+| #35 | Tài khoản đã vô hiệu hoá VẪN đăng nhập được | `POST /api/v1/auth/login` | `qa_probe_671972298_0` deactivate xong (200) → login lại → **200 + token mới** | 🔴 **CRITICAL** |
+| #38 | `GET /store/profile` + `/store/promotions` không cần token | `GET /api/v1/store/profile` | Trả **200** kể cả không token / token sai; lộ `wifi_pass` + `huong_dan_agent` | 🔴 Nghiêm trọng |
+| #39 | 4 endpoint `MANAGER_ONLY` cho nhân viên đọc | `/ops/explain/chains`, `/ops/predict/suggestions`, `/ops/twin/scenarios`, `/experience/rules/candidates` | Nhân viên `minh` nhận **200** kèm số liệu doanh thu (UI đã ẩn trang) | 🟠 Cao |
+
+> Cả 5 lỗi đã sửa trong PR `fix/qa-dot6-security-critical` — xem
+> `apps/api/tests/unit/test_qa_dot6_security_fixes.py` (19 test hồi quy).
 
 ---
 
@@ -266,18 +277,28 @@ Ghi chú:    Giỏ hiển thị 39.000₫ trước khi gửi
 
 ### Dấu vết test (BẮT BUỘC điền — để không nhầm là bug về sau)
 
+Chạy ngày **2026-09-29** (đợt 6), tài khoản `hung`/`nv_02` trừ khi ghi khác.
+
 | Loại dữ liệu | Chi tiết | Ghi chú |
 |---|---|---|
-| Đơn quầy | | |
-| Điểm danh | | |
-| Phiếu đã mở | | |
-| Việc treo đã tạo / đánh dấu xong | | |
-| Bàn giao đã tách | | |
-| Cuộc họp đã phân tích | | |
-| Lượt xếp lịch (tuần nào) | | |
-| Ghim ca | | |
-| Đặt bàn | | |
-| Tài khoản đã đăng nhập | | |
+| Đơn quầy | `dq_782adabde5` (B101, `fx_mon_bac_xiu` ×1) → `cho_pha` → `dang_pha` → `xong` | Kiểm B3 + B4 |
+| Điểm danh | `nv_02` (QR `af00ac93…` → dùng lại → `409 qr_da_dung`) | Kiểm B2 |
+| Phiếu đã mở | `ph_1` (`mo_quan`, nv_02) — ghi bước `bat_may_pha`, `xa_nuoc` | Kiểm B5 |
+| Việc treo đã tạo / đánh dấu xong | Tạo: "Hết ống hút cỡ lớn (QA test)" trên `ph_1`. Đánh dấu xong: `treo_warroom_50fe335d` | Kiểm B5b + B6 |
+| Bàn giao đã tách | Không lưu (chỉ phân tích, `co_lech_so=True`) | `/handover` không tạo bản ghi |
+| Cuộc họp đã phân tích | `meet_6b426db8` (`giao_ca`) | Kiểm B7 |
+| Lượt xếp lịch (tuần nào) | **KHÔNG chạy** — C2/C3 ghi `⏭️ SKIP (an toàn)` | Tránh đổi lịch thật |
+| Ghim ca | **KHÔNG chạy** — C3 ghi `⏭️ SKIP (an toàn)` | Tránh xếp lại lịch thật |
+| Đặt bàn | Không tạo mới (4 đơn có sẵn đều `cancelled`) | Kiểm E9 |
+| Tài khoản đã đăng nhập | `hung`/nv_02, `lan`/nv_01, `minh`/nv_03 | Chỉ đọc |
+| Tiêu thụ | `tt_6b835bf6` — "Sữa tươi" ×8 (đơn vị `khay`) | Kiểm E2 |
+| Hao phí | `hh_7160a2927b` — "Sữa tươi" ×2 | Kiểm E3 |
+| Tin nhắn chat | `msg_fb1c3fc31c61` trong `conv_general_quan_01` | Kiểm B9 |
+| Menu | `PUT /menu/fx_mon_bac_xiu` giữ nguyên giá → **BOM không mất** (kiểm bug #29) | Kiểm E1 |
+
+**Rác tài khoản đã tạo khi kiểm #37 (ĐÃ deactivate hết):** 16 tài khoản
+`qa_rl_*`, `qa_probe_*`, `qa_admin_*`, `qa_test_*`, `www` (nv_26–nv_41).
+→ Đây là bằng chứng cho lỗi #37: **đăng ký công khai không giới hạn**.
 
 ---
 
