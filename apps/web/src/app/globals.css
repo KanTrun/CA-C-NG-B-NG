@@ -6515,12 +6515,23 @@ a.nq-bento-surface:active {
 .nq-item-title {
   margin: 0;
   font-weight: 600;
+  /* Cắt tối đa 3 dòng cho tiêu đề trong danh sách. Bug QA đợt 5: một bản giao
+     ca dán 1.000 emoji làm thẻ cao 760px (85% màn hình) và che hết danh sách.
+     `line-clamp` chỉ ảnh hưởng hiển thị — chữ vẫn còn trong DOM cho screen
+     reader và cho thao tác copy. */
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  overflow-wrap: anywhere;
 }
 
 .nq-item-sub {
   margin: 0.35rem 0 0;
   font-size: 0.82rem;
   color: var(--nq-ink-muted);
+  overflow-wrap: anywhere;
 }
 
 /* ── Việc treo: phân nhóm theo trạng thái ── */

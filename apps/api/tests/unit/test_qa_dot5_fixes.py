@@ -283,3 +283,71 @@ def test_bom_json_khong_mat_khi_roundtrip() -> None:
     don = persist.don_get(don_id)
     assert don is not None
     assert json.loads(json.dumps(don["dong"])) == don["dong"]
+
+
+# ── Đợt 2: 4 anomaly còn lại ────────────────────────────────────────────────
+
+
+def test_qr_tra_404_khi_nhan_vien_khong_ton_tai() -> None:
+    """Mã NV sai là "không tìm thấy tài nguyên" (404), KHÔNG phải 422.
+
+    422 dành cho "body sai định dạng". Trước đây cả hai dùng 422 nên client
+    không phân biệt được `nhan_vien_khong_ton_tai` với lỗi validate trường.
+    """
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[3]
+    src = (root / "api" / "src" / "ca_api" / "interfaces" / "http" / "sprint45.py").read_text(
+        encoding="utf-8"
+    )
+    assert 'status_code=404, detail="nhan_vien_khong_ton_tai"' in src, (
+        "QR phải trả 404 cho nhân viên không tồn tại"
+    )
+    assert 'status_code=404, detail="ca_khong_hop_le"' in src, "ca_id sai cũng phải 404"
+    assert 'status_code=422, detail="nhan_vien_khong_ton_tai"' not in src, (
+        "không được còn nhánh 422 cho nhân viên không tồn tại"
+    )
+
+
+def test_treo_body_gioi_han_do_dai() -> None:
+    """`noi_dung` việc treo có giới hạn — 50.000 ký tự trước đây vẫn nhận (200)."""
+    from pydantic import ValidationError
+
+    from ca_api.interfaces.http.sprint3 import TreoBody
+
+    TreoBody(noi_dung="x" * 2_000)  # đúng biên trên
+    with pytest.raises(ValidationError):
+        TreoBody(noi_dung="x" * 50_000)
+    with pytest.raises(ValidationError):
+        TreoBody(noi_dung="")
+
+
+def test_item_title_co_line_clamp() -> None:
+    """Thẻ trong danh sách phải cắt ngắn — 1.000 emoji từng làm thẻ cao 760px."""
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[3]
+    css = (root / "web" / "src" / "app" / "globals.css").read_text(encoding="utf-8")
+
+    # Lấy đúng khối .nq-item-title
+    idx = css.find(".nq-item-title {")
+    assert idx != -1, "thiếu class .nq-item-title"
+    khoi = css[idx : css.find("}", idx)]
+    assert "line-clamp" in khoi, "`.nq-item-title` phải có line-clamp để cắt nội dung dài"
+    assert "overflow" in khoi, "phải có overflow hidden để line-clamp hoạt động"
+
+
+def test_authorization_chap_nhan_ca_hai_dang_token() -> None:
+    """`session()` nhận cả `Bearer <token>` lẫn `<token>` trần — CÓ CHỦ ĐÍCH.
+
+    WebSocket gửi token trần (không qua header HTTP) nên phải giữ tương thích.
+    Test này chốt hành vi để không ai "sửa" thành bắt buộc `Bearer` rồi làm
+    hỏng luồng WS.
+    """
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[3]
+    src = (root / "api" / "src" / "ca_api" / "persist.py").read_text(encoding="utf-8")
+    assert 'removeprefix("Bearer ")' in src, (
+        "`session()` phải chấp nhận token trần cho WebSocket — xem docstring"
+    )
