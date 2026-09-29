@@ -530,6 +530,22 @@
 /* Khối con (War Room / Cứu ca) nhúng vào: lấp kín bề ngang, không thêm lề. */
 .nq-quanverse-sub { display: grid; gap: var(--nq-s4); width: 100%; }
 
+/* Hành trình khách — chạy được */
+.nq-journey { display: grid; gap: var(--nq-s3); }
+.nq-journey__note { margin: 0; font-size: 0.76rem; color: var(--nq-dim); font-style: italic; }
+.nq-journey__steps { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--nq-s2); }
+.nq-journey__step { display: flex; align-items: flex-start; gap: var(--nq-s2); padding: 0.5rem 0.7rem; border: 1px solid var(--nq-line); border-radius: var(--nq-radius); background: var(--nq-bg-elevated); opacity: 0.62; transition: opacity var(--nq-dur-t0), border-color var(--nq-dur-t0); }
+.nq-journey__step.is-active { opacity: 1; border-color: var(--nq-accent); }
+.nq-journey__step.is-done { opacity: 1; border-color: color-mix(in srgb, var(--nq-st-ok) 45%, var(--nq-line)); }
+.nq-journey__num { flex: none; width: 1.4rem; height: 1.4rem; display: grid; place-items: center; border-radius: 999px; background: color-mix(in srgb, var(--nq-fg) 8%, transparent); font-family: var(--nq-font-mono, monospace); font-size: 0.7rem; }
+.nq-journey__step.is-done .nq-journey__num { background: color-mix(in srgb, var(--nq-st-ok) 22%, transparent); color: var(--nq-st-ok-ink); }
+.nq-journey__body { display: grid; gap: 0.1rem; }
+.nq-journey__ten { font-weight: 600; font-size: 0.88rem; }
+.nq-journey__desc { font-size: 0.76rem; color: var(--nq-dim); line-height: 1.4; }
+.nq-journey__actions { display: flex; gap: var(--nq-s2); flex-wrap: wrap; align-items: center; }
+.nq-journey__log { list-style: none; margin: 0; padding: 0.4rem 0.6rem; border-left: 2px solid var(--nq-accent); background: var(--nq-bg-elevated); border-radius: var(--nq-radius); font-family: var(--nq-font-mono, monospace); font-size: 0.68rem; color: var(--nq-dim); display: grid; gap: 0.15rem; }
+
+
 
 /* MỘT cột: mặt bằng FULL chiều ngang, các panel xuống dưới thành lưới nhiều cột.
    Trước đây chia hai cột (map 1fr + rail 26–32%) làm nội dung bên phải bị ép
@@ -1922,11 +1938,11 @@
    rơi xuống một mình. `auto-fit` + trần 1fr cho phép 3 cột ở màn rộng. */
 .nq-quanverse__guests {
   display: grid; gap: var(--nq-s4);
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr));
-  align-items: start;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr));
+  align-items: stretch;
 }
 @media (min-width: 1180px) {
-  .nq-quanverse__guests { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .nq-quanverse__guests { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 }
 
 /* Dòng sự kiện trải hết bề ngang nội dung — đây là nhật ký toàn quán. */

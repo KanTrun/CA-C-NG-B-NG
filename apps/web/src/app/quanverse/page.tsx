@@ -40,6 +40,7 @@ import StationBoard, {
 import ForecastChart, {
   type ForecastPayload,
 } from "../../ui/experience/quanverse/ForecastChart";
+import GuestJourney from "../../ui/experience/quanverse/GuestJourney";
 import dynamic from "next/dynamic";
 import { isManager } from "../../lib/session";
 
@@ -424,8 +425,15 @@ export default function QuanversePage() {
             </section>
           </div>
 
-          {/* Không gian khách: Hương vị · Sở thích · AR */}
+          {/* Không gian khách: Hành trình · Hương vị · Sở thích · AR */}
           <div className="nq-quanverse__guests">
+            <section className="nq-opscard" aria-label="Hành trình khách">
+              <div className="nq-exp-section__head">
+                <Icon name="arrow-right" size={16} />
+                <h3 className="nq-exp-section__title">Hành trình khách</h3>
+              </div>
+              <GuestJourney coDonThat={Boolean(stations?.co_du_lieu && stations.chi_so.don_hom_nay > 0)} />
+            </section>
             <FlavorUniverse />
             <PreferenceConsent />
             <ArLiteOverlay />
