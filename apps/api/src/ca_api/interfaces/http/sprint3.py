@@ -238,7 +238,10 @@ class ChungBody(BaseModel):
 
 
 class TreoBody(BaseModel):
-    noi_dung: str
+    # Giới hạn độ dài: bug QA đợt 5 cho thấy 50.000 ký tự vẫn được nhận (200),
+    # trong khi nội dung này hiển thị nguyên văn ở `/treo` và trong bản tin sáng.
+    # 2.000 ký tự thừa cho một việc cần người khác lo.
+    noi_dung: str = Field(min_length=1, max_length=2_000)
 
 
 class CaBody(BaseModel):

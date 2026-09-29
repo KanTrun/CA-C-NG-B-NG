@@ -219,7 +219,7 @@ def bind_manual(
     if body.channel not in {"telegram", "zalo", "facebook"}:
         raise HTTPException(status_code=422, detail="kenh_khong_hop_le")
     if not _known_nv(body.nv_id):
-        raise HTTPException(status_code=422, detail="nhan_vien_khong_ton_tai")
+        raise HTTPException(status_code=404, detail="nhan_vien_khong_ton_tai")
     kenh_bind_set(body.channel, body.external_user_id, body.nv_id)
     _audit(role, "kenh_bind", body.model_dump())
     return {"ok": True, **body.model_dump()}

@@ -1887,10 +1887,13 @@ def qr_issue(
     authorization: Annotated[str | None, Header()] = None,
 ) -> dict[str, Any]:
     _require_manager(authorization)
+    # 404 khi nhân viên không tồn tại — "không tìm thấy tài nguyên", KHÁC 422
+    # (dữ liệu sai định dạng). Bug QA đợt 5: trước đây trả 422 nên client không
+    # phân biệt được "mã NV sai" với "thiếu trường trong body".
     if not _known_nv(body.nv_id):
-        raise HTTPException(status_code=422, detail="nhan_vien_khong_ton_tai")
+        raise HTTPException(status_code=404, detail="nhan_vien_khong_ton_tai")
     if not _known_ca(body.ca_id):
-        raise HTTPException(status_code=422, detail="ca_khong_hop_le")
+        raise HTTPException(status_code=404, detail="ca_khong_hop_le")
     tok = uuid.uuid4().hex
 
     def mut(bag: dict[str, Any]) -> dict[str, Any]:

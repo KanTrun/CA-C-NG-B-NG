@@ -649,7 +649,7 @@ def mute_conversation(
 
 @router.get("/api/v1/chat/search")
 def search_messages(
-    q: str = Query(..., min_length=1),
+    q: str = Query(..., min_length=1, max_length=200),
     conv_id: str | None = Query(None),
     authorization: Annotated[str | None, Header()] = None,
 ) -> dict[str, Any]:

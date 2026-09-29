@@ -25,9 +25,7 @@ import json
 from typing import Any
 
 import pytest
-
 from ca_api import persist
-
 
 # ── BUG-01: chuyển trạng thái đơn quầy phải nguyên tử ────────────────────────
 
@@ -136,9 +134,8 @@ def test_menu_upsert_giu_bom_khi_khong_truyen() -> None:
 
 def test_store_profile_body_chan_truong_qua_dai() -> None:
     """`StoreProfileBody` giới hạn độ dài — chặn địa chỉ 5.000 ký tự."""
-    from pydantic import ValidationError
-
     from ca_api.interfaces.http.channels import StoreProfileBody
+    from pydantic import ValidationError
 
     StoreProfileBody(dia_chi="x" * 300)  # biên trên vẫn hợp lệ
     with pytest.raises(ValidationError):
@@ -160,9 +157,8 @@ def test_text_sach_bo_the_html() -> None:
 
 
 def test_kiem_thoi_gian_dat_ban_chan_qua_khu() -> None:
-    from fastapi import HTTPException
-
     from ca_api.interfaces.http.reservations import _kiem_thoi_gian_dat_ban
+    from fastapi import HTTPException
 
     with pytest.raises(HTTPException) as exc:
         _kiem_thoi_gian_dat_ban("2020-01-01 19:00")
@@ -171,9 +167,8 @@ def test_kiem_thoi_gian_dat_ban_chan_qua_khu() -> None:
 
 
 def test_kiem_thoi_gian_dat_ban_chan_qua_xa() -> None:
-    from fastapi import HTTPException
-
     from ca_api.interfaces.http.reservations import _kiem_thoi_gian_dat_ban
+    from fastapi import HTTPException
 
     with pytest.raises(HTTPException) as exc:
         _kiem_thoi_gian_dat_ban("2099-01-01 19:00")
@@ -193,9 +188,8 @@ def test_kiem_thoi_gian_dat_ban_cho_phep_tuong_lai_gan() -> None:
 
 
 def test_kiem_thoi_gian_dat_ban_chan_chuoi_rac() -> None:
-    from fastapi import HTTPException
-
     from ca_api.interfaces.http.reservations import _kiem_thoi_gian_dat_ban
+    from fastapi import HTTPException
 
     with pytest.raises(HTTPException) as exc:
         _kiem_thoi_gian_dat_ban("hom-qua-luc-nao-do")
@@ -206,9 +200,8 @@ def test_kiem_thoi_gian_dat_ban_chan_chuoi_rac() -> None:
 
 
 def test_analyze_meeting_body_chan_payload_khung() -> None:
-    from pydantic import ValidationError
-
     from ca_api.interfaces.http.meeting import AnalyzeMeetingBody
+    from pydantic import ValidationError
 
     AnalyzeMeetingBody(text="x" * 20_000)  # đúng biên trên
     with pytest.raises(ValidationError):
@@ -283,3 +276,70 @@ def test_bom_json_khong_mat_khi_roundtrip() -> None:
     don = persist.don_get(don_id)
     assert don is not None
     assert json.loads(json.dumps(don["dong"])) == don["dong"]
+
+
+# ── Đợt 2: 4 anomaly còn lại ────────────────────────────────────────────────
+
+
+def test_qr_tra_404_khi_nhan_vien_khong_ton_tai() -> None:
+    """Mã NV sai là "không tìm thấy tài nguyên" (404), KHÔNG phải 422.
+
+    422 dành cho "body sai định dạng". Trước đây cả hai dùng 422 nên client
+    không phân biệt được `nhan_vien_khong_ton_tai` với lỗi validate trường.
+    """
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[3]
+    src = (root / "api" / "src" / "ca_api" / "interfaces" / "http" / "sprint45.py").read_text(
+        encoding="utf-8"
+    )
+    assert 'status_code=404, detail="nhan_vien_khong_ton_tai"' in src, (
+        "QR phải trả 404 cho nhân viên không tồn tại"
+    )
+    assert 'status_code=404, detail="ca_khong_hop_le"' in src, "ca_id sai cũng phải 404"
+    assert 'status_code=422, detail="nhan_vien_khong_ton_tai"' not in src, (
+        "không được còn nhánh 422 cho nhân viên không tồn tại"
+    )
+
+
+def test_treo_body_gioi_han_do_dai() -> None:
+    """`noi_dung` việc treo có giới hạn — 50.000 ký tự trước đây vẫn nhận (200)."""
+    from ca_api.interfaces.http.sprint3 import TreoBody
+    from pydantic import ValidationError
+
+    TreoBody(noi_dung="x" * 2_000)  # đúng biên trên
+    with pytest.raises(ValidationError):
+        TreoBody(noi_dung="x" * 50_000)
+    with pytest.raises(ValidationError):
+        TreoBody(noi_dung="")
+
+
+def test_item_title_co_line_clamp() -> None:
+    """Thẻ trong danh sách phải cắt ngắn — 1.000 emoji từng làm thẻ cao 760px."""
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[3]
+    css = (root / "web" / "src" / "app" / "globals.css").read_text(encoding="utf-8")
+
+    # Lấy đúng khối .nq-item-title
+    idx = css.find(".nq-item-title {")
+    assert idx != -1, "thiếu class .nq-item-title"
+    khoi = css[idx : css.find("}", idx)]
+    assert "line-clamp" in khoi, "`.nq-item-title` phải có line-clamp để cắt nội dung dài"
+    assert "overflow" in khoi, "phải có overflow hidden để line-clamp hoạt động"
+
+
+def test_authorization_chap_nhan_ca_hai_dang_token() -> None:
+    """`session()` nhận cả `Bearer <token>` lẫn `<token>` trần — CÓ CHỦ ĐÍCH.
+
+    WebSocket gửi token trần (không qua header HTTP) nên phải giữ tương thích.
+    Test này chốt hành vi để không ai "sửa" thành bắt buộc `Bearer` rồi làm
+    hỏng luồng WS.
+    """
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[3]
+    src = (root / "api" / "src" / "ca_api" / "persist.py").read_text(encoding="utf-8")
+    assert 'removeprefix("Bearer ")' in src, (
+        "`session()` phải chấp nhận token trần cho WebSocket — xem docstring"
+    )
