@@ -2,8 +2,8 @@
 
 - **Kế hoạch**: `260929-1740-quanverse-trung-tam-dieu-hanh`
 - **Ngày thực hiện**: 2026-09-29
-- **Nhánh**: `main` (đã push) · `fa4b05f..8631122`
-- **9 commit** (6 tính năng + 3 fix CI): `fd1f7a6` → `8631122`
+- **Nhánh**: `main` (đã push) · `fa4b05f..2235a88`
+- **10 commit** (6 tính năng + 3 fix CI + 1 báo cáo) · **CI 8/8 XANH** (run `36609562876`)
 
 ---
 
@@ -263,14 +263,14 @@ Route (app)
 
 ### CI
 
-- **Run `36609562876`** (sau fix Ruff) — xem `gh run list --branch main`.
+**✅ 8/8 XANH** — run `36609562876` (`gh run view 36609562876`).
 - Lịch sử vòng lặp CI trong phiên này:
 
 | Run | Commit | Kết quả | Ghi chú |
 |---|---|---|---|
 | `36606553057` | `714c755` | ❌ `02 unit` đỏ 3 bài | file router tên `test_*.py` bị pytest thu |
 | `36608128600` | `ae50b6b` | ✅ `02 unit` (10m23s) · ✅ `08 e2e` (6m5s) · ❌ `01 lint` (Ruff I001) | rename đúng; còn lỗi thứ tự import |
-| `36609562876` | `8631122` | (đang chạy) | sửa thứ tự import |
+| **`36609562876`** | **`8631122`** | **✅ 8/8 XANH** | `01 lint + type` 1m39s · `02 unit` 9m48s · `08 e2e` 6m50s · `09 docker` 2m55s · `05 solver` 1m24s · `06 agent eval` 26s · `11 yaml` 9s · `12 skills` 44s |
 
 - Bước mới thêm vào job 01: `Vitest (web unit)` — chạy 84 test hợp đồng/mock.
 
