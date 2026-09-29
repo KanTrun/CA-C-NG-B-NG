@@ -13,11 +13,15 @@ export interface WarRoomScenarioInput
 }
 
 /** Option thêm phần GIẢI THÍCH do backend trả (LLM khi live, tất định khi replay).
- *  Số liệu gốc vẫn từ contract; hai trường này là lớp diễn giải phụ trợ. */
+ *  Số liệu gốc vẫn từ contract; các trường này là lớp diễn giải phụ trợ. */
 export type WarRoomOption = WarRoomOptionContract & {
   reason?: string;
   reason_provider?: string;
   reason_unsupported?: string[];
+  /** Nhãn tiếng Việt + số liệu của đường mô phỏng trên DỮ LIỆU THẬT. */
+  label?: string;
+  load?: Record<string, number>;
+  chi_tiet?: Record<string, string | number>;
 };
 
 export interface WarRoomComparison {
