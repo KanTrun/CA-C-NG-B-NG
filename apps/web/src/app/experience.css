@@ -463,6 +463,54 @@
 
 /* ── QUANVERSE Living OS ────────────────────────────────────────────────── */
 .nq-quanverse { display: grid; gap: var(--nq-s4); }
+/* LƯỚI ĐẶC: mọi khối lấp kín bề ngang, KHÔNG chừa gutter hai bên. */
+.nq-quanverse__ops {
+  display: grid; gap: var(--nq-s4);
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 360px), 1fr));
+  align-items: start;
+}
+.nq-opscard {
+  border: 2px solid var(--nq-line);
+  border-radius: var(--nq-radius-bubble);
+  background: var(--nq-surface);
+  padding: var(--nq-s4);
+  display: grid; gap: var(--nq-s3);
+  height: 100%;
+}
+.nq-opscard__src { font-family: var(--nq-font-mono, monospace); font-size: 0.7rem; color: var(--nq-dim); }
+
+/* Tải theo khu vực */
+.nq-stations { display: grid; gap: var(--nq-s3); }
+.nq-stations__grid { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--nq-s2); grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)); }
+.nq-station { border: 1px solid var(--nq-line); border-radius: var(--nq-radius); padding: 0.6rem 0.75rem; background: var(--nq-bg-elevated); display: grid; gap: 0.4rem; }
+.nq-station--chu_y { border-color: color-mix(in srgb, var(--nq-st-warn) 45%, var(--nq-line)); }
+.nq-station--qua_tai { border-color: color-mix(in srgb, var(--nq-st-danger) 55%, var(--nq-line)); }
+.nq-station__head { display: flex; align-items: center; justify-content: space-between; gap: var(--nq-s2); }
+.nq-station__ten { font-weight: 600; font-size: 0.9rem; }
+.nq-station__chip { display: inline-flex; align-items: center; gap: 0.25rem; font-size: 0.7rem; padding: 0.1rem 0.45rem; border-radius: var(--nq-radius-pill); }
+.nq-station__chip--binh_thuong { background: color-mix(in srgb, var(--nq-st-ok) 16%, transparent); color: var(--nq-st-ok-ink); }
+.nq-station__chip--chu_y { background: color-mix(in srgb, var(--nq-st-warn) 18%, transparent); color: var(--nq-st-warn-ink-strong, var(--nq-ink)); }
+.nq-station__chip--qua_tai { background: color-mix(in srgb, var(--nq-st-danger) 20%, transparent); color: var(--nq-st-danger-ink); }
+.nq-station__bars { display: grid; gap: 0.25rem; }
+.nq-station__bar { height: 6px; border-radius: 999px; background: color-mix(in srgb, var(--nq-fg) 8%, transparent); overflow: hidden; }
+.nq-station__fill { display: block; height: 100%; background: var(--nq-accent); }
+.nq-station--chu_y .nq-station__fill { background: var(--nq-st-warn); }
+.nq-station--qua_tai .nq-station__fill { background: var(--nq-st-danger); }
+.nq-station__nums { font-size: 0.72rem; color: var(--nq-dim); }
+.nq-stations__kpi { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 90px), 1fr)); gap: var(--nq-s2); margin: 0; }
+.nq-stations__kpi dt { font-size: 0.68rem; color: var(--nq-dim); text-transform: uppercase; letter-spacing: 0.03em; }
+.nq-stations__kpi dd { margin: 0; font-family: var(--nq-font-mono, monospace); font-weight: 700; font-size: 1rem; }
+
+/* Dự báo theo giờ */
+.nq-forecast { display: grid; gap: var(--nq-s2); }
+.nq-forecast__chart { width: 100%; height: 96px; border: 1px solid var(--nq-line); border-radius: var(--nq-radius); background: var(--nq-bg-elevated); padding: 6px; box-sizing: border-box; }
+.nq-forecast__svg { width: 100%; height: 100%; }
+.nq-forecast__line { fill: none; stroke: var(--nq-accent); stroke-width: 2; }
+.nq-forecast__axis { list-style: none; margin: 0; padding: 0; display: flex; justify-content: space-between; }
+.nq-forecast__gio { font-family: var(--nq-font-mono, monospace); font-size: 0.62rem; color: var(--nq-dim); }
+.nq-forecast__tick.is-peak .nq-forecast__gio { color: var(--nq-st-warn-ink-strong, var(--nq-ink)); font-weight: 700; }
+.nq-forecast__meta { margin: 0; font-size: 0.72rem; color: var(--nq-dim); }
+
 /* MỘT cột: mặt bằng FULL chiều ngang, các panel xuống dưới thành lưới nhiều cột.
    Trước đây chia hai cột (map 1fr + rail 26–32%) làm nội dung bên phải bị ép
    thành dải hẹp, chữ bó và kéo dài xuống màn hình — nay trả bề ngang cho map,

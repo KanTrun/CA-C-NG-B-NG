@@ -34,6 +34,12 @@ import PreferenceConsent from "../../ui/experience/quanverse/PreferenceConsent";
 import ArLiteOverlay from "../../ui/experience/quanverse/ArLiteOverlay";
 import ZoneDetail from "../../ui/experience/quanverse/ZoneDetail";
 import PageAssistant from "../../ui/experience/quanverse/PageAssistant";
+import StationBoard, {
+  type StationsPayload,
+} from "../../ui/experience/quanverse/StationBoard";
+import ForecastChart, {
+  type ForecastPayload,
+} from "../../ui/experience/quanverse/ForecastChart";
 import type {
   LiveSnapshotUI,
   ZoneUI,
@@ -64,6 +70,8 @@ export default function QuanversePage() {
   const [selectedZone, setSelectedZone] = useState<string | null>(null);
   const [busyMode, setBusyMode] = useState(false);
   const [canActivateMode, setCanActivateMode] = useState(false);
+  const [stations, setStations] = useState<StationsPayload | null>(null);
+  const [forecast, setForecast] = useState<ForecastPayload | null>(null);
 
   const base = process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8000";
 
@@ -114,6 +122,27 @@ export default function QuanversePage() {
       void loadModeCapability();
     }
   }, [token, ready, role, loadSnapshot, loadModeCapability]);
+
+  /** Tải/hàng chờ theo khu vực + dự báo theo giờ — dữ liệu vận hành THẬT. */
+  const loadLive = useCallback(async () => {
+    const auth: Record<string, string> = token ? { Authorization: `Bearer ${token}` } : {};
+    try {
+      const res = await fetch(`${base}/api/v1/experience/quanverse/stations`, { headers: auth });
+      if (res.ok) setStations((await res.json()) as StationsPayload);
+    } catch {
+      /* giữ nguyên dữ liệu cũ; khối sẽ hiện trạng thái trống */
+    }
+    try {
+      const res = await fetch(`${base}/api/v1/experience/quanverse/forecast`, { headers: auth });
+      if (res.ok) setForecast((await res.json()) as ForecastPayload);
+    } catch {
+      /* im lặng — đường dự báo là lớp phụ trợ */
+    }
+  }, [base, token]);
+
+  useEffect(() => {
+    if (token && ready) void loadLive();
+  }, [token, ready, loadLive]);
 
   const actOnMode = useCallback(
     async (mode: string, action: ModeAction) => {
@@ -299,6 +328,28 @@ export default function QuanversePage() {
                 canActivate={canActivateMode}
               />
             </div>
+          </div>
+
+          {/* Bảng vận hành THẬT: tải theo khu vực + dự báo nhu cầu theo giờ. */}
+          <div className="nq-quanverse__ops">
+            <section className="nq-opscard" aria-label="Tải theo khu vực">
+              <div className="nq-exp-section__head">
+                <Icon name="location" size={16} />
+                <h3 className="nq-exp-section__title">Tải theo khu vực</h3>
+                <span className="nq-exp-section__spacer" />
+                <span className="nq-opscard__src">từ đơn quầy thật</span>
+              </div>
+              <StationBoard data={stations} />
+            </section>
+            <section className="nq-opscard" aria-label="Dự báo nhu cầu theo giờ">
+              <div className="nq-exp-section__head">
+                <Icon name="info" size={16} />
+                <h3 className="nq-exp-section__title">Dự báo nhu cầu theo giờ</h3>
+                <span className="nq-exp-section__spacer" />
+                <span className="nq-opscard__src">từ lịch sử đơn</span>
+              </div>
+              <ForecastChart data={forecast} />
+            </section>
           </div>
 
           {/* Không gian khách: Hương vị · Sở thích · AR */}
