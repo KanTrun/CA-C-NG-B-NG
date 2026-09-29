@@ -802,12 +802,9 @@ def get_lich_tuan(
     current_session = auth_session(authorization) or {}
     store_id = str(current_session.get("store_id") or "quan_01")
     schedule_run = schedule_run_latest(store_id, tuan_iso)
-    # Nguồn DUY NHẤT cho "ca thiếu người thật" — xem `current_open_shifts`:
-    # chỉ ca của lần xếp gần nhất, và (nếu biết phân công) chỉ ca chưa đủ người.
-    # Lọc theo `phan_cong` được làm SAU khi dựng xong phân công bên dưới.
-    from ca_api.services.scheduling_service import current_open_shifts
-
-    open_shifts = current_open_shifts(store_id, tuan_iso)
+    # "Ca thiếu người thật" được tính SAU khi dựng xong `phan_cong`: ca nào còn
+    # dưới định biên mới là việc phải làm (xem `current_open_shifts`).
+    open_shifts: list[dict[str, Any]] = []
 
     data = _week_value("lich_tuan_results_by_week", tuan_iso, None)
     if not isinstance(data, dict):
@@ -863,6 +860,8 @@ def get_lich_tuan(
 
         # Bỏ ca thiếu ĐÃ ĐƯỢC LẤP (đủ người trong `phan_cong` hiện tại) — dùng
         # chung `current_open_shifts` với chợ đổi ca để hai bề mặt không lệch.
+        from ca_api.services.scheduling_service import current_open_shifts
+
         open_shifts = current_open_shifts(
             store_id, tuan_iso, phan_cong=phan_cong, ca_list=ca_list,
         )
@@ -901,9 +900,14 @@ def get_lich_tuan(
     result["trang_thai"] = lifecycle.get("trang_thai", result.get("trang_thai", "nhap"))
     result["khung_gio"] = _khung_template()
     result["schedule_run"] = schedule_run
-    # `open_shifts` đã được `current_open_shifts` neo theo lần xếp gần nhất ở
-    # đầu hàm; nhánh seed dùng nguyên danh sách đó.
-    result["open_shifts"] = open_shifts
+    # Nhánh seed: tính ca thiếu thật từ phân công seed + định biên, giống nhánh solver.
+    from ca_api.services.scheduling_service import current_open_shifts
+
+    result["open_shifts"] = current_open_shifts(
+        store_id, tuan_iso,
+        phan_cong=cast(dict[str, list[str]], result.get("phan_cong") or {}),
+        ca_list=cast(list[dict[str, Any]], result.get("ca") or []),
+    )
     return result
 
 

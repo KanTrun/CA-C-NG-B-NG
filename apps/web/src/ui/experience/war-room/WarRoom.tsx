@@ -28,6 +28,8 @@ import {
   warRoomConfirm,
   warRoomPropose,
   warRoomSimulate,
+  warRoomSimulateLive,
+  type WarRoomLiveResponse,
 } from "../experience-api";
 
 type SimResult = {
@@ -68,6 +70,26 @@ export default function WarRoom() {
   const [notice, setNotice] = useState<string | null>(null);
   const [proposal, setProposal] = useState<Proposal | null>(null);
   const [confirming, setConfirming] = useState(false);
+  const [live, setLive] = useState<WarRoomLiveResponse | null>(null);
+  const [liveBusy, setLiveBusy] = useState(false);
+  const [liveError, setLiveError] = useState<string | null>(null);
+
+  /** Mô phỏng trên DỮ LIỆU THẬT của tuần đang chạy — tính các phương án thật. */
+  const simulateLive = useCallback(async () => {
+    setLiveBusy(true);
+    setLiveError(null);
+    try {
+      const resp = await warRoomSimulateLive({});
+      setLive(resp);
+      if (!resp.co_du_lieu) {
+        setLiveError("Tuần này chưa có lịch xếp nên chưa mô phỏng được trên dữ liệu thật. Hãy xếp lịch ở /lich-tuan trước.");
+      }
+    } catch (e) {
+      setLiveError(viError(e, COPY.simulate));
+    } finally {
+      setLiveBusy(false);
+    }
+  }, []);
 
   const toggleScenario = useCallback((scenario: WarRoomScenarioInput) => {
     setScenarios((prev) => {
@@ -175,6 +197,46 @@ export default function WarRoom() {
           thay đổi lịch thật.
         </p>
       </header>
+
+      {/* CHẾ ĐỘ DỮ LIỆU THẬT — tính phương án trên lịch tuần đang chạy. */}
+      <section className="nq-war__live" aria-label="Mô phỏng trên dữ liệu thật">
+        <div className="nq-war__livehead">
+          <div>
+            <h2>Mô phỏng trên lịch tuần đang chạy</h2>
+            <p className="nq-muted">
+              Dựng baseline từ phân công thật, rồi tính các phương án (giữ nguyên ·
+              thêm người · điều chuyển). Số ra từ chính lịch của quán.
+            </p>
+          </div>
+          <button
+            type="button"
+            className="nq-btn nq-btn-primary"
+            onClick={() => void simulateLive()}
+            disabled={liveBusy}
+            data-testid="war-live-run"
+          >
+            {liveBusy ? "Đang tính…" : "Chạy trên dữ liệu thật"}
+          </button>
+        </div>
+        {liveError ? <div className="nq-alert nq-alert--info" role="status">{liveError}</div> : null}
+        {live && live.co_du_lieu ? (
+          <div className="nq-war__liveresult" data-testid="war-live-result">
+            <p className="nq-war__livesum">
+              Tuần {(live.baseline?.tuan_iso as string) ?? "—"} ·{" "}
+              {(live.baseline?.chi_so as Record<string, number>)?.so_ca ?? 0} ca ·{" "}
+              {(live.baseline?.chi_so as Record<string, number>)?.so_ca_thieu ?? 0} ca thiếu
+            </p>
+            <ul className="nq-war__liveopts">
+              {live.options.map((o) => (
+                <li key={o.option_id} className="nq-war__liveopt" data-live-opt={o.option_id}>
+                  <strong>{o.label ?? o.scenario_id}</strong>
+                  {o.reason ? <p className="nq-war__livereason">{o.reason}</p> : null}
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
+      </section>
 
       {/* TÌNH HÌNH HIỆN TẠI — trả lời câu hỏi đầu tiên người trực ca cần:
           "bây giờ quán đang thế nào, có gì đáng lo". Trước đây trang chỉ có 5

@@ -394,6 +394,8 @@ class CopilotIntent(StrEnum):
     GET_SURVEY_RESULT = "GET_SURVEY_RESULT"
     # Audit / vết hệ thống — chỉ quản lý & chủ quán (R0_READ, tenant-scoped)
     QUERY_AUDIT = "QUERY_AUDIT"
+    # Hỏi về 4 mặt Trải nghiệm AI: Living Map, War Room, Cứu ca, Hồn quán (R0_READ)
+    QUERY_QUANVERSE = "QUERY_QUANVERSE"
     OUT_OF_SCOPE = "OUT_OF_SCOPE"
 
 
@@ -418,6 +420,8 @@ _READ_INTENTS = frozenset(
         # Thị trường & SerpApi — R0_READ
         "GET_SERPAPI_QUOTA",
         "GET_SURVEY_RESULT",
+        # Trải nghiệm AI (Living Map / War Room / Cứu ca / Hồn quán) — R0_READ mọi role
+        "QUERY_QUANVERSE",
     }
 )
 _QUAN_LY_INTENTS: frozenset[str] = frozenset(

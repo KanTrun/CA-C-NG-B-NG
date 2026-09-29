@@ -268,18 +268,17 @@ export default function QuanversePage() {
             </ul>
           ) : null}
 
-          {/* Bố cục hai vùng: mặt bằng bên trái, cột việc-cần-quyết bên phải.
-              `ZoneDetail` nằm TRONG cột phải (không phải hàng riêng dưới mặt
-              bằng) để cột phải luôn có nội dung thật và hai vùng cao gần nhau —
-              trước đây chi tiết nằm dưới nên cột phải ngắn, để lại một khoảng
-              trống lớn bên dưới nó, đúng cảm giác "ép qua một bên". */}
+          {/* Bố cục: MẶT BẰNG full chiều ngang (nội dung rộng, không bị ép cột),
+              rồi các panel việc-cần-quyết xuống DƯỚI thành lưới nhiều cột đều
+              nhau. Trước đây cột phải bị ép 26–32% nên nội dung bên đó dồn thành
+              một dải hẹp, chữ bị bó và kéo dài xuống màn hình. */}
           <div className="nq-quanverse__layout">
-            <div className="nq-quanverse__main">
-              <LivingMap
-                zones={snap.zones ?? []}
-                selectedId={selectedZone}
-                onSelectZone={setSelectedZone}
-              />
+            <LivingMap
+              zones={snap.zones ?? []}
+              selectedId={selectedZone}
+              onSelectZone={setSelectedZone}
+            />
+            <div className="nq-quanverse__panels">
               {selected ? (
                 <ZoneDetail
                   zone={selected}
@@ -292,8 +291,6 @@ export default function QuanversePage() {
                   Chọn một khu vực trên mặt bằng để xem tải, gợi ý hành động và sự kiện tại chỗ.
                 </p>
               )}
-            </div>
-            <div className="nq-quanverse__right">
               <HorizonTimeline items={snap.next_horizon ?? []} />
               <ModeRail
                 modes={snap.modes ?? []}

@@ -1486,6 +1486,71 @@ def _tuan_hien_tai() -> str:
     return f"{iso[0]}-W{iso[1]:02d}"
 
 
+def tool_query_quanverse(
+    store_id: str = "quan_01",
+    cau_hoi: str = "",
+    **kwargs: Any,
+) -> ToolExecutionResult:
+    """QUERY_QUANVERSE: trả lời về 4 mặt Trải nghiệm AI (R0_READ, mọi role).
+
+    Gồm: Living Map (/quanverse), War Room, Cứu ca (shift-rescue), Hồn quán
+    (spatial-memory). Trả dữ kiện TẤT ĐỊNH từ các nguồn thật đang có (kv phân
+    công + ký ức xác nhận + ca thiếu) để Copilot diễn đạt lại — không bịa số.
+
+    Đây là intent CHỈ ĐỌC: không mutation, không gọi LLM ở tầng tool.
+    """
+    cau = str(cau_hoi or kwargs.get("raw_message") or "").lower()
+    facts: dict[str, Any] = {}
+    tom_tat: list[str] = []
+
+    # Living Map / lịch tuần: đếm ca có người + ca thiếu trong tuần hiện tại.
+    tuan = _tuan_hien_tai()
+    phan_cong = _kv_get("phan_cong_by_week", {})
+    week_assign = phan_cong.get(tuan, {}) if isinstance(phan_cong, dict) else {}
+    if isinstance(week_assign, dict) and week_assign:
+        so_ca_co_nguoi = sum(1 for nvs in week_assign.values() if nvs)
+        facts["tuan_iso"] = tuan
+        facts["so_ca_co_nguoi"] = so_ca_co_nguoi
+        tom_tat.append(f"Lịch tuần {tuan}: {so_ca_co_nguoi} ca đã có người.")
+
+    # Hồn quán: ký ức đã xác nhận.
+    memories = _kv_get("spatial_memories", [])
+    if isinstance(memories, list):
+        confirmed = [m for m in memories if isinstance(m, dict) and m.get("status") == "confirmed"]
+        facts["so_ky_uc_xac_nhan"] = len(confirmed)
+        tom_tat.append(f"Hồn quán: {len(confirmed)} ký ức đã xác nhận.")
+
+    # Cứu ca: ca đang thiếu (nếu có nguồn).
+    open_shifts = _kv_get("open_shifts", [])
+    if isinstance(open_shifts, list):
+        facts["so_ca_thieu"] = len(open_shifts)
+        if open_shifts:
+            tom_tat.append(f"Cứu ca: {len(open_shifts)} ca đang thiếu người.")
+
+    page_goi_y = (
+        "war_room" if ("war" in cau or "chiến" in cau or "kịch bản" in cau)
+        else "shift_rescue" if ("cứu ca" in cau or "cứu" in cau or "vắng" in cau)
+        else "spatial_memory" if ("hồn quán" in cau or "ký ức" in cau or "tour" in cau)
+        else "living_map"
+    )
+    facts["goi_y_trang"] = {
+        "war_room": "/quanverse/war-room",
+        "shift_rescue": "/quanverse/shift-rescue",
+        "spatial_memory": "/quanverse/spatial-memory",
+        "living_map": "/quanverse",
+    }[page_goi_y]
+
+    summary = " ".join(tom_tat) if tom_tat else "Chưa có dữ liệu Trải nghiệm AI cho tuần này."
+    return _read_result(
+        "QUERY_QUANVERSE",
+        "tool_query_quanverse",
+        {"cau_hoi": cau_hoi, **facts},
+        summary,
+        f"Trả lời câu hỏi về Trải nghiệm AI. Mở {facts['goi_y_trang']} để xem chi tiết.",
+    )
+
+
+
 def tool_get_schedule(
     store_id: str = "quan_01",
     tuan: str | None = None,
@@ -1774,6 +1839,8 @@ _READ_TOOLS: dict[str, Callable[..., ToolExecutionResult]] = {
     "GET_CONSTRAINT_CANDIDATES": tool_get_constraint_candidates,
     # Audit / vết hệ thống — chỉ quản lý & chủ quán (R0_READ, tenant-scoped)
     "QUERY_AUDIT": tool_query_audit,
+    # Trải nghiệm AI (Living Map / War Room / Cứu ca / Hồn quán) — R0_READ mọi role
+    "QUERY_QUANVERSE": tool_query_quanverse,
 }
 
 _TOOLS.update(_READ_TOOLS)

@@ -1820,6 +1820,20 @@ def test_pr10_hanging_task_proposal_and_execute() -> None:
     assert item["copilot_created"] is True
 
 
+def test_hoi_ve_trai_nghiem_ai_duoc_tra_loi() -> None:
+    """Copilot hiểu câu hỏi về 4 mặt Trải nghiệm AI (Living Map/War Room/Cứu ca/Hồn quán)."""
+    token = _login_manager()
+    for cau in ("War Room mô phỏng kịch bản nào?", "Cứu ca tuần này thế nào?", "Hồn quán có gì?"):
+        res = client.post(
+            "/api/v1/copilot/message",
+            json={"message": cau, "channel": "web"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert res.status_code == 200
+        assert res.json()["intent"] == "QUERY_QUANVERSE"
+        assert res.json()["direct_answer"], "phải có câu trả lời đọc được"
+
+
 def test_time_off_bao_ban_tao_de_xuat_cho_duyet() -> None:
     """«Tôi bận thứ 5» → PROPOSE_TIME_OFF → duyệt → inbox xin_nghi chờ QL."""
     from ca_api.persist import kv_get

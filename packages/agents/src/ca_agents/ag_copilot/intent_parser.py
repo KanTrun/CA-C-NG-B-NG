@@ -54,6 +54,8 @@ GET_SERPAPI_QUOTA = "GET_SERPAPI_QUOTA"
 GET_SURVEY_RESULT = "GET_SURVEY_RESULT"
 # Audit / vết hệ thống — chỉ quản lý & chủ quán (R0_READ, tenant-scoped)
 QUERY_AUDIT = "QUERY_AUDIT"
+# Hỏi về 4 mặt Trải nghiệm AI (Living Map / War Room / Cứu ca / Hồn quán)
+QUERY_QUANVERSE = "QUERY_QUANVERSE"
 OUT_OF_SCOPE = "OUT_OF_SCOPE"
 # Patterns detecting attempts to bypass two-phase approval
 _BYPASS_PATTERNS = [
@@ -144,6 +146,20 @@ _INTENT_KEYWORDS: list[tuple[str, list[str], float]] = [
             "kiểm tra nhật ký", "kiem tra nhat ky", "kiểm tra vết", "kiem tra vet",
         ],
         0.9,
+    ),
+    # QUERY_QUANVERSE — hỏi về 4 mặt Trải nghiệm AI (Living Map / War Room / Cứu ca /
+    # Hồn quán). Đặt TRƯỚC các intent đọc khác để câu hỏi về các trang này không
+    # rơi nhầm vào lịch/tồn kho.
+    (
+        QUERY_QUANVERSE,
+        [
+            "quanverse", "quán vũ trụ", "quan vu tru", "trải nghiệm ai", "trai nghiem ai",
+            "living map", "bản đồ sống", "ban do song", "war room", "phòng chiến", "phong chien",
+            "cứu ca", "cuu ca", "ca vắng", "ca vang", "thiếu người", "thieu nguoi",
+            "hồn quán", "hon quan", "ký ức quán", "ky uc quan", "tour quán", "tour quan",
+            "mô phỏng kịch bản", "mo phong kich ban", "kịch bản nào", "kich ban nao",
+        ],
+        0.88,
     ),
     (
         GET_SHIFT_SWAPS,
@@ -911,6 +927,9 @@ def parse_intent(message: str, context: dict[str, Any] | None = None) -> IntentP
                     params["tuan"] = tuan
 
     elif matched_intent == QUERY_SOP:
+        params["cau_hoi"] = text
+
+    elif matched_intent == QUERY_QUANVERSE:
         params["cau_hoi"] = text
 
     elif matched_intent == PROPOSE_TIME_OFF:

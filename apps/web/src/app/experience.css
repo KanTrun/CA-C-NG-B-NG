@@ -221,6 +221,19 @@
 .nq-war-compare__blocked { color: var(--nq-warn); background: color-mix(in srgb, var(--nq-warn) 14%, transparent); }
 .nq-war-compare__stale { color: var(--nq-warn); font-size: 0.75rem; }
 .nq-war-compare__actions { display: flex; gap: 0.5rem; margin-top: 0.25rem; flex-wrap: wrap; }
+/* Lời giải thích phương án (LLM khi live, tất định khi replay). */
+.nq-war-compare__reason {
+  margin: 0.35rem 0 0;
+  padding-left: 0.5rem;
+  border-left: 2px solid var(--nq-accent);
+  font-size: 0.8rem;
+  line-height: 1.5;
+  color: var(--nq-ink-muted);
+  display: flex;
+  gap: 0.35rem;
+  align-items: flex-start;
+}
+.nq-war-compare__reason .nq-icon { flex: none; margin-top: 0.15rem; color: var(--nq-accent); }
 
 .nq-crisis { margin-top: 1.25rem; }
 .nq-crisis h2 { font-size: 1rem; letter-spacing: 0.04em; text-transform: uppercase; color: var(--nq-accent); }
@@ -364,11 +377,11 @@
    trong khoảng 97ms -> 190ms. Cũng chính vì thế bài `spatial-memory.spec.ts` đo
    `svgBox` rồi đo từng neo, hai phép đo rơi vào hai bố cục khác nhau nên toạ độ
    lệch (neo chạm 912 trong khi `svgBox` kết thúc ở 771). */
-.nq-spatial__layout { display: grid; gap: 1rem; grid-template-columns: minmax(0, 1fr) 420px; align-items: start; }
-/* Dưới 1100px thì về một cột: bản đồ và cột chi tiết cạnh nhau ở bề rộng này
-   làm cả hai bị bó (bản đồ mất chiều ngang, cột phải gãy chữ). */
-@media (max-width: 1100px) { .nq-spatial__layout { grid-template-columns: minmax(0, 1fr); } }
-.nq-spatial__side { display: grid; gap: var(--nq-s4); align-content: start; }
+.nq-spatial__layout { display: grid; gap: 1rem; grid-template-columns: minmax(0, 1fr); align-items: start; }
+/* Bản đồ full chiều ngang; chi tiết neo + tour xuống DƯỚI thành lưới nhiều cột
+   đều nhau (trước đây cột phải cứng 420px làm bản đồ hẹp và panel bị bó chữ). */
+.nq-spatial__side { display: grid; gap: var(--nq-s4); align-content: start; grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr)); align-items: start; }
+.nq-spatial__side > * { align-self: start; }
 .nq-map2d { align-self: start; border: 2px solid var(--nq-line); border-radius: var(--nq-radius-bubble, 18px); background: var(--nq-bg-elevated); overflow: hidden; }
 .nq-map2d__svg { display: block; width: 100%; height: auto; color: var(--nq-fg); }
 .nq-map2d__anchor { cursor: pointer; outline: none; }
@@ -425,24 +438,24 @@
 
 /* ── QUANVERSE Living OS ────────────────────────────────────────────────── */
 .nq-quanverse { display: grid; gap: var(--nq-s4); }
-/* Bố cục ba vùng rõ ràng, KHÔNG để vùng nào bị ép:
-   - ≥1400px: mặt bằng + rail phải THEO TỈ LỆ (rail ~30%) — rail cứng 360px ở
-     màn 1920px chỉ chiếm 23%, nội dung dồn trái và rail bị bóp; đây đúng là
-     cảm giác "ép qua bên phải".
-   - 1200–1400px: rail 340–380px là đủ cho trục 15 phút + chế độ.
-   - <1200px: MỘT cột (rail xuống dưới) — dải 760–1040px trước đây tách rail
-     thành hai cột nằm dưới mặt bằng full-width nên mỗi cột chỉ còn ~370px. */
+/* MỘT cột: mặt bằng FULL chiều ngang, các panel xuống dưới thành lưới nhiều cột.
+   Trước đây chia hai cột (map 1fr + rail 26–32%) làm nội dung bên phải bị ép
+   thành dải hẹp, chữ bó và kéo dài xuống màn hình — nay trả bề ngang cho map,
+   panel dàn đều bên dưới. */
 .nq-quanverse__layout {
   display: grid; gap: var(--nq-s4);
-  grid-template-columns: minmax(0, 1fr) minmax(320px, 32%);
+  grid-template-columns: minmax(0, 1fr);
   align-items: start;
 }
-@media (min-width: 1700px) {
-  /* Màn rất rộng: chặn rail lại để nó không phình thành một cột chữ dài khó đọc. */
-  .nq-quanverse__layout { grid-template-columns: minmax(0, 1fr) minmax(380px, 26%); }
+/* Panel dưới map: lưới tự chia cột đều nhau (auto-fit), mỗi thẻ tối thiểu 320px. */
+.nq-quanverse__panels {
+  display: grid; gap: var(--nq-s4);
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr));
+  align-items: start;
 }
-@media (max-width: 1200px) { .nq-quanverse__layout { grid-template-columns: minmax(0, 1fr); } }
-.nq-quanverse__right { display: grid; gap: var(--nq-s4); }
+/* `ZoneDetail`/`HorizonTimeline`/`ModeRail` cao khác nhau → cho mỗi thẻ tự cao,
+   không kéo giãn thẻ hàng xóm. */
+.nq-quanverse__panels > * { align-self: start; }
 .nq-quanverse__guests { display: grid; gap: var(--nq-s4); grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); align-items: start; }
 .nq-quanverse__guests section { margin-top: 0; }
 
@@ -830,8 +843,18 @@
 .nq-moderail__count { font-family: var(--nq-font-mono, monospace); font-size: 0.72rem; color: var(--nq-dim); }
 .nq-moderail__list { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--nq-s2); }
 .nq-moderail__item {
+  /* Bố cục 2 HÀNG rõ ràng, không để cột chữ bị bóp:
+     hàng 1: glyph | chữ (nhãn + hiệu ứng) | công tắc + trạng thái
+     hàng 2:                               hành động (nút Duyệt/Đề xuất/Tắt)
+     Trước đây chỉ khai `auto 1fr auto` cho 5 phần tử + ép `grid-column: 3`
+     cho trạng thái/hành động → nút rộng đè vào cột `1fr`, cột chữ co còn ~1 ký
+     tự và chảy dọc từng chữ. */
   display: grid;
-  grid-template-columns: auto 1fr auto;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-areas:
+    "glyph text  switch"
+    "glyph text  state"
+    ".     .     actions";
   align-items: center;
   gap: var(--nq-s2) var(--nq-s3);
   padding: 0.7rem 0.85rem;
@@ -852,19 +875,33 @@
   background: color-mix(in srgb, var(--nq-fg) 6%, transparent);
   border: 1px solid var(--nq-line);
   color: var(--nq-dim);
-  grid-row: span 2;
+  grid-area: glyph;
   align-self: center;
 }
 .nq-moderail__item.is-active .nq-moderail__glyph { color: var(--nq-accent); border-color: var(--nq-line-strong); }
-.nq-moderail__text { display: grid; gap: 0.15rem; min-width: 0; }
+.nq-moderail__text { grid-area: text; display: grid; gap: 0.15rem; min-width: 0; }
 .nq-moderail__label { font-weight: 600; font-size: 0.92rem; }
 .nq-moderail__effect { font-size: 0.78rem; color: var(--nq-dim); line-height: 1.45; }
-.nq-moderail__state { font-size: 0.74rem; color: var(--nq-dim); grid-column: 3; justify-self: end; }
+.nq-moderail__state { grid-area: state; font-size: 0.74rem; color: var(--nq-dim); justify-self: end; align-self: start; }
 .nq-moderail__note { margin: 0; font-size: 0.78rem; color: var(--nq-dim); font-style: italic; line-height: 1.5; }
-.nq-modebtn { grid-column: 3; justify-self: end; }
+.nq-modebtn { justify-self: end; }
+/* Công tắc nằm góc phải hàng 1. */
+.nq-moderail__item > .nq-switch { grid-area: switch; justify-self: end; align-self: start; }
+.nq-moderail__actions {
+  grid-area: actions;
+  justify-self: end;
+  align-self: center;
+}
 @media (max-width: 560px) {
-  .nq-moderail__item { grid-template-columns: auto 1fr; }
-  .nq-moderail__state, .nq-modebtn { grid-column: 2; justify-self: start; }
+  .nq-moderail__item {
+    grid-template-columns: auto minmax(0, 1fr);
+    grid-template-areas:
+      "glyph text"
+      ".     switch"
+      ".     state"
+      ".     actions";
+  }
+  .nq-moderail__actions { justify-self: start; }
 }
 
 /* Công tắc trạng thái (hình dạng, không chỉ chữ) */
@@ -1463,7 +1500,29 @@
   max-width: 48rem;
 }
 .nq-war__actions, .nq-rules__actions { display: flex; gap: var(--nq-s2); flex-wrap: wrap; }
-.nq-rescue__case { display: grid; gap: var(--nq-s3); }
+/* War Room — chế độ mô phỏng trên DỮ LIỆU THẬT */
+.nq-war__live {
+  border: 2px solid var(--nq-line-strong);
+  border-radius: var(--nq-radius-bubble);
+  background: var(--nq-surface);
+  padding: var(--nq-s4);
+  display: grid; gap: var(--nq-s3);
+}
+.nq-war__livehead { display: flex; gap: var(--nq-s3); align-items: flex-start; justify-content: space-between; flex-wrap: wrap; }
+.nq-war__livehead h2 { margin: 0 0 0.25rem; font-size: 1.05rem; }
+.nq-war__livehead p { margin: 0; max-width: 62ch; font-size: 0.85rem; }
+.nq-war__liveresult { display: grid; gap: var(--nq-s2); }
+.nq-war__livesum { margin: 0; font-weight: 600; }
+.nq-war__liveopts { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--nq-s2); grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr)); }
+.nq-war__liveopt { border: 1px solid var(--nq-line); border-radius: var(--nq-radius); padding: 0.7rem 0.85rem; background: var(--nq-bg-elevated); display: grid; gap: 0.3rem; }
+.nq-war__livereason { margin: 0; font-size: 0.8rem; color: var(--nq-ink-muted); line-height: 1.5; border-left: 2px solid var(--nq-accent); padding-left: 0.5rem; }.nq-rescue__case { display: grid; gap: var(--nq-s3); }
+.nq-rescue__nguon {
+  margin: 0.35rem 0 0;
+  font-size: 0.78rem;
+  color: var(--nq-dim);
+  border-left: 2px solid var(--nq-accent);
+  padding-left: 0.5rem;
+}
 .nq-drawer__risk { margin: 0; color: var(--nq-dim); font-size: 0.88rem; line-height: 1.55; }
 .nq-drawer__risk::first-letter { text-transform: uppercase; }
 
@@ -1763,14 +1822,16 @@
 .nq-living-map__zone .nq-loadbar { width: 5px; height: 22px; }
 .nq-living-map__zone .nq-living-map__loadt { font-size: 0.7rem; }
 
-/* ── /quanverse: phân bổ lại vùng nội dung (chia đều, không ép một bên) ──── */
-/* Cột trái là một grid dọc: mặt bằng rồi tới chi tiết khu vực. `align-content:
-   start` giữ nó không bị kéo cao theo cột phải. */
-.nq-quanverse__main {
+/* ── /quanverse: phân bổ lại vùng nội dung (mặt bằng full ngang, panel dưới) ── */
+/* Panel dưới mặt bằng là một grid: chi tiết khu vực + trục thời gian + chế độ,
+   chia ĐỀU theo bề ngang (auto-fit), mỗi thẻ tự cao. */
+.nq-quanverse__panels {
   display: grid; gap: var(--nq-s4);
-  align-content: start; min-width: 0;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr));
+  align-items: start; min-width: 0;
 }
-.nq-quanverse__main .nq-living-map { align-self: start; }
+.nq-quanverse__panels > * { align-self: start; }
+.nq-quanverse__panels .nq-living-map { align-self: start; }
 
 /* Ba panel khách chia ĐỀU: mỗi panel một cột khi đủ chỗ, không để panel thứ ba
    rơi xuống một mình. `auto-fit` + trần 1fr cho phép 3 cột ở màn rộng. */

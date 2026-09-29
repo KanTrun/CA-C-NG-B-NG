@@ -116,6 +116,33 @@ export function warRoomGetScenarios(
   );
 }
 
+/** Mô phỏng trên DỮ LIỆU THẬT của tuần đang chạy (không preset). */
+export interface WarRoomLiveOption extends WarRoomOption {
+  label?: string;
+  reason?: string;
+  reason_provider?: string;
+  load?: Record<string, number>;
+  chi_tiet?: Record<string, string | number>;
+}
+
+export interface WarRoomLiveResponse {
+  co_du_lieu: boolean;
+  baseline: Record<string, unknown>;
+  baseline_snapshot_hash?: string;
+  options: WarRoomLiveOption[];
+  nguon?: string;
+}
+export function warRoomSimulateLive(req: {
+  tuan_iso?: string | null;
+  ca_id?: string;
+  khung?: string;
+}): Promise<WarRoomLiveResponse> {
+  return apiSend<WarRoomLiveResponse>(
+    "/api/v1/experience/war-room/simulate-live",
+    { tuan_iso: req.tuan_iso ?? null, ca_id: req.ca_id ?? "", khung: req.khung ?? "" },
+  );
+}
+
 export function warRoomPropose(
   simulationId: string,
   optionId: string,

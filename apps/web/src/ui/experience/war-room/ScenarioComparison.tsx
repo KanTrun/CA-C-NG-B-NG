@@ -117,6 +117,12 @@ export default function ScenarioComparison({
                 ) : null}
               </div>
 
+              {opt.reason ? (
+                <p className="nq-war-compare__reason" data-reason={opt.option_id}>
+                  <Icon name="info" size={12} /> {opt.reason}
+                </p>
+              ) : null}
+
               <div className="nq-war-compare__actions">
                 <button
                   type="button"

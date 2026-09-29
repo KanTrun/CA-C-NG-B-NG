@@ -108,6 +108,22 @@ def war_room_simulate(
         current_snapshot_hash=effective_hash,
     )
     payload = comparison.model_dump(mode="json")
+    # Tầng GIẢI THÍCH: mỗi phương án kèm lời giải thích đọc được. Số liệu vẫn do
+    # engine tất định tính; đây chỉ diễn giải lại (LLM khi live, lưới tất định khi
+    # replay). Nhờ vậy bấm "Đề xuất" mới thấy nội dung thay vì chỉ con số khô.
+    try:
+        from ca_agents.ag_war_room.explain import explain_option
+
+        options = payload.get("options", []) or []
+        for opt in options:
+            info = explain_option(opt, all_options=options)
+            opt["reason"] = info["reason"]
+            opt["reason_provider"] = info["provider"]
+            if info["unsupported"]:
+                opt["reason_unsupported"] = info["unsupported"]
+    except Exception:
+        # Giải thích là lớp phụ trợ — lỗi ở đây KHÔNG được làm hỏng mô phỏng.
+        pass
     with _LOCK:
         _SIM_CACHE[comparison.simulation_id] = {
             "request_id": body.request_id,
@@ -116,6 +132,53 @@ def war_room_simulate(
             "created_at": time.time(),
         }
     return {**payload, "replayable": True, "simulation_id": comparison.simulation_id}
+
+
+class WarRoomLiveBody(BaseModel):
+    """Mô phỏng trên DỮ LIỆU THẬT của tuần đang chạy."""
+
+    tuan_iso: str | None = None
+    ca_id: str = ""
+    khung: str = ""
+
+
+@router.post("/api/v1/experience/war-room/simulate-live")
+def war_room_simulate_live(
+    body: WarRoomLiveBody,
+    authorization: Annotated[str | None, Header()] = None,
+) -> dict[str, Any]:
+    """War Room trên DỮ LIỆU THẬT: dựng baseline từ phân công hiện tại rồi tính
+    các phương án tất định (giữ nguyên / thêm người / điều chuyển).
+
+    Đây là đường "làm thật": số ra từ chính lịch tuần đang chạy, không phải preset.
+    Chưa có lịch tuần thật → `co_du_lieu=False` để UI rơi về chế độ mô phỏng mẫu.
+    """
+    user = _require_manager(authorization)
+    _rate_limit(str(user))
+    from ca_api.services.war_room_live import build_live_baseline, simulate_live_scenarios
+
+    baseline = build_live_baseline(body.tuan_iso)
+    if baseline is None:
+        return {"co_du_lieu": False, "options": [], "baseline": {}}
+    sim = simulate_live_scenarios(baseline, kind="live", ca_id=body.ca_id, khung=body.khung)
+    # Tầng giải thích (LLM khi live, tất định khi replay) — số vẫn từ engine.
+    try:
+        from ca_agents.ag_war_room.explain import explain_option
+
+        opts = sim.get("options", []) or []
+        for opt in opts:
+            info = explain_option(opt, all_options=opts)
+            opt["reason"] = info["reason"]
+            opt["reason_provider"] = info["provider"]
+    except Exception:
+        pass
+    return {
+        "co_du_lieu": True,
+        "baseline": sim["baseline"],
+        "baseline_snapshot_hash": sim["baseline_snapshot_hash"],
+        "options": sim["options"],
+        "nguon": "lich_tuan",
+    }
 
 
 @router.get("/api/v1/experience/war-room/scenarios/{simulation_id}")

@@ -260,6 +260,7 @@ EXCLUDED_ROUTES: dict[str, str] = {
     "/api/v1/experience/quanverse/brief/{page}": "narration phụ trợ — tóm tắt tất định của dữ liệu đã có capability riêng",
     "/api/v1/experience/quanverse/ask": "narration phụ trợ — LLM chỉ diễn đạt brief, không thêm số/kết luận",
     "/api/v1/experience/war-room/simulate": "R2: mô phỏng qua UI /quanverse/war-room (số do math layer, không qua chat)",
+    "/api/v1/experience/war-room/simulate-live": "R2: mô phỏng trên LỊCH TUẦN THẬT qua UI /quanverse/war-room (số tự tính, không preset)",
     "/api/v1/experience/war-room/scenarios/{simulation_id}": "experience — deep-link /quanverse/war-room",
     "/api/v1/experience/war-room/{simulation_id}/propose": "R2: đề xuất phương án qua UI /quanverse/war-room",
     "/api/v1/experience/war-room/{simulation_id}/confirm": "R3: chốt phương án qua UI /quanverse/war-room",

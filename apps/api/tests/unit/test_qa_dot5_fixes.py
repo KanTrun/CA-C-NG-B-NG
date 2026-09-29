@@ -25,9 +25,7 @@ import json
 from typing import Any
 
 import pytest
-
 from ca_api import persist
-
 
 # ── BUG-01: chuyển trạng thái đơn quầy phải nguyên tử ────────────────────────
 
@@ -136,9 +134,8 @@ def test_menu_upsert_giu_bom_khi_khong_truyen() -> None:
 
 def test_store_profile_body_chan_truong_qua_dai() -> None:
     """`StoreProfileBody` giới hạn độ dài — chặn địa chỉ 5.000 ký tự."""
-    from pydantic import ValidationError
-
     from ca_api.interfaces.http.channels import StoreProfileBody
+    from pydantic import ValidationError
 
     StoreProfileBody(dia_chi="x" * 300)  # biên trên vẫn hợp lệ
     with pytest.raises(ValidationError):
@@ -160,9 +157,8 @@ def test_text_sach_bo_the_html() -> None:
 
 
 def test_kiem_thoi_gian_dat_ban_chan_qua_khu() -> None:
-    from fastapi import HTTPException
-
     from ca_api.interfaces.http.reservations import _kiem_thoi_gian_dat_ban
+    from fastapi import HTTPException
 
     with pytest.raises(HTTPException) as exc:
         _kiem_thoi_gian_dat_ban("2020-01-01 19:00")
@@ -171,9 +167,8 @@ def test_kiem_thoi_gian_dat_ban_chan_qua_khu() -> None:
 
 
 def test_kiem_thoi_gian_dat_ban_chan_qua_xa() -> None:
-    from fastapi import HTTPException
-
     from ca_api.interfaces.http.reservations import _kiem_thoi_gian_dat_ban
+    from fastapi import HTTPException
 
     with pytest.raises(HTTPException) as exc:
         _kiem_thoi_gian_dat_ban("2099-01-01 19:00")
@@ -193,9 +188,8 @@ def test_kiem_thoi_gian_dat_ban_cho_phep_tuong_lai_gan() -> None:
 
 
 def test_kiem_thoi_gian_dat_ban_chan_chuoi_rac() -> None:
-    from fastapi import HTTPException
-
     from ca_api.interfaces.http.reservations import _kiem_thoi_gian_dat_ban
+    from fastapi import HTTPException
 
     with pytest.raises(HTTPException) as exc:
         _kiem_thoi_gian_dat_ban("hom-qua-luc-nao-do")
@@ -206,9 +200,8 @@ def test_kiem_thoi_gian_dat_ban_chan_chuoi_rac() -> None:
 
 
 def test_analyze_meeting_body_chan_payload_khung() -> None:
-    from pydantic import ValidationError
-
     from ca_api.interfaces.http.meeting import AnalyzeMeetingBody
+    from pydantic import ValidationError
 
     AnalyzeMeetingBody(text="x" * 20_000)  # đúng biên trên
     with pytest.raises(ValidationError):
@@ -311,9 +304,8 @@ def test_qr_tra_404_khi_nhan_vien_khong_ton_tai() -> None:
 
 def test_treo_body_gioi_han_do_dai() -> None:
     """`noi_dung` việc treo có giới hạn — 50.000 ký tự trước đây vẫn nhận (200)."""
-    from pydantic import ValidationError
-
     from ca_api.interfaces.http.sprint3 import TreoBody
+    from pydantic import ValidationError
 
     TreoBody(noi_dung="x" * 2_000)  # đúng biên trên
     with pytest.raises(ValidationError):

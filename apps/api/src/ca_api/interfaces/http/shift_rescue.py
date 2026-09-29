@@ -65,6 +65,137 @@ def _fixture() -> dict[str, Any]:
     return cast(dict[str, Any], reader.read_json_path("shift-rescue.json"))
 
 
+def _tuan_hien_tai() -> str:
+    """Tuần ISO hiện tại (nguồn: lịch tuần đang hiệu lực, fallback hôm nay)."""
+    try:
+        from ca_api.interfaces.http.sprint45 import _life
+
+        tuan = str(_life().get("tuan_iso") or "")
+        if tuan:
+            return tuan
+    except Exception:
+        pass
+    y, w, _ = datetime.now(UTC).isocalendar()
+    return f"{y}-W{w:02d}"
+
+
+def _live_rescue_data(week: str | None = None) -> dict[str, Any] | None:
+    """Dữ liệu cứu ca THẬT từ lịch tuần: ca có người, người trong ca, kỹ năng.
+
+    Trả ``None`` khi chưa có lịch tuần thật (để handler rơi về fixture replay).
+    Nguồn: seed `ca_mau_21` (khung/giờ/vị trí ca) + `phan_cong_by_week` (ai đang
+    trong ca) + `list_nhan_vien_ops` (danh bạ thật). KHÔNG bịa số: giờ tuần và
+    số ca suy từ chính phân công thật.
+    """
+    import json as _json
+
+    from ca_api.nhan_vien import list_nhan_vien_ops
+    from ca_api.persist import kv_get
+
+    tuan = week or _tuan_hien_tai()
+    phan_cong = kv_get("phan_cong_by_week", {})
+    week_assign = phan_cong.get(tuan, {}) if isinstance(phan_cong, dict) else {}
+    if not isinstance(week_assign, dict) or not week_assign:
+        # Thử file lịch tuần đang hiệu lực (nguồn solver ghi ra).
+        try:
+            from ca_api.interfaces.http.sprint45 import _lich_out
+
+            out = _lich_out()
+            if out.exists():
+                doc = _json.loads(out.read_text(encoding="utf-8"))
+                if str(doc.get("tuan_iso") or "") == tuan:
+                    week_assign = doc.get("phan_cong", {}) or {}
+        except Exception:
+            week_assign = {}
+    if not isinstance(week_assign, dict) or not week_assign:
+        return None
+
+    # Seed chuẩn của app (khung/giờ/vị trí ca) — dùng đúng nguồn như roster.
+    from ca_api.interfaces.http.main import SEED
+
+    try:
+        seed = _json.loads(SEED.read_text(encoding="utf-8"))
+    except Exception:
+        seed = {}
+    ca_meta = {str(c.get("id")): c for c in seed.get("ca_mau_21", []) if c.get("id")}
+
+    nv_rows = list_nhan_vien_ops()
+    ten_by_id = {str(n["id"]): str(n.get("ten") or n["id"]) for n in nv_rows}
+    ky_nang_by_id = {str(n["id"]): list(n.get("ky_nang") or []) for n in nv_rows}
+
+    # Đếm số ca + giờ đã xếp mỗi người (từ chính phân công thật).
+    so_ca: dict[str, int] = {}
+    gio: dict[str, float] = {}
+    for ca_id, nvs in week_assign.items():
+        meta = ca_meta.get(str(ca_id), {})
+        dur = _shift_hours(meta)
+        for nv in nvs or []:
+            so_ca[str(nv)] = so_ca.get(str(nv), 0) + 1
+            gio[str(nv)] = gio.get(str(nv), 0.0) + dur
+
+    # Chỉ trả ca ĐANG có người (báo vắng cho ca trống là vô nghĩa).
+    shifts: list[dict[str, Any]] = []
+    assignment: dict[str, list[str]] = {}
+    for ca_id, nvs in week_assign.items():
+        nvs = [str(x) for x in (nvs or [])]
+        if not nvs:
+            continue
+        meta = ca_meta.get(str(ca_id), {})
+        shifts.append(
+            {
+                "id": str(ca_id),
+                "thu": str(meta.get("thu") or ""),
+                "khung": str(meta.get("khung") or ""),
+                "vi_tri": str(meta.get("vi_tri") or ""),
+                "bat_dau": str(meta.get("bat_dau") or ""),
+                "ket_thuc": str(meta.get("ket_thuc") or ""),
+            }
+        )
+        assignment[str(ca_id)] = nvs
+
+    if not shifts:
+        return None
+
+    staff = [
+        {
+            "nv_id": nv_id,
+            "ten": ten_by_id.get(nv_id, nv_id),
+            "ky_nang": ky_nang_by_id.get(nv_id, []),
+            "gio_da_lam": round(gio.get(nv_id, 0.0), 2),
+            "so_ca_tuan": so_ca.get(nv_id, 0),
+        }
+        for nv_id in {str(x) for nvs in assignment.values() for x in nvs}
+    ]
+    return {
+        "meta": {"schema": "grand_experience_shift_rescue_v1", "note": "Dữ liệu THẬT từ lịch tuần.", "labels": ["live", "roster"]},
+        "snapshot_hash": f"snap_live_{tuan}",
+        "tuan_iso": tuan,
+        "staff": staff,
+        "shifts": shifts,
+        "current_assignment": assignment,
+        "demo_case": {},
+        "live": True,
+    }
+
+
+def _shift_hours(meta: dict[str, Any]) -> float:
+    """Số giờ của một ca từ 'HH:MM' bat_dau/ket_thuc (mặc định 5.0 nếu thiếu)."""
+    try:
+        b = str(meta.get("bat_dau") or "")
+        e = str(meta.get("ket_thuc") or "")
+        bh, bm = (int(x) for x in b.split(":"))
+        eh, em = (int(x) for x in e.split(":"))
+        return max(0.0, (eh * 60 + em - bh * 60 - bm) / 60.0)
+    except Exception:
+        return 5.0
+
+
+def _rescue_data() -> dict[str, Any]:
+    """Dữ liệu thật nếu có; nếu chưa có lịch tuần thì rơi về fixture replay."""
+    live = _live_rescue_data()
+    return live if live else _fixture()
+
+
 @router.get("/api/v1/experience/shift-rescue/options")
 def shift_rescue_options(
     authorization: Annotated[str | None, Header()] = None,
@@ -76,7 +207,7 @@ def shift_rescue_options(
     đúng ca và đúng người — vẫn từ fixture, nhưng không còn một đường cứng.
     """
     _require_role(authorization)
-    data = _fixture()
+    data = _rescue_data()
     staff_rows = data.get("staff", [])
     assignment = data.get("current_assignment", {}) or {}
     shifts = data.get("shifts", [])
@@ -115,7 +246,9 @@ def shift_rescue_options(
     return {
         "shifts": [o for o in options if o["assigned"]],
         "suggested": data.get("demo_case", {}),
-        "replayable": True,
+        "replayable": not bool(data.get("live")),
+        "nguon": "lich_tuan" if data.get("live") else "fixture",
+        "tuan_iso": str(data.get("tuan_iso") or ""),
     }
 
 
@@ -135,7 +268,7 @@ def shift_rescue_intake(
     if not absence_nv_id or not shift_id:
         raise HTTPException(status_code=422, detail="thieu_nv_hoac_ca")
 
-    data = _fixture()
+    data = _rescue_data()
     known_shift_ids = {s["id"] for s in data.get("shifts", [])}
     try:
         resolved_shift = resolve_shift_identity(
@@ -183,7 +316,7 @@ def shift_rescue_candidates(
     if not item:
         raise HTTPException(status_code=404, detail="case_not_found")
 
-    data = _fixture()
+    data = _rescue_data()
     staff_rows = data.get("staff", [])
     shift_id = str(item["command"]["shift_id"])
     shift = next((s for s in data.get("shifts", []) if s["id"] == shift_id), None)
