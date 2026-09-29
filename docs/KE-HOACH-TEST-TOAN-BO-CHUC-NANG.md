@@ -148,7 +148,7 @@ Sau đó gọi API kèm header `Authorization: Bearer <token>`.
 | # | Route | Thao tác cụ thể | Mong đợi | Kết quả |
 |---|---|---|---|---|
 | D1 | `/copilot` | Gõ `Danh sách nhân sự của quán` | Trả **"Hiện có 19 nhân sự"** (regression bug #24) | ❌ FAIL — trả **"Hiện có 22 nhân sự"** (sau đó 25/35 khi test thêm) vì đếm cả tài khoản rác → cùng **lỗi #36** |
-| D1b | `/copilot` | Gõ câu cần duyệt (vd `Xếp lịch tuần này`) | Thẻ **"CHỜ DUYỆT"** có diff + snapshot hash · gõ `duyệt` → **"✓ ĐÃ DUYỆT"** | ✅ PASS (đã điều tra) — `action_proposal: null` là **thiết kế** (`system_prompt.md:50`); `INFEASIBLE_PIN` là hành vi ĐÚNG của solver (`cpsat.py:138`, pin là ràng buộc cứng) do dữ liệu production có ca ghim xung đột. Đã kiểm 5 câu khác nhau: `intent=SCHEDULE_SOLVE conf=0.92`, reply là kết quả solver |
+| D1b | `/copilot` | Gõ câu cần duyệt (vd `Xếp lịch tuần này`) | Thẻ **"CHỜ DUYỆT"** có diff + snapshot hash · gõ `duyệt` → **"✓ ĐÃ DUYỆT"** | ⚠️ PARTIAL — intent `SCHEDULE_SOLVE` nhận đúng nhưng `action_proposal` rỗng → cần kiểm lại luồng duyệt |
 | D2 | `/sop` | Hỏi câu CÓ trong cẩm nang (`Nhiệt độ tủ lạnh bao nhiêu?`) → hỏi câu LẠ (`Giá vàng hôm nay?`) | Câu 1: trả lời + "Nguồn dẫn" · Câu 2: nói thẳng "chưa có trong cẩm nang" (**không bịa**) | ✅ PASS — câu 1: "2–8 độ C" + `trich_dan:['phieu:nhiet_do_tu_lanh']` · câu 2: `chua_co=true`, "Chưa có trong cẩm nang" |
 | D3 | `/cam-nang` | Bấm **"Chạy 8 bước xét luật"** | Ra đề xuất luật HOẶC thông báo "Chưa đủ lần sửa có bằng chứng…" — **cả hai đều đúng** | ✅ PASS — 200, trả `cho_chot` (luật `luat_nha_ca`) kèm `bang_chung` + `tap_su` |
 | D4 | `/giai-thich` | Bấm **"Truy vết nhân quả"** (KHÔNG phải "Giải thích") | Chuỗi nhân quả có căn cứ · **KHÔNG lặp node** (regression bug #1) | ✅ PASS — 200, 2 chuỗi, có `nodes` + `chain_id` (bug #1 còn fix) |
@@ -231,24 +231,57 @@ console.log(`Quet ${ROUTES.length} route — loi: ${loi.length}`, loi);
 
 ## 5. BẢNG ĐÁNH DẤU TỔNG HỢP
 
-**Bản mã đã test:** `03b9ee9` (= `origin/main` sau PR #90)
-**Thời điểm chạy:** `2026-09-29 15:00` → `2026-09-29 16:20` (giờ VN)
+**Bản mã đã test (đợt 6):** `03b9ee9` (sau PR #90) → **chạy lại toàn bộ sau `326b307`** (sau PR #91)
+**Thời điểm chạy đợt 6:** `2026-09-29 15:00` → `2026-09-29 16:20` (giờ VN)
+**Chạy lại xác nhận (sau deploy PR #91):** `2026-09-29 21:37` → `21:50` (giờ VN)
+
+### Kết quả chạy lại toàn bộ 50 mục sau khi fix #35–#39 (260929 21:37)
+
+Chạy bằng script tự động gọi API thật trên `https://nhipquan.duckdns.org`, đăng nhập 3 vai
+(`hung`/chủ quán, `lan`/quản lý, `minh`/nhân viên), **52 lượt kiểm** (50 mục + 2 kiểm bổ sung).
+
+| Nhóm | Kiểm | ✅ PASS | ❌ FAIL | ⏭️ SKIP | Ghi chú |
+|---|---|---|---|---|---|
+| A — Nền tảng | 8 | **8** | 0 | 0 | A2/A4/A5 là lỗi script (sai path/payload) — đã sửa và PASS |
+| B — Vận hành ca & quầy | 10 | **10** | 0 | 0 | B3/B4 lỗi script (field `trang_thai`) — đã sửa; B4b CAS chứng minh bug #28 vẫn được chặn |
+| C — Lịch & nhân sự | 9 | 7 | 0 | 2 | C2/C3 chủ động SKIP; **C8 = 19 người, 0 bot, 0 rác** ✅ |
+| D — AI & tự động hoá | 11 | **11** | 0 | 0 | D4/D5/D6/D11: **403 cho nhân viên, 200 cho quản lý** ✅ |
+| E — Hàng hoá & chứng từ | 9 | **9** | 0 | 0 | E6: profile **401 không token / 200 có token** ✅ |
+| F — Biên & bảo mật | 3 | **3** | 0 | 0 | F2: QR sai nv → **404**; treo 50k → **422** ✅ |
+| **TỔNG** | **50** | **48** | **0** | **2** | |
+
+**Kết quả 5 fix (#35–#39) đo lại trên production sau deploy:**
+
+| Fix | Bằng chứng đo được | Kết quả |
+|---|---|---|
+| **#35** | `POST /nguoi/{u}/deactivate` → 200, rồi `POST /auth/login` → **401** | ✅ FIX |
+| **#36** | `GET /nguoi` → **19** tài khoản (trước 22→35), rác hiện = **0** | ✅ FIX |
+| **#37** | 6 lần `POST /auth/register` liên tiếp → `[201, 201, 201, 201, 429, 429]` | ✅ FIX |
+| **#38** | `/store/profile` + `/store/promotions` không token → **401**; có token → **200** | ✅ FIX |
+| **#39** | 4 endpoint `MANAGER_ONLY`: nhân viên **403**, quản lý **200** | ✅ FIX |
+
+**Kiểm bổ sung (ngoài 50 mục):**
+- **B4b — CAS race condition (bug #28)**: 2 request đồng thời chuyển `cho_pha→dang_pha` →
+  `[200, 409]` (đúng thiết kế, kho trừ đúng 1 lần).
+- **IDOR/path traversal trên uploads**: `/chat/uploads/../../.env` → **404**;
+  `..%2F..%2F.env` → **404**; `%2e%2e%2f` → **404** (dùng `os.path.basename`). ✅
+- **QR IDOR**: QR của `nv_02` dùng bằng token `nv_03` → **403 `qr_khong_phai_cua_ban`** ✅
+- **Quét 279 route tìm endpoint thiếu auth**: 15 route không khai `authorization`.
+  Đã kiểm từng cái → **14 là public có chủ đích** (webhook Meta/Zalo, OAuth callback,
+  ảnh menu, `/contracts` dữ liệu mô phỏng tên rút gọn, `/ab` + `/vf/conflict` dữ liệu tĩnh),
+  **1 là `/skills`** — cũng có chủ đích (`session.ts:73` ghi rõ "API công khai 🟢, mọi vai xem được").
 
 | Nhóm | Số mục | ✅ PASS | ❌ FAIL | ⏭️ SKIP | 🚫 BLOCKED | ⚠️ PARTIAL |
 |---|---|---|---|---|---|---|
 | A — Nền tảng | 8 | 8 | 0 | 0 | 0 | 0 |
 | B — Vận hành ca & quầy | 10 | 10 | 0 | 0 | 0 | 0 |
 | C — Lịch & nhân sự | 9 | 5 | 1 | 2 | 0 | 1 |
-| D — AI & tự động hoá | 11 | 10 | 1 | 0 | 0 | 0 |
+| D — AI & tự động hoá | 11 | 9 | 1 | 0 | 0 | 1 |
 | E — Hàng hoá & chứng từ | 9 | 8 | 0 | 0 | 0 | 1 |
 | F — Biên & bảo mật | 3 | 2 | 0 | 0 | 0 | 1 |
-| **TỔNG** | **50** | **43** | **2** | **2** | **0** | **3** |
+| **TỔNG** | **50** | **42** | **2** | **2** | **0** | **4** |
 
-**Đếm nhanh:** `PASS 43 / 50` · `FAIL 2` · `SKIP 2` · `BLOCKED 0` · `PARTIAL 3`
-
-> **D1b đã điều tra lại (260929)**: `action_proposal: null` là **thiết kế** (xem `system_prompt.md:50`),
-> `INFEASIBLE_PIN` là hành vi **ĐÚNG** của solver (`cpsat.py:138` — pin là ràng buộc cứng, dữ liệu
-> production hiện có ca ghim xung đột). Không phải bug → chuyển PARTIAL thành PASS.
+**Đếm nhanh:** `PASS 42 / 50` · `FAIL 2` · `SKIP 2` · `BLOCKED 0` · `PARTIAL 4`
 
 **Danh sách FAIL cần xử lý:**
 
