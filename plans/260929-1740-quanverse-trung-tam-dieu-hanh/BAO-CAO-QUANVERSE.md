@@ -2,8 +2,8 @@
 
 - **Kế hoạch**: `260929-1740-quanverse-trung-tam-dieu-hanh`
 - **Ngày thực hiện**: 2026-09-29
-- **Nhánh**: `main` (đã push) · `fa4b05f..714c755`
-- **6 commit**: `fd1f7a6` → `714c755`
+- **Nhánh**: `main` (đã push) · `fa4b05f..ae50b6b`
+- **7 commit**: `fd1f7a6` → `ae50b6b`
 
 ---
 
@@ -13,7 +13,7 @@
 
 | File | Nội dung |
 |---|---|
-| `apps/api/src/ca_api/interfaces/http/test_quanverse.py` | Ba route mock chỉ-đọc, ba kịch bản, `include_in_schema=False` |
+| `apps/api/src/ca_api/interfaces/http/quanverse_fixtures.py` | Ba route mock chỉ-đọc, ba kịch bản, `include_in_schema=False`. **Tên file KHÔNG được là `test_*.py`** — xem §7.6 |
 | `apps/api/tests/unit/test_quanverse_test_api.py` | 19 test: hình dạng, tính nhất quán, ẩn khỏi OpenAPI |
 
 ### Thêm mới (frontend)
@@ -207,7 +207,6 @@ Không dựng API trùng lặp. Không ghi gì. Không gọi LLM cho phần số
 | **playwright** (`quanverse*`) | **34 passed, 3 skipped** |
 
 ### 5 spec e2e mới
-
 | Spec | Chốt điều gì |
 |---|---|
 | `quanverse.spec.ts` | 8 khối có mặt · KHÔNG tab War Room/Cứu ca · KHÔNG bề mặt khách · KHÔNG `<canvas>` · bản đồ 2D click + `aria-pressed` · legend · copilot có trích dẫn |
@@ -224,6 +223,25 @@ Không dựng API trùng lặp. Không ghi gì. Không gọi LLM cho phần số
 3. **Dải KPI ở 933px trên mobile** — header 6 mục xếp 1 cột đẩy dưới màn 844px. Đã sửa: 2 cột + thanh điều khiển thu gọn.
 4. **Thứ tự `page.route()`** — route tổng đăng ký sau nuốt route cụ thể. Đã đảo.
 5. **Khối dự báo có HAI trạng thái trống hợp lệ** — test cũ giả định một. Đã nhận cả hai.
+
+### 6. Lỗi CHỈ LỘ Ở CI — file router đặt tên `test_*.py`
+
+CI job `02 unit` (lần chạy đầu) đỏ 3 bài, tất cả ở **chính file router mock**:
+
+```
+FAILED .../http/test_quanverse.py::test_quanverse_stations
+FAILED .../http/test_quanverse.py::test_quanverse_forecast
+FAILED .../http/test_quanverse.py::test_quanverse_snapshot
+  HTTPException: 404 scenario_khong_ton_tai
+```
+
+**Nguyên nhân:** `pyproject.toml` khai `testpaths = ["apps", "packages"]` và dùng quy ước mặc định `python_files = test_*.py`. File đặt tên `test_quanverse.py` nằm trong `apps/` nên bị pytest **thu như module test** và gọi thẳng ba hàm route với **fixture** của pytest — tham số `scenario` nhận object `Query(...)` thay vì chuỗi `"cao_diem"`, rồi `_lay_kich_ban` ném 404.
+
+**Vì sao chỉ lộ ở CI:** chạy `pytest <đúng file test>` thì xanh — file router không nằm trong đường dẫn được chỉ định. Chỉ khi CI quét cả `apps/` mới thấy.
+
+**Sửa** (`ae50b6b`): đổi tên `test_quanverse.py` → `quanverse_fixtures.py`. Tên mới cũng đúng nghĩa hơn — đây là bề mặt **fixture**, không phải test. Kèm ghi chú trong docstring để không ai đổi lại. Đã tái hiện bằng `pytest --collect-only -q` **trước** khi sửa.
+
+**Bài học:** không đặt tên file nguồn/route là `test_*.py` dưới `apps/`. Và: **chạy pytest đúng file test không chứng minh suite xanh** — tương tác giữa `testpaths` và tên file là loại lỗi chỉ cổng CI đầy đủ bắt được.
 
 ---
 
