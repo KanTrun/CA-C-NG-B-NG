@@ -1496,14 +1496,20 @@ def login(username: str, password: str) -> dict[str, str] | None:
     with _conn() as cx:
         row = cx.execute(
             """
-            SELECT username, role, nv_id, display_name, password_sha, store_id
+            SELECT username, role, nv_id, display_name, password_sha, store_id, status
             FROM users WHERE username=?
             """,
             (username.strip().lower(),),
         ).fetchone()
         # Không tách "không có tài khoản" khỏi "sai mật khẩu": tách ra là cho
         # người ngoài dò được username nào tồn tại.
-        if not row or not verify_password(password, row[4]):
+        #
+        # Bug QA đợt 6 (#35 — Critical): tài khoản đã `deactivate` (status
+        # `inactive`) VẪN đăng nhập được vì truy vấn không đọc `status`.
+        # Offboarding coi như vô hiệu trên UI nhưng kẻ đã biết mật khẩu vẫn vào
+        # được — `user_deactivate` còn xoá session nên chỉ cần đăng nhập lại.
+        # Gộp vào cùng nhánh "sai thông tin" để KHÔNG lộ tài khoản nào bị khoá.
+        if not row or str(row[6] or "active") != "active" or not verify_password(password, row[4]):
             cx.execute(
                 "INSERT INTO audit(at, ai, hanh, payload) VALUES (?,?,?,?)",
                 (datetime.now(UTC).isoformat(), "system", "user.login_failed", json.dumps({"entity_type": "user", "entity_id": username.strip().lower()}, ensure_ascii=False)),
@@ -1665,13 +1671,20 @@ def session(authorization: str | None) -> dict[str, str] | None:
     raw = authorization.removeprefix("Bearer ").strip()
     with _conn() as cx:
         row = cx.execute(
-            "SELECT s.username, s.role, s.nv_id, u.email, s.store_id, s.created_at FROM sessions s "
+            "SELECT s.username, s.role, s.nv_id, u.email, s.store_id, s.created_at, "
+            "COALESCE(u.status, 'active') FROM sessions s "
             "LEFT JOIN users u ON u.nv_id = s.nv_id WHERE s.token=?",
             (raw,),
         ).fetchone()
         if not row:
             return None
         if _session_expired(str(row[5] or "")):
+            cx.execute("DELETE FROM sessions WHERE token=?", (raw,))
+            return None
+        # Bug QA đợt 6 (#35): phiên của tài khoản ĐÃ vô hiệu hoá phải bị từ chối
+        # ngay cả khi token còn hạn — nếu không, offboarding chỉ có tác dụng khi
+        # người dùng tự đăng xuất. Xoá token luôn để không phải kiểm lại.
+        if str(row[6] or "active") != "active":
             cx.execute("DELETE FROM sessions WHERE token=?", (raw,))
             return None
         return {"username": row[0], "role": row[1], "nv_id": row[2], "email": str(row[3] or ""), "store_id": row[4]}
@@ -1925,8 +1938,9 @@ def audit_add(
         state["written"] = True
 
 
-def list_users(*, store_id: str | None = None, include_bots: bool = False) -> list[dict[str, str]]:
-    """Liệt kê tài khoản NGƯỜI THẬT của quán.
+def list_users(*, store_id: str | None = None, include_bots: bool = False,
+               include_inactive: bool = False) -> list[dict[str, str]]:
+    """Liệt kê tài khoản NGƯỜI THẬT đang hoạt động của quán.
 
     Bug QA đợt 5: bot nội bộ `ai_scheduler` (vai `ai_assistant`) lọt vào danh
     sách nhân sự ở `/api/v1/nguoi` — trang Người dùng hiện "20 TỔNG TÀI KHOẢN"
@@ -1934,20 +1948,33 @@ def list_users(*, store_id: str | None = None, include_bots: bool = False) -> li
     tạo tự động ở `chat_get_or_create_scheduler_direct` để thoả khoá ngoại của
     `chat_participants`, KHÔNG phải nhân sự.
 
+    Bug QA đợt 6 (#36): tài khoản đã `deactivate` (status `inactive`) VẪN hiện
+    trong danh sách — offboarding không có tác dụng trên UI, và mọi bề mặt đếm
+    người (`/nguoi`, `/cong-bang`, Copilot `LIST_STAFF`) báo sai. Tài khoản rác
+    do người ngoài tự đăng ký qua `/auth/register` cũng nằm lại vĩnh viễn.
+
     Lọc ở TẦNG DỮ LIỆU (không ở giao diện) để mọi bề mặt dùng chung đều đúng:
     `/nguoi`, `channels` (gợi ý người nhận), `AG-MEETING`, provider của Copilot,
-    và phép đếm `so_nv`. Truyền `include_bots=True` ở nơi thật sự cần bot.
+    và phép đếm `so_nv`. Truyền `include_bots=True` ở nơi thật sự cần bot,
+    `include_inactive=True` cho màn hình quản trị cần thấy cả người đã nghỉ.
     """
     init_db()
+    # `status` có thể thiếu ở bản ghi rất cũ (cột thêm sau bằng _safe_alter) →
+    # COALESCE về 'active' để không ẩn nhầm người đang làm việc.
+    loc = "" if include_inactive else " AND COALESCE(status, 'active') = 'active'"
     with _conn() as cx:
         if store_id:
             rows = cx.execute(
-                "SELECT username, role, nv_id, display_name, email FROM users WHERE store_id=? ORDER BY username",
+                "SELECT username, role, nv_id, display_name, email FROM users WHERE store_id=?"
+                + loc
+                + " ORDER BY username",
                 (store_id,),
             ).fetchall()
         else:
             rows = cx.execute(
-                "SELECT username, role, nv_id, display_name, email FROM users ORDER BY username"
+                "SELECT username, role, nv_id, display_name, email FROM users WHERE 1=1"
+                + loc
+                + " ORDER BY username"
             ).fetchall()
     return [
         {

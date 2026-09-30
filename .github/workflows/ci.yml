@@ -91,6 +91,14 @@ jobs:
         working-directory: apps/web
         run: |
           if [ -f package.json ]; then npm install && npm run lint && npm run typecheck; else echo "web stub"; fi
+      # Test đơn vị của web (vitest): hợp đồng dữ liệu Quánverse + tính nhất quán
+      # của fixture mô phỏng. Chạy ở job này chứ không phải job 08 vì đây là test
+      # LOGIC THUẦN — không cần dựng server, chạy trong ~1 giây, và đỏ ngay khi
+      # `QuanverseViewModel` lệch khỏi bộ chuẩn hoá.
+      - name: Vitest (web unit)
+        working-directory: apps/web
+        run: |
+          if [ -f package.json ]; then npm run test:unit; else echo "web stub"; fi
 
   unit:
     name: "02 unit"

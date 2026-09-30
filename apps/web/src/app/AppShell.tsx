@@ -75,11 +75,7 @@ const GROUPS: NavGroup[] = [
       { href: "/giai-thich", label: "Hệ thống tự giải thích" },
       { href: "/thu-nghiem-an-toan", label: "Thử nghiệm an toàn" },
       { href: "/inbox", label: "Hộp thư ràng buộc" },
-      { href: "/quanverse", label: "Quánverse · Living Map" },
-      { href: "/quanverse/war-room", label: "War Room" },
-      { href: "/quanverse/shift-rescue", label: "Cứu ca" },
-      { href: "/quanverse/rules", label: "Quán tự viết luật" },
-      { href: "/quanverse/spatial-memory", label: "Hồn quán · Ký ức" },
+      { href: "/quanverse", label: "Quánverse · Trung tâm điều hành" },
     ],
   },
   {

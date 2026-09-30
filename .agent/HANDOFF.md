@@ -353,6 +353,57 @@ khôi phục → 15 passed.
 - **Đã khôi phục** cấu hình quán về rỗng ✅
 - Còn lại: 8 đơn quầy, 5 phiếu (`ph_17..ph_22`), 1 nhóm chat, 4 bản giao, 1 cuộc họp
 
+### Bug #35–39 — QA đợt 6 (chạy ĐỦ 50 mục kế hoạch) — ✅ ĐÃ SỬA (nhánh `fix/qa-dot6-security-critical`)
+
+Chạy hết **50 mục** trong `docs/KE-HOACH-TEST-TOAN-BO-CHUC-NANG.md` trên production:
+**43 PASS / 2 FAIL / 2 SKIP / 3 PARTIAL** (2 SKIP chủ động: xếp lịch + ghim ca, tránh đổi lịch thật).
+Phát hiện **5 lỗi mới** — tất cả đều thuộc dạng **"UI ẩn nhưng API hở"** mà test tải trang KHÔNG bắt được.
+
+**🔴 Bug #35 (CRITICAL) — tài khoản đã `deactivate` VẪN ĐĂNG NHẬP ĐƯỢC**
+
+`persist.login()` không đọc cột `status`; `session()` cũng không kiểm. Offboarding vô hiệu hoàn toàn:
+`user_deactivate` chỉ xoá session, kẻ biết mật khẩu chỉ cần đăng nhập lại.
+**Bằng chứng đo thật:** tạo `qa_probe_671972298_0` → `POST /nguoi/{u}/deactivate` → **200** →
+`POST /auth/login` → **200 + token MỚI**.
+**Fix:** lọc `status='active'` ở **CẢ HAI** tầng, gộp vào nhánh "sai thông tin" (không tách
+"tài khoản bị khoá" → tránh lộ username nào tồn tại).
+
+**🟠 Bug #36 (Cao) — danh sách nhân sự lộ người đã nghỉ**
+
+`list_users()` không lọc `status`. Đo được `/nguoi` = **22** (kỳ vọng 19) → 25 → **35** khi thêm
+tài khoản. Kéo theo Copilot `LIET_KE_NHAN_SU` đếm sai và `/cong-bang` có khoá `nv_26..31`.
+**Fix:** `list_users(include_inactive=False)` mặc định — 10 caller đều dùng mặc định nên tự động đúng.
+
+**🔴 Bug #37 (Nghiêm trọng) — `POST /auth/register` CÔNG KHAI không giới hạn**
+
+Đo **10/10 tài khoản tạo liên tiếp trong 1 GIÂY** từ cùng IP; mỗi tài khoản chiếm 1 `nv_id` vĩnh viễn
+và lọt vào mọi danh sách nhân sự.
+**Fix:** `register_ip_limiter` **RIÊNG** (dùng chung với `login_ip_limiter` sẽ khoá oan trang đăng nhập
+khi vài token hết hạn) — đếm **MỌI** lần gọi vì kẻ spam *thành công* mới là vấn đề; **không** `clear()`.
+
+**🔴 Bug #38 (Nghiêm trọng) — `GET /store/profile` + `/store/promotions` KHÔNG CẦN TOKEN**
+
+Trả **200** cho người lạ (kể cả token sai), lộ `wifi_pass` + `huong_dan_agent` (hướng dẫn nội bộ cho AI).
+**Dấu hiệu nhận biết: hàm route KHÔNG CÓ tham số `authorization`.**
+**Fix:** thêm `authorization` + gọi `_require_role()`.
+
+**🟠 Bug #39 (Cao) — 4 endpoint `MANAGER_ONLY` cho nhân viên đọc**
+
+`/ops/explain/chains`, `/ops/predict/suggestions`, `/ops/twin/scenarios`,
+`/experience/rules/candidates` dùng `_require_role` thay vì `_require_manager`.
+Đo: nhân viên `minh` nhận **200 kèm số liệu doanh thu** dù UI đã ẩn trang.
+**Fix:** đổi sang `_require_manager` cho khớp `MANAGER_ONLY` của `session.ts`.
+
+**Điểm KHÔNG phải bug (đã điều tra, đừng "sửa"):**
+- **D1b** — `SCHEDULE_SOLVE` trả `action_proposal: null` là **thiết kế** (`system_prompt.md:50`).
+- **`INFEASIBLE_PIN`** — hành vi **ĐÚNG** của solver (`cpsat.py:138`): pin là ràng buộc CỨNG; dữ liệu
+  production hiện có ca ghim xung đột nên Copilot báo INFEASIBLE_PIN cho W40/W41. Muốn chạy được
+  thì phải bỏ ghim, KHÔNG sửa code.
+
+**Rác tài khoản cần dọn SAU khi #36 deploy:** 16 tài khoản `qa_rl_*`/`qa_probe_*`/`qa_admin_*`/
+`qa_test_*`/`www` (**nv_26–nv_41**) trên production — chính là bằng chứng của #37. Đã `deactivate`
+hết nhưng chúng VẪN HIỆN trong `/nguoi` cho tới khi #36 deploy.
+
 ---
 
 ## 3. CHANGES MADE

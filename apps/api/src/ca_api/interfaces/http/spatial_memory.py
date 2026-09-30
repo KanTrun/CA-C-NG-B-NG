@@ -126,6 +126,32 @@ def _role_of(authorization: str | None) -> ExperienceRole:
         return ExperienceRole.NHAN_VIEN
 
 
+def _real_anchors() -> list[tuple[str, str]]:
+    """Danh sách ``(anchor_id, nhãn)`` neo THẬT đang có ký ức, để dựng tour thật.
+
+    Chỉ trả neo xuất hiện trong ký ức đã xác nhận — tour sẽ bám đúng nơi quán
+    thật sự có thông tin, thay vì route mẫu. Nhãn lấy từ bản đồ neo (adapter),
+    fallback về id. Rỗng khi chưa có neo nào có ký ức.
+    """
+    repo = _get_repo()
+    memories = repo.all_memories() or []
+    order: list[str] = []
+    for m in memories:
+        if m.status.value != "confirmed" or not m.anchor_id:
+            continue
+        if m.anchor_id not in order:
+            order.append(m.anchor_id)
+    if not order:
+        return []
+    nhan_by_id: dict[str, str] = {}
+    try:
+        for a in resolve_experience_read_adapter().list_anchors():
+            nhan_by_id[str(a.anchor_id)] = str(getattr(a, "label", "") or a.anchor_id)
+    except Exception:
+        nhan_by_id = {}
+    return [(aid, nhan_by_id.get(aid, aid)) for aid in order]
+
+
 @router.get("/api/v1/experience/map")
 def map_anchors(
     authorization: Annotated[str | None, Header()] = None,
@@ -265,11 +291,23 @@ def memory_delete(
 def tour_start(
     authorization: Annotated[str | None, Header()] = None,
 ) -> dict[str, Any]:
-    """Bắt đầu AI Tour Guide — chuỗi anchor đóng + narration grounded."""
+    """Bắt đầu AI Tour Guide — tour dựng TỪ NEO THẬT nếu có, else route mẫu."""
     _role_of(authorization)
     repo = _get_repo()
     memories = repo.all_memories()
-    tour = plan_tour(memories=memories)
+    # Đường DỮ LIỆU THẬT: nếu kho có neo thật (gắn ký ức) thì dựng tour theo
+    # đúng các neo đó, thay vì route mẫu `OPENING_ROUTE`.
+    tour = None
+    try:
+        from ca_agents.ag_spatial_memory.tour import plan_tour_from_anchors
+
+        anchors = _real_anchors()
+        if anchors:
+            tour = plan_tour_from_anchors(anchors, memories=memories)
+    except Exception:
+        tour = None
+    if tour is None:
+        tour = plan_tour(memories=memories)
     if tour is None:
         # `plan_tour` trả None khi tour_id không hợp lệ; ở đây dùng route mặc
         # định nên không xảy ra — chặn rõ ràng thay vì crash `union-attr`.

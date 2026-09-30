@@ -241,6 +241,8 @@ EXCLUDED_ROUTES: dict[str, str] = {
     "/api/v1/experience/tour/start": "experience — deep-link /quanverse/spatial-memory (tour mở quán)",
     "/api/v1/experience/voice/turn": "experience — deep-link /quanverse/spatial-memory (hỏi đáp có căn cứ)",
     "/api/v1/experience/quanverse/snapshot": "experience — deep-link /quanverse (bản chiếu theo vai trò)",
+    "/api/v1/experience/quanverse/stations": "experience — deep-link /quanverse (tải/hàng chờ theo khu vực, đọc đơn thật)",
+    "/api/v1/experience/quanverse/forecast": "experience — deep-link /quanverse (dự báo nhu cầu theo giờ, đọc lịch sử đơn)",
     "/api/v1/experience/quanverse/modes": "experience — deep-link /quanverse (danh sách chế độ)",
     "/api/v1/experience/quanverse/modes/{mode}/propose": "R2: đề xuất chế độ qua UI /quanverse",
     "/api/v1/experience/quanverse/modes/{mode}/confirm": "R3: duyệt chế độ qua UI /quanverse (quản lý/chủ quán)",
@@ -284,6 +286,15 @@ EXCLUDED_ROUTES: dict[str, str] = {
     # giữa các bài e2e. Endpoint tự chặn 403 khi không ở chế độ replay.
     "/api/v1/experience/rules/reset": "test-isolation only — 403 ngoài chế độ replay",
     "/api/v1/experience/quanverse/reset": "test-isolation only — 403 ngoài chế độ replay",
+    # ── Bề mặt MOCK của Quánverse (plan quanverse-ops-cockpit) ──
+    # Ba route này trả fixture biên soạn tay ĐÚNG hình dạng của snapshot/stations/
+    # forecast thật, để `/quanverse` demo được khi quán chưa có đơn thật mà UI
+    # không phải bịa số. Chúng KHÔNG phải chức năng điều phối: chỉ đọc, không gọi
+    # LLM, không ghi DB, và ẩn khỏi `/openapi.json` (`include_in_schema=False`).
+    # Xoá cùng `interfaces/http/quanverse_fixtures.py` khi hết nhu cầu demo.
+    "/api/v1/test/quanverse/snapshot": "mock fixture cho UI /quanverse — chỉ đọc, ẩn khỏi OpenAPI",
+    "/api/v1/test/quanverse/stations": "mock fixture cho UI /quanverse — chỉ đọc, ẩn khỏi OpenAPI",
+    "/api/v1/test/quanverse/forecast": "mock fixture cho UI /quanverse — chỉ đọc, ẩn khỏi OpenAPI",
 }
 
 _ROUTE_RE = re.compile(r'@router\.(?:get|post|patch|put|delete)\("([^"]+)"')

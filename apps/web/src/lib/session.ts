@@ -72,9 +72,10 @@ const STAFF_ACCESS = new Set([
   "/chat",
   // Thư viện Kỹ năng đã kiểm định — API `/api/v1/skills` công khai (🟢), mọi vai xem được.
   "/skills",
-  // Grand AI Experience — HỒN QUÁN Spatial Memory + Living Map mở cho mọi vai trò
+  // Quánverse — trung tâm điều hành quán, mở cho mọi vai đã đăng nhập.
+  // (Bốn route phụ cũ war-room/shift-rescue/rules/spatial-memory đã bỏ khỏi UX
+  // và chuyển hướng về /quanverse ở `next.config.js`.)
   "/quanverse",
-  "/quanverse/spatial-memory",
 ]);
 const MANAGER_ONLY = new Set([
   "/lich-tuan",
@@ -95,10 +96,6 @@ const MANAGER_ONLY = new Set([
   "/giai-thich",
   "/de-xuat-thong-minh",
   "/thu-nghiem-an-toan",
-  // Grand AI Experience Portfolio — War Room / Shift Rescue / luật là manager-only
-  "/quanverse/war-room",
-  "/quanverse/shift-rescue",
-  "/quanverse/rules",
 ]);
 const OWNER_ONLY = new Set(["/menu", "/nguoi"]);
 
@@ -138,10 +135,6 @@ const KNOWN_PATHS = new Set<string>([
   "/thu-nghiem-an-toan",
   "/inbox",
   "/quanverse",
-  "/quanverse/war-room",
-  "/quanverse/shift-rescue",
-  "/quanverse/rules",
-  "/quanverse/spatial-memory",
   "/menu",
   "/tieu-thu",
   "/hao-phi",
@@ -157,11 +150,9 @@ const KNOWN_PATHS = new Set<string>([
   "/them",
 ]);
 
-/** Trang có tồn tại trong app không (bỏ qua phần đuôi con của /quanverse). */
+/** Trang có tồn tại trong app không. */
 export function isKnownPath(path: string): boolean {
-  if (KNOWN_PATHS.has(path)) return true;
-  // `/quanverse/tour/<id>` là route con hợp lệ.
-  return path.startsWith("/quanverse/tour/");
+  return KNOWN_PATHS.has(path);
 }
 
 /** Client-side gate for navigation and hand-typed URLs. API remains authoritative. */

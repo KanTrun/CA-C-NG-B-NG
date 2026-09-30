@@ -84,8 +84,26 @@ jobs:
             git fetch --depth 1 origin main
             main_sha="$(git rev-parse FETCH_HEAD)"
             if [ "$release_sha" != "$main_sha" ]; then
-              echo "Bỏ qua release $release_sha vì main hiện tại là $main_sha."
-              exit 0
+              # BỎ QUA ≠ THÀNH CÔNG. Đây là bẫy đã vấp thật (2026-09-29):
+              # một lần push thêm commit trong lúc deploy đang xếp hàng làm
+              # `release_sha != main_sha`, script `exit 0` ⇒ workflow XANH
+              # trong 13 giây mà KHÔNG deploy gì. Bốn route Quánverse vì thế
+              # vẫn phục vụ code cũ trên production mà không ai thấy báo động.
+              #
+              # Từ nay: in cảnh báo GitHub + ghi kết luận vào `$GITHUB_STEP_SUMMARY`
+              # rồi `exit 1`. Deploy bị bỏ là một SỰ KIỆN, không phải trạng thái
+              # bình thường — nó phải đỏ để người trực biết mà chạy lại.
+              echo "::warning::Bỏ qua deploy: release $release_sha không còn là main ($main_sha). Chạy lại deploy để phát hành bản mới nhất."
+              {
+                echo "## ⚠️ Deploy bị BỎ QUA (không phải thành công)"
+                echo ""
+                echo "- release_sha: \`$release_sha\`"
+                echo "- main hiện tại: \`$main_sha\`"
+                echo ""
+                echo "Commit đã được push trong lúc deploy đang xếp hàng, nên bản này"
+                echo "là bản cũ. **Chạy lại workflow này** để phát hành \`$main_sha\`."
+              } >> "$GITHUB_STEP_SUMMARY"
+              exit 1
             fi
             git checkout --detach "$release_sha"
             cd /opt/nhipquan
@@ -167,3 +185,47 @@ jobs:
               sudo IMAGE_TAG=rollback docker compose up -d --remove-orphans --wait --wait-timeout 180 || true
               exit 1
             fi
+
+      # ── Cổng hậu-deploy: kiểm điều hướng Quánverse trên BẢN ĐANG CHẠY ──────
+      #
+      # Vì sao cần: `curl https://$domain/` chỉ chứng minh trang chủ trả 200. Nó
+      # KHÔNG chứng minh bốn route phụ đã bị rút — và đúng loại lỗi đó đã lọt ra
+      # production một lần (deploy bị bỏ qua trong im lặng, 2026-09-29). Cổng này
+      # chạy trên runner GitHub (không phải trên VM) nên nó kiểm đúng đường mà
+      # người dùng thật đi: DNS → Caddy → container web.
+      #
+      # Fail-closed: sai mã trạng thái ⇒ workflow ĐỎ. Deploy coi như chưa xong.
+      - name: "Assert: bốn route phụ Quánverse phải chuyển hướng"
+        env:
+          DOMAIN: ${{ vars.NHIPQUAN_DOMAIN || 'nhipquan.duckdns.org' }}
+        run: |
+          set -eu
+          base="https://${DOMAIN}"
+          # /quanverse phải sống (200).
+          code_home="$(curl -s -o /dev/null -w '%{http_code}' --retry 12 --retry-delay 5 "$base/quanverse")"
+          if [ "$code_home" != "200" ]; then
+            echo "::error::/quanverse trả $code_home (mong đợi 200)"
+            exit 1
+          fi
+
+          # Bốn route phụ phải chuyển hướng vĩnh viễn (308) về /quanverse.
+          fail=0
+          for path in war-room shift-rescue rules spatial-memory; do
+            read -r code loc < <(
+              curl -s -o /dev/null -w '%{http_code} %{redirect_url}' \
+                --retry 8 --retry-delay 3 "$base/quanverse/$path"
+              echo
+            )
+            if [ "$code" != "308" ]; then
+              echo "::error::/quanverse/$path trả $code (mong đợi 308)"
+              fail=1
+              continue
+            fi
+            case "$loc" in
+              */quanverse) echo "OK  /quanverse/$path -> $code $loc" ;;
+              *) echo "::error::/quanverse/$path chuyển hướng sai đích: $loc"; fail=1 ;;
+            esac
+          done
+          [ "$fail" -eq 0 ] || exit 1
+
+          echo "Quánverse: 1 điểm vào, 4 route phụ đã rút."

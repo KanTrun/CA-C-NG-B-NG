@@ -44,8 +44,7 @@ const ROUTES = [
   "/nguoi", "/vet", "/them", "/quay", "/pha", "/tkb", "/chat", "/cuoc-hop",
   "/copilot", "/ai-learning", "/skills", "/contracts", "/giai-thich",
   "/huong-dan", "/page-quan", "/page-quan/fb-inbox", "/page-quan/dat-ban",
-  "/quanverse", "/quanverse/war-room", "/quanverse/shift-rescue",
-  "/quanverse/rules", "/quanverse/spatial-memory", "/thu-nghiem-an-toan",
+  "/quanverse", "/thu-nghiem-an-toan",
   "/de-xuat-thong-minh",
 ];
 

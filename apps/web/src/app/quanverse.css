@@ -1,0 +1,1027 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   QUÁNVERSE — TRUNG TÂM ĐIỀU HÀNH QUÁN
+   ──────────────────────────────────────────────────────────────────────────
+   Đăng ký trong `layout.tsx` cạnh `experience.css`. File RIÊNG (không nhét vào
+   cuối `globals.css`) để phần điều hành mới không phải chung số phận với các
+   khối CSS cũ đã bị xoá — đây là bài học đã vấp: một commit sửa việc khác xoá
+   mất 930 dòng CSS, TSX còn nguyên nên lỗi hoàn toàn im lặng.
+
+   NGUYÊN TẮC BỐ CỤC
+   · Mọi track dùng `minmax(0, …)` — `1fr` trần vẫn giữ `min-width: auto` nên
+     nội dung dài đẩy tràn ngang (đã vấp nhiều lần).
+   · Mọi hàng flex có khả năng thiếu chỗ đều có `flex-wrap`.
+   · Màu lấy từ token `--nq-*`; KHÔNG hex cứng.
+   · Chỉ mượn `@layer components` cho primitive bề mặt, không viết rule
+     unlayered đè lên utility Tailwind.
+   · Desktop 2–3 cột; dưới 1000px gộp một cột.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+.nq-qv {
+  display: grid;
+  gap: var(--nq-s4);
+}
+
+/* ── Thanh điều khiển: nguồn dữ liệu + vai trò ────────────────────────────── */
+
+.nq-qv__toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--nq-s3);
+  padding: 0.5rem 0.7rem;
+  border: 1px solid var(--nq-line);
+  border-radius: var(--nq-radius);
+  background: var(--nq-bg-elevated);
+}
+
+.nq-qv__roles {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.3rem;
+  margin-inline-start: auto;
+}
+
+.nq-qv__rolebtn {
+  padding: 0.32rem 0.7rem;
+  border: 1px solid var(--nq-line);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--nq-dim);
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.nq-qv__rolebtn:hover {
+  border-color: var(--nq-line-strong);
+  color: var(--nq-ink);
+}
+
+.nq-qv__rolebtn.is-on {
+  border-color: var(--nq-accent);
+  color: var(--nq-accent-ink-text);
+  background: color-mix(in srgb, var(--nq-accent) 14%, transparent);
+}
+
+.nq-qv__roledisabled {
+  font-size: 0.7rem;
+  color: var(--nq-dim);
+  font-style: italic;
+}
+
+.nq-qv__sourcebtn {
+  padding: 0.34rem 0.75rem;
+  border: 1px solid var(--nq-line-strong);
+  border-radius: var(--nq-radius);
+  background: transparent;
+  color: var(--nq-ink);
+  font-size: 0.76rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.nq-qv__sourcebtn.is-on {
+  border-color: var(--nq-st-warn);
+  background: color-mix(in srgb, var(--nq-st-warn) 16%, transparent);
+  color: var(--nq-st-warn-ink-strong, var(--nq-ink));
+}
+
+/* ── Nhãn + bộ chọn nguồn dữ liệu ─────────────────────────────────────────── */
+
+.nq-qvsrc {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.nq-qvsrc__badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.24rem 0.6rem;
+  border-radius: 999px;
+  border: 1px solid var(--nq-line-strong);
+  font-size: 0.74rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+}
+
+.nq-qvsrc__dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+}
+
+.nq-qvsrc__badge--real {
+  color: var(--nq-st-ok-ink);
+  border-color: color-mix(in srgb, var(--nq-st-ok) 45%, var(--nq-line));
+}
+
+.nq-qvsrc__badge--mock {
+  color: var(--nq-st-warn-ink-strong, var(--nq-ink));
+  border-color: color-mix(in srgb, var(--nq-st-warn) 55%, var(--nq-line));
+  background: color-mix(in srgb, var(--nq-st-warn) 12%, transparent);
+}
+
+.nq-qvsrc__detail {
+  font-size: 0.74rem;
+  color: var(--nq-dim);
+}
+
+.nq-qvsrc__warn {
+  font-size: 0.74rem;
+  color: var(--nq-st-warn-ink-strong, var(--nq-ink));
+  font-weight: 600;
+}
+
+.nq-qvsrc__choose {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.nq-qvsrc__choose-label {
+  font-size: 0.72rem;
+  color: var(--nq-dim);
+}
+
+.nq-qvsrc__btn {
+  padding: 0.24rem 0.55rem;
+  border: 1px solid var(--nq-line);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--nq-dim);
+  font-size: 0.72rem;
+  cursor: pointer;
+}
+
+.nq-qvsrc__btn.is-on {
+  border-color: var(--nq-accent);
+  color: var(--nq-accent-ink-text);
+  background: color-mix(in srgb, var(--nq-accent) 14%, transparent);
+}
+
+/* ── A. Header ────────────────────────────────────────────────────────────── */
+
+.nq-qvh {
+  display: grid;
+  gap: var(--nq-s2);
+  padding-block-end: var(--nq-s3);
+  border-bottom: 1px solid var(--nq-line);
+}
+
+.nq-qvh__title h1 {
+  margin: 0;
+  font-family: var(--nq-font-display, inherit);
+  font-size: var(--nq-t-3xl, 1.6rem);
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
+.nq-qvh__title p {
+  margin: 0.1rem 0 0;
+  font-size: 0.85rem;
+  color: var(--nq-dim);
+}
+
+.nq-qvh__facts {
+  display: grid;
+  gap: 0.45rem 1.6rem;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 11rem), 1fr));
+  margin: 0;
+}
+
+.nq-qvh__fact {
+  display: grid;
+  gap: 0.1rem;
+  min-width: 0;
+}
+
+.nq-qvh__fact dt {
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--nq-dim);
+}
+
+.nq-qvh__fact dd {
+  margin: 0;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--nq-ink);
+  overflow-wrap: anywhere;
+}
+
+.nq-qvh__names {
+  font-weight: 400;
+  color: var(--nq-dim);
+}
+
+/* ── B. Executive snapshot — sáu KPI ──────────────────────────────────────── */
+
+.nq-qvk {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: var(--nq-s2);
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 9rem), 1fr));
+}
+
+.nq-qvk__item {
+  display: grid;
+  gap: 0.15rem;
+  padding: 0.7rem 0.8rem;
+  border: 1px solid var(--nq-line);
+  border-left: 3px solid var(--nq-line-strong);
+  border-radius: var(--nq-radius);
+  background: var(--nq-bg-elevated);
+  min-width: 0;
+}
+
+.nq-qvk__item--warn { border-left-color: var(--nq-st-warn); }
+.nq-qvk__item--danger { border-left-color: var(--nq-st-danger); }
+.nq-qvk__item--ok { border-left-color: var(--nq-st-ok); }
+
+.nq-qvk__num {
+  font-family: var(--nq-font-mono, monospace);
+  font-size: 1.7rem;
+  font-weight: 700;
+  line-height: 1.1;
+  color: var(--nq-ink);
+}
+
+.nq-qvk__item--warn .nq-qvk__num { color: var(--nq-st-warn-ink-strong, var(--nq-ink)); }
+.nq-qvk__item--danger .nq-qvk__num { color: var(--nq-st-danger-ink); }
+
+.nq-qvk__label {
+  font-size: 0.76rem;
+  color: var(--nq-ink);
+  font-weight: 600;
+}
+
+.nq-qvk__source {
+  font-size: 0.66rem;
+  color: var(--nq-dim);
+}
+
+/* ── Khung thẻ vận hành ───────────────────────────────────────────────────── */
+
+.nq-qv-card {
+  display: grid;
+  gap: var(--nq-s2);
+  align-content: start;
+  padding: 0.85rem 0.95rem;
+  border: 1px solid var(--nq-line);
+  border-radius: var(--nq-radius);
+  background: var(--nq-bg-elevated);
+  min-width: 0;
+}
+
+.nq-qv-card--warn { border-color: color-mix(in srgb, var(--nq-st-warn) 40%, var(--nq-line)); }
+
+.nq-qv-card__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.nq-qv-card__title {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--nq-ink);
+}
+
+.nq-qv-card__source {
+  font-family: var(--nq-font-mono, monospace);
+  font-size: 0.66rem;
+  color: var(--nq-dim);
+}
+
+.nq-qv-card__spacer { flex: 1 1 auto; }
+
+.nq-qv-card__count {
+  font-family: var(--nq-font-mono, monospace);
+  font-size: 0.72rem;
+  color: var(--nq-dim);
+}
+
+/* Chip mức độ — luôn có CHỮ, không chỉ màu */
+.nq-qv-sev {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.12rem 0.45rem;
+  border-radius: 999px;
+  font-size: 0.66rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  border: 1px solid currentColor;
+}
+
+.nq-qv-sev--danger { color: var(--nq-st-danger-ink); }
+.nq-qv-sev--warn { color: var(--nq-st-warn-ink-strong, var(--nq-ink)); }
+.nq-qv-sev--ok { color: var(--nq-st-ok-ink); }
+.nq-qv-sev--neutral { color: var(--nq-dim); }
+
+.nq-qv-nguon {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.1rem 0.42rem;
+  border-radius: 999px;
+  border: 1px solid var(--nq-line);
+  font-size: 0.66rem;
+  color: var(--nq-dim);
+}
+
+.nq-qv-badge-mock {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.14rem 0.5rem;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--nq-st-warn) 55%, var(--nq-line));
+  background: color-mix(in srgb, var(--nq-st-warn) 12%, transparent);
+  color: var(--nq-st-warn-ink-strong, var(--nq-ink));
+  font-size: 0.66rem;
+  font-weight: 700;
+}
+
+/* Trạng thái trống — LUÔN nói rõ chưa có dữ liệu */
+.nq-qv-trong {
+  display: grid;
+  gap: 0.2rem;
+  margin: 0;
+  padding: 0.7rem 0.8rem;
+  border: 1px dashed var(--nq-line-strong);
+  border-radius: var(--nq-radius);
+  background: color-mix(in srgb, var(--nq-fg) 3%, transparent);
+}
+
+.nq-qv-trong__text {
+  font-size: 0.86rem;
+  font-weight: 600;
+  color: var(--nq-ink);
+}
+
+.nq-qv-trong__hint {
+  font-size: 0.74rem;
+  color: var(--nq-dim);
+  line-height: 1.45;
+}
+
+/* ── C. Bản đồ khu vực 2D ─────────────────────────────────────────────────── */
+
+.nq-qvmap__legend {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.55rem;
+  font-size: 0.68rem;
+  color: var(--nq-dim);
+}
+
+.nq-qvmap__legend-item {
+  width: 10px;
+  height: 10px;
+  border-radius: 3px;
+  display: inline-block;
+  margin-inline-end: 0.15rem;
+}
+
+.nq-qvmap__legend-item--on_dinh { background: var(--nq-st-ok); }
+.nq-qvmap__legend-item--chu_y { background: var(--nq-st-warn); }
+.nq-qvmap__legend-item--qua_tai { background: var(--nq-st-danger); }
+
+.nq-qvmap__grid {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: var(--nq-s2);
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 15rem), 1fr));
+}
+
+.nq-qvmap__grid > li { min-width: 0; }
+
+.nq-qvzone {
+  width: 100%;
+  display: grid;
+  gap: 0.35rem;
+  padding: 0.7rem 0.8rem;
+  border: 1px solid var(--nq-line);
+  border-left: 4px solid var(--nq-line-strong);
+  border-radius: var(--nq-radius);
+  background: var(--nq-surface);
+  color: inherit;
+  text-align: start;
+  cursor: pointer;
+  min-height: 44px;
+  transition: border-color var(--nq-dur-t0, 150ms);
+}
+
+.nq-qvzone:hover { border-color: var(--nq-line-strong); }
+.nq-qvzone:focus-visible { outline: 2px solid var(--nq-accent); outline-offset: 2px; }
+
+.nq-qvzone--on_dinh { border-left-color: var(--nq-st-ok); }
+.nq-qvzone--chu_y { border-left-color: var(--nq-st-warn); }
+.nq-qvzone--qua_tai { border-left-color: var(--nq-st-danger); }
+.nq-qvzone--chua_co_du_lieu { border-left-color: var(--nq-line-strong); }
+
+.nq-qvzone.is-selected {
+  border-color: var(--nq-accent);
+  box-shadow: 0 0 0 1px var(--nq-accent) inset;
+}
+
+.nq-qvzone__top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.4rem;
+}
+
+.nq-qvzone__ten {
+  font-size: 0.92rem;
+  font-weight: 700;
+  color: var(--nq-ink);
+}
+
+.nq-qvzone__status {
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+
+.nq-qvzone--on_dinh .nq-qvzone__status { color: var(--nq-st-ok-ink); }
+.nq-qvzone--chu_y .nq-qvzone__status { color: var(--nq-st-warn-ink-strong, var(--nq-ink)); }
+.nq-qvzone--qua_tai .nq-qvzone__status { color: var(--nq-st-danger-ink); }
+.nq-qvzone--chua_co_du_lieu .nq-qvzone__status { color: var(--nq-dim); }
+
+.nq-qvzone__loai {
+  font-family: var(--nq-font-mono, monospace);
+  font-size: 0.64rem;
+  color: var(--nq-dim);
+}
+
+.nq-qvzone__tai {
+  display: flex;
+  align-items: baseline;
+  gap: 0.35rem;
+}
+
+.nq-qvzone__tai-num {
+  font-family: var(--nq-font-mono, monospace);
+  font-size: 1.25rem;
+  font-weight: 700;
+  color: var(--nq-ink);
+}
+
+.nq-qvzone__tai-nguong {
+  font-size: 0.85rem;
+  color: var(--nq-dim);
+}
+
+.nq-qvzone__tai-label {
+  font-size: 0.7rem;
+  color: var(--nq-dim);
+}
+
+/* Thanh tải: KHÔNG vẽ khi thiếu số */
+.nq-qv-tai {
+  display: block;
+  width: 100%;
+  height: 5px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--nq-fg) 10%, transparent);
+  overflow: hidden;
+}
+
+.nq-qv-tai__fill {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--nq-accent);
+}
+
+.nq-qvzone--chu_y .nq-qv-tai__fill { background: var(--nq-st-warn); }
+.nq-qvzone--qua_tai .nq-qv-tai__fill { background: var(--nq-st-danger); }
+
+.nq-qv-tai__unknown {
+  font-family: var(--nq-font-mono, monospace);
+  font-size: 0.78rem;
+  color: var(--nq-dim);
+}
+
+.nq-qvzone__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+}
+
+.nq-qvzone__meta-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  font-size: 0.72rem;
+  color: var(--nq-dim);
+}
+
+.nq-qvzone__names {
+  font-size: 0.7rem;
+  color: var(--nq-dim);
+}
+
+.nq-qvzone__alert {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--nq-st-danger-ink);
+}
+
+.nq-qvmap__foot {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  margin: 0;
+  font-size: 0.74rem;
+  color: var(--nq-st-danger-ink);
+}
+
+/* ── D. Cần xử lý ngay ────────────────────────────────────────────────────── */
+
+.nq-qvact__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: var(--nq-s2);
+}
+
+.nq-qvact__item {
+  display: grid;
+  gap: 0.3rem;
+  padding: 0.6rem 0.7rem;
+  border: 1px solid var(--nq-line);
+  border-radius: var(--nq-radius);
+  background: var(--nq-surface);
+}
+
+.nq-qvact__item[data-muc-do="danger"] {
+  border-color: color-mix(in srgb, var(--nq-st-danger) 45%, var(--nq-line));
+}
+
+.nq-qvact__item[data-muc-do="warn"] {
+  border-color: color-mix(in srgb, var(--nq-st-warn) 40%, var(--nq-line));
+}
+
+.nq-qvact__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.nq-qvact__title {
+  font-size: 0.86rem;
+  font-weight: 600;
+  color: var(--nq-ink);
+}
+
+.nq-qvact__reason {
+  margin: 0;
+  font-size: 0.76rem;
+  color: var(--nq-dim);
+  line-height: 1.45;
+}
+
+.nq-qvact__meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.nq-qvact__cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  margin-inline-start: auto;
+  padding: 0.24rem 0.6rem;
+  border: 1px solid var(--nq-line-strong);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--nq-accent-ink-text, var(--nq-ink));
+  font-size: 0.72rem;
+  font-weight: 600;
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.nq-qvact__cta:hover { border-color: var(--nq-accent); }
+
+.nq-qvact__cta--none {
+  border-style: dashed;
+  color: var(--nq-dim);
+  cursor: default;
+}
+
+/* ── E. Timeline 15 phút ──────────────────────────────────────────────────── */
+
+.nq-qvtl__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.35rem;
+}
+
+.nq-qvtl__item {
+  display: grid;
+  grid-template-columns: minmax(0, 3.1rem) 12px minmax(0, 1fr);
+  align-items: start;
+  gap: 0.4rem;
+}
+
+.nq-qvtl__gio {
+  font-family: var(--nq-font-mono, monospace);
+  font-size: 0.76rem;
+  font-weight: 700;
+  color: var(--nq-ink);
+  padding-block-start: 0.05rem;
+}
+
+.nq-qvtl__dot {
+  position: relative;
+  width: 9px;
+  height: 9px;
+  margin-block-start: 0.35rem;
+  border-radius: 50%;
+  background: var(--nq-line-strong);
+}
+
+.nq-qvtl__item::after {
+  content: "";
+  position: absolute;
+  width: 1px;
+  background: var(--nq-line);
+}
+
+.nq-qvtl__item--sap_toi .nq-qvtl__dot { background: var(--nq-accent); }
+.nq-qvtl__item--dang_chay .nq-qvtl__dot { background: var(--nq-st-ok); }
+.nq-qvtl__item--qua_han .nq-qvtl__dot { background: var(--nq-st-danger); }
+.nq-qvtl__item--xong .nq-qvtl__dot { background: var(--nq-dim); }
+
+.nq-qvtl__body {
+  display: grid;
+  gap: 0.15rem;
+  min-width: 0;
+}
+
+.nq-qvtl__title {
+  font-size: 0.84rem;
+  color: var(--nq-ink);
+}
+
+.nq-qvtl__meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.nq-qvtl__kind,
+.nq-qvtl__status {
+  font-size: 0.68rem;
+  color: var(--nq-dim);
+}
+
+.nq-qvtl__item--qua_han .nq-qvtl__status {
+  color: var(--nq-st-danger-ink);
+  font-weight: 700;
+}
+
+/* ── F. Năng lực / dự báo ─────────────────────────────────────────────────── */
+
+.nq-qvcap__chart {
+  width: 100%;
+}
+
+.nq-qvcap__chart svg { display: block; width: 100%; height: auto; }
+
+.nq-qvcap__axis { stroke: var(--nq-line-strong); stroke-width: 1; }
+.nq-qvcap__line { stroke: var(--nq-accent); stroke-width: 2; stroke-linejoin: round; }
+.nq-qvcap__peak { fill: var(--nq-st-warn); stroke: var(--nq-bg-elevated); stroke-width: 1.5; }
+
+.nq-qvcap__hours {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  justify-content: space-between;
+  font-family: var(--nq-font-mono, monospace);
+  font-size: 0.58rem;
+  color: var(--nq-dim);
+}
+
+.nq-qvcap__peaks {
+  margin: 0;
+  font-size: 0.74rem;
+  color: var(--nq-dim);
+}
+
+/* ── G. AI Copilot ────────────────────────────────────────────────────────── */
+
+.nq-qvai {
+  border-color: color-mix(in srgb, var(--nq-accent) 35%, var(--nq-line));
+}
+
+.nq-qvai__grounded {
+  padding: 0.14rem 0.5rem;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--nq-st-warn) 50%, var(--nq-line));
+  font-size: 0.66rem;
+  font-weight: 700;
+  color: var(--nq-st-warn-ink-strong, var(--nq-ink));
+}
+
+.nq-qvai__grounded.is-grounded {
+  border-color: color-mix(in srgb, var(--nq-st-ok) 50%, var(--nq-line));
+  color: var(--nq-st-ok-ink);
+}
+
+.nq-qvai__headline {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 600;
+  line-height: 1.45;
+  color: var(--nq-ink);
+}
+
+.nq-qvai__section { display: grid; gap: 0.3rem; }
+
+.nq-qvai__sub {
+  margin: 0;
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--nq-dim);
+}
+
+.nq-qvai__reasons {
+  margin: 0;
+  padding-inline-start: 1.1rem;
+  display: grid;
+  gap: 0.2rem;
+  font-size: 0.8rem;
+  color: var(--nq-ink);
+  line-height: 1.45;
+}
+
+.nq-qvai__citations {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+}
+
+.nq-qvai__nocite {
+  margin: 0;
+  font-size: 0.78rem;
+  font-style: italic;
+  color: var(--nq-st-warn-ink-strong, var(--nq-dim));
+}
+
+.nq-qvai__suggest {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.2rem;
+  font-size: 0.8rem;
+  color: var(--nq-ink);
+}
+
+.nq-qvai__suggest li {
+  display: flex;
+  align-items: baseline;
+  gap: 0.35rem;
+}
+
+.nq-qvai__disclaimer,
+.nq-qvai__provider {
+  margin: 0;
+  font-size: 0.68rem;
+  color: var(--nq-dim);
+}
+
+.nq-qvai__weak {
+  margin: 0;
+  padding: 0.4rem 0.55rem;
+  border-radius: var(--nq-radius);
+  background: color-mix(in srgb, var(--nq-st-warn) 10%, transparent);
+  font-size: 0.74rem;
+  color: var(--nq-st-warn-ink-strong, var(--nq-ink));
+}
+
+.nq-qvai__missing {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  margin: 0;
+  font-size: 0.72rem;
+  color: var(--nq-st-warn-ink-strong, var(--nq-ink));
+}
+
+/* ── H. Sự kiện vận hành ──────────────────────────────────────────────────── */
+
+.nq-qvev__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.35rem;
+}
+
+.nq-qvev__item {
+  display: grid;
+  gap: 0.15rem;
+  padding: 0.5rem 0.65rem;
+  border: 1px solid var(--nq-line);
+  border-radius: var(--nq-radius);
+  background: var(--nq-surface);
+}
+
+.nq-qvev__type {
+  font-size: 0.66rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--nq-accent-ink-text, var(--nq-dim));
+}
+
+.nq-qvev__sum {
+  font-size: 0.84rem;
+  color: var(--nq-ink);
+  line-height: 1.4;
+}
+
+.nq-qvev__meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.nq-qvev__time {
+  font-family: var(--nq-font-mono, monospace);
+  font-size: 0.68rem;
+  color: var(--nq-dim);
+}
+
+.nq-qvev__zone {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  padding: 0.1rem 0.42rem;
+  border: 1px solid var(--nq-line);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--nq-accent-ink-text, var(--nq-dim));
+  font-size: 0.68rem;
+  cursor: pointer;
+}
+
+.nq-qvev__zone--none {
+  color: var(--nq-dim);
+  cursor: default;
+}
+
+/* ── Chất lượng dữ liệu + nguồn lỗi ───────────────────────────────────────── */
+
+.nq-qv__quality {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.3rem;
+}
+
+.nq-qv__quality-item {
+  padding: 0.4rem 0.6rem;
+  border-radius: var(--nq-radius);
+  border: 1px solid var(--nq-line);
+  font-size: 0.74rem;
+  color: var(--nq-dim);
+}
+
+.nq-qv__quality-item--warning {
+  border-color: color-mix(in srgb, var(--nq-st-warn) 40%, var(--nq-line));
+  color: var(--nq-st-warn-ink-strong, var(--nq-ink));
+}
+
+.nq-qv__quality-item--error {
+  border-color: color-mix(in srgb, var(--nq-st-danger) 45%, var(--nq-line));
+  color: var(--nq-st-danger-ink);
+}
+
+.nq-qvprov {
+  display: grid;
+  gap: 0.3rem;
+  padding: 0.6rem 0.75rem;
+  border: 1px dashed var(--nq-line-strong);
+  border-radius: var(--nq-radius);
+}
+
+.nq-qvprov__title {
+  font-size: 0.78rem;
+  color: var(--nq-ink);
+}
+
+.nq-qvprov__list {
+  margin: 0;
+  padding-inline-start: 1.05rem;
+  display: grid;
+  gap: 0.2rem;
+  font-size: 0.72rem;
+  color: var(--nq-dim);
+}
+
+.nq-qvprov__list code {
+  font-family: var(--nq-font-mono, monospace);
+  color: var(--nq-ink);
+}
+
+/* ── Lưới bố cục ──────────────────────────────────────────────────────────── */
+
+.nq-qv__grid {
+  display: grid;
+  gap: var(--nq-s3);
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
+}
+
+.nq-qv__col {
+  display: grid;
+  gap: var(--nq-s3);
+  align-content: start;
+  min-width: 0;
+}
+
+.nq-qv__grid > * { min-width: 0; align-self: start; }
+
+@media (min-width: 1000px) {
+  /* Bản đồ rộng hơn cột việc: mắt quét mặt bằng trước, rồi đọc việc. */
+  .nq-qv__grid { grid-template-columns: minmax(0, 1.35fr) minmax(0, 1fr); }
+  .nq-qv__grid--two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 999px) {
+  /* Dưới 1000px: MỘT cột, KPI vẫn ở trên cùng để thấy ngay. */
+  .nq-qv__grid,
+  .nq-qv__grid--two { grid-template-columns: minmax(0, 1fr); }
+  .nq-qv__roles { margin-inline-start: 0; }
+  .nq-qv__toolbar { align-items: flex-start; }
+}
+
+@media (max-width: 640px) {
+  /* Thanh điều khiển GỌN: trên mobile nó chen giữa đầu trang và header, đẩy
+     dải KPI xuống dưới màn. Thu nhỏ padding và cho các nhóm xuống dòng. */
+  .nq-qv__toolbar {
+    padding: 0.4rem 0.5rem;
+    gap: 0.35rem;
+  }
+  .nq-qvsrc { gap: 0.35rem; }
+  .nq-qvsrc__detail { font-size: 0.68rem; }
+  .nq-qv__rolebtn { padding: 0.24rem 0.5rem; font-size: 0.72rem; }
+  .nq-qv__roledisabled { display: none; }
+}
+
+@media (max-width: 560px) {
+  .nq-qvk { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .nq-qvk__num { font-size: 1.4rem; }
+  .nq-qvmap__grid { grid-template-columns: minmax(0, 1fr); }
+
+  /* Header phải GỌN trên mobile: mục tiêu là KPI nằm trong màn đầu (844px).
+     Xếp 6 mục thành 2 cột thay vì 1 cột — đo được: dải KPI từ 933px (dưới màn)
+     xuống còn trong màn đầu. Nhãn dt thu nhỏ để không chiếm 2 dòng. */
+  .nq-qvh__facts {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.3rem 0.9rem;
+  }
+  .nq-qvh__fact dt { font-size: 0.62rem; }
+  .nq-qvh__fact dd { font-size: 0.82rem; }
+  .nq-qvh__title h1 { font-size: 1.35rem; }
+  .nq-qvh { gap: 0.4rem; padding-block-end: 0.5rem; }
+  .nq-qv { gap: var(--nq-s3); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nq-qvzone { transition: none; }
+}

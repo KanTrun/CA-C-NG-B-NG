@@ -160,10 +160,12 @@ def test_clear_spatial_state_dung_lai_kho_ky_uc() -> None:
 
 
 def test_tour_start_grounded() -> None:
+    """Tour dựng TỪ NEO THẬT (có ký ức xác nhận), không phải route mẫu cứng."""
     r = client.post("/api/v1/experience/tour/start", headers=headers(client, "lan"))
     assert r.status_code == 200, r.text
     body = r.json()
-    assert body["tour_id"] == "tour_chao_doi"
+    # Có ký ức xác nhận trong fixture → tour bám theo neo thật, không dùng route mẫu.
+    assert body["tour_id"] == "tour_that"
     assert len(body["steps"]) >= 2
     assert body["grounded"] is True
 

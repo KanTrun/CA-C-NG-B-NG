@@ -78,6 +78,7 @@ from ca_api.interfaces.http.sprint3 import (
     _nv_from_token,
     _phan_cong,
     _require_manager,
+    _require_role,
 )
 from ca_api.persist import (
     audit_add,
@@ -1908,7 +1909,18 @@ def _text_sach(value: str) -> str:
 
 
 @router.get("/api/v1/store/profile")
-def get_profile() -> dict[str, Any]:
+def get_profile(
+    authorization: Annotated[str | None, Header()] = None,
+) -> dict[str, Any]:
+    """Hồ sơ quán — CHỈ người đã đăng nhập.
+
+    Bug QA đợt 6 (#38): endpoint trước đây KHÔNG có tham số `authorization` nên
+    bất kỳ ai (không token / token sai) đều đọc được toàn bộ hồ sơ — kể cả
+    `wifi_pass` và `huong_dan_agent` (hướng dẫn nội bộ cho AI). Đây là dữ liệu
+    vận hành, không phải thông tin công khai: khách nhận thông tin qua chatbot
+    (`format_public_context_for_prompt`), không qua API này.
+    """
+    _require_role(authorization)
     return get_store_profile()
 
 
@@ -1930,7 +1942,11 @@ def update_profile(
 
 
 @router.get("/api/v1/store/promotions")
-def get_promos() -> list[dict[str, Any]]:
+def get_promos(
+    authorization: Annotated[str | None, Header()] = None,
+) -> list[dict[str, Any]]:
+    """Khuyến mãi đang chạy — CHỈ người đã đăng nhập (cùng lý do #38)."""
+    _require_role(authorization)
     return get_active_promotions()
 
 
