@@ -6,9 +6,18 @@ import os
 
 import pytest
 
-try:
-    from hypothesis import HealthCheck, Verbosity, settings
 
+def pytest_configure() -> None:
+    """Đăng ký hypothesis profile 'ci' khi chạy trên CI.
+
+    Import lười bên trong hook (không ở đầu module) để mypy/reviewdog không
+    gắn cờ import thiếu khi môi trường không cài hypothesis, và local dev
+    không có hypothesis vẫn chạy bình thường.
+    """
+    try:
+        from hypothesis import HealthCheck, Verbosity, settings
+    except ImportError:
+        return
     # Profile CI: hypothesis ~5000 examples → ~50. Đủ bắt bất biến, không đốt
     # 10 phút runner. Local dev giữ nguyên số mẫu đầy đủ.
     settings.register_profile(
@@ -21,8 +30,6 @@ try:
     )
     if os.environ.get("CI") == "true":
         settings.load_profile("ci")
-except ImportError:
-    pass
 
 
 @pytest.fixture(autouse=True)
