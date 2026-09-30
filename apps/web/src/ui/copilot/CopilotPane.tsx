@@ -35,7 +35,12 @@ function loadState(): PaneState {
   if (typeof window === "undefined") return DEFAULT_STATE;
   try {
     const raw = window.localStorage.getItem(POS_KEY);
-    if (!raw) return DEFAULT_STATE;
+    if (!raw) {
+      if (window.innerWidth < 640) {
+        return { ...DEFAULT_STATE, size: 0 };
+      }
+      return DEFAULT_STATE;
+    }
     const s = JSON.parse(raw) as Partial<PaneState>;
     return { ...DEFAULT_STATE, ...s };
   } catch {

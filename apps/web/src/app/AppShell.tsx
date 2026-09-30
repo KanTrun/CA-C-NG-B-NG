@@ -302,6 +302,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const hideFloatingCopilot =
     path === "/copilot" ||
     path === "/chat" ||
+    path.startsWith("/quanverse") ||
     COPILOT_LAUNCHER_ROUTES.has(path);
 
   function logout() {

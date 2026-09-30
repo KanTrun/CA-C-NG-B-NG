@@ -104,6 +104,10 @@ EXCLUDED_ROUTES: dict[str, str] = {
     "/api/v1/page/treo": "FB Page — deep-link /page-quan",
     "/api/v1/store/profile": "R3: store profile qua UI /page-quan",
     "/api/v1/store/promotions": "R3: promotions qua UI /page-quan",
+    # ── Danh mục địa chính — hỗ trợ chọn địa chỉ hồ sơ quán qua UI /cau-hinh-quan ──
+    "/api/v1/geo/provinces": "danh mục địa chính — danh sách tỉnh/thành cho UI /cau-hinh-quan",
+    "/api/v1/geo/districts/{province_code}": "danh mục địa chính — danh sách quận/huyện theo tỉnh cho UI /cau-hinh-quan",
+    "/api/v1/geo/wards/{district_code}": "danh mục địa chính — danh sách phường/xã theo quận cho UI /cau-hinh-quan",
     "/api/v1/page/status": "PR12: GET_PAGE_STATUS đã phủ qua chat",
     "/api/v1/page/sync": "PR12: PROPOSE_PAGE_SYNC đã phủ qua chat",
     "/api/v1/page/sync-multi": "multi-page sync qua trang quan ly",
