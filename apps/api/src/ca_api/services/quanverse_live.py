@@ -355,7 +355,7 @@ def forecast(store_id: str = "quan_01") -> dict[str, Any]:
         # Lùi an toàn về trung bình phẳng khi math layer chưa nạp được.
         n_ngay = max(1, len(ngay_co_don))
         theo_gio: dict[int, int] = defaultdict(int)
-        for ngay, gio_map in theo_ngay_gio.items():
+        for gio_map in theo_ngay_gio.values():
             for g, c in gio_map.items():
                 theo_gio[g] += c
         series = [
