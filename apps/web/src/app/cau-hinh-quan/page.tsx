@@ -49,6 +49,8 @@ export type StoreProfile = {
   toa_do_lat: string;
   toa_do_lon: string;
   google_maps_url: string;
+  lat: number | null;
+  lon: number | null;
   hotline: string;
   hotline_phu: string;
   email: string;
@@ -90,6 +92,8 @@ const EMPTY_PROFILE: StoreProfile = {
   toa_do_lat: "",
   toa_do_lon: "",
   google_maps_url: "",
+  lat: null,
+  lon: null,
   hotline: "",
   hotline_phu: "",
   email: "",
@@ -158,6 +162,8 @@ export default function CauHinhQuanPage() {
   const [profile, setProfile] = useState<StoreProfile>(EMPTY_PROFILE);
   const [promos, setPromos] = useState<Promotion[]>([]);
   const [error, setError] = useState("");
+  const [gpsBusy, setGpsBusy] = useState(false);
+  const [gpsMsg, setGpsMsg] = useState("");
   const [savedSnapshot, setSavedSnapshot] = useState<{ profile: StoreProfile; promos: Promotion[] } | null>(null);
 
   const dirty =
@@ -281,6 +287,8 @@ export default function CauHinhQuanPage() {
         toa_do_lat: profile.toa_do_lat.trim(),
         toa_do_lon: profile.toa_do_lon.trim(),
         google_maps_url: profile.google_maps_url.trim(),
+        lat: profile.lat,
+        lon: profile.lon,
         hotline: profile.hotline.trim(),
         hotline_phu: profile.hotline_phu.trim(),
         email: profile.email.trim(),
@@ -342,7 +350,7 @@ export default function CauHinhQuanPage() {
     }
   }
 
-  function setField<K extends keyof StoreProfile>(key: K, value: string) {
+  function setField<K extends keyof StoreProfile>(key: K, value: StoreProfile[K]) {
     setProfile((prev) => ({ ...prev, [key]: value }));
   }
 
@@ -371,6 +379,35 @@ export default function CauHinhQuanPage() {
     } else if (!cur.includes(text)) {
       setField("huong_dan_agent", `${cur}\n${addition}`);
     }
+  }
+
+  function layViTriGps() {
+    if (!navigator.geolocation) {
+      setGpsMsg("Trình duyệt không cho lấy vị trí. Nhập địa chỉ bên dưới.");
+      return;
+    }
+    setGpsBusy(true);
+    setGpsMsg("");
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const lat = Number(pos.coords.latitude.toFixed(6));
+        const lon = Number(pos.coords.longitude.toFixed(6));
+        setProfile((prev) => ({
+          ...prev,
+          lat,
+          lon,
+          toa_do_lat: String(lat),
+          toa_do_lon: String(lon),
+        }));
+        setGpsMsg("Đã lấy vị trí GPS. Bấm Lưu thông tin quán để áp dụng cho thời tiết.");
+        setGpsBusy(false);
+      },
+      () => {
+        setGpsMsg("Không lấy được vị trí. Nhập địa chỉ quán bên dưới.");
+        setGpsBusy(false);
+      },
+      { timeout: 10000 },
+    );
   }
 
   function updatePromo(index: number, patch: Partial<Promotion>) {
@@ -581,6 +618,28 @@ export default function CauHinhQuanPage() {
             }}
             onChange={handleAddressChange}
           />
+
+          <div className="rounded-xl border border-[var(--nq-line)] bg-[var(--nq-surface-hi)] p-4 space-y-3">
+            <div>
+              <h3 className="text-xs font-bold text-[var(--nq-fg)]">Toạ độ GPS (Dành cho AI Forecast thời tiết & Quánverse)</h3>
+              <p className="mt-1 text-xs text-[var(--nq-muted)]">
+                Lấy toạ độ GPS trực tiếp từ trình duyệt (hệ thống tự động dùng toạ độ này để dự báo thời tiết Open-Meteo chuẩn xác nhất).
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-3">
+              <Btn type="button" variant="ghost" disabled={gpsBusy} onClick={layViTriGps}>
+                {gpsBusy ? "Đang lấy vị trí…" : "Lấy vị trí GPS"}
+              </Btn>
+              {profile.lat != null && profile.lon != null ? (
+                <span className="text-sm font-mono text-[var(--nq-accent)]" data-testid="cau-hinh-gps-coords">
+                  GPS: {profile.lat.toFixed(4)}, {profile.lon.toFixed(4)}
+                </span>
+              ) : (
+                <span className="text-sm text-[var(--nq-muted)]">Chưa có toạ độ GPS</span>
+              )}
+            </div>
+            {gpsMsg ? <p className="text-xs text-[var(--nq-muted)]">{gpsMsg}</p> : null}
+          </div>
         </section>
       )}
 
@@ -613,7 +672,6 @@ export default function CauHinhQuanPage() {
                 placeholder="VD: 0909888999"
               />
             </Field>
-
             <Field label="Email liên hệ của quán" hint="Tiếp nhận hóa đơn, khiếu nại hoặc hợp tác">
               <Input
                 type="email"

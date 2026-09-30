@@ -168,6 +168,11 @@ export interface QuanverseCapacity {
    * chỉ nhãn để người đọc biết tín hiệu môi trường. `null` khi chưa có thời tiết.
    */
   weatherHint: string | null;
+  /** Mode đề xuất từ thời tiết (vd `troi_mua`). `null` khi không đề xuất. */
+  weatherSuggestMode: string | null;
+  weatherSuggestModeLabel: string | null;
+  /** Thiếu GPS/địa chỉ — UI hiện CTA lấy vị trí. */
+  weatherNeedsLocation: boolean;
 }
 
 // ── G. AI COPILOT ──────────────────────────────────────────────────────────

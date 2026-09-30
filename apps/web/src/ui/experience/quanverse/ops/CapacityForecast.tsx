@@ -5,8 +5,10 @@
  *
  * SVG thuần: hover giờ, click peak/điểm → báo giờ chọn lên trang (để prefill AI).
  * Dual series: nhu cầu + hàng đợi dự báo. Empty trung thực khi chưa đủ lịch sử.
+ * Weather CTA: đề xuất chế độ từ AI FORECAST (human confirm, không tự bật).
  */
 
+import Link from "next/link";
 import {
   CHUA_CO_DU_LIEU,
   type QuanverseCapacity,
@@ -24,14 +26,22 @@ export default function CapacityForecast({
   isMock,
   selectedHour,
   onSelectHour,
+  canProposeWeatherMode = false,
+  weatherModeBusy = false,
+  onProposeWeatherMode,
 }: {
   capacity: QuanverseCapacity;
   isMock: boolean;
   selectedHour: number | null;
   onSelectHour: (hour: number | null) => void;
+  canProposeWeatherMode?: boolean;
+  weatherModeBusy?: boolean;
+  onProposeWeatherMode?: (mode: string) => void;
 }) {
   const points = capacity.points;
   const coDuLieu = capacity.hasHistory && points.some((p) => p.demand !== null);
+  const suggestMode = capacity.weatherSuggestMode;
+  const suggestLabel = capacity.weatherSuggestModeLabel || suggestMode;
 
   const maxDemand = coDuLieu
     ? Math.max(
@@ -215,11 +225,33 @@ export default function CapacityForecast({
         </>
       )}
 
-      {capacity.weatherHint ? (
-        <p className="nq-qvcap__weather" data-testid="capacity-weather-hint">
+      {capacity.weatherHint || capacity.weatherNeedsLocation || suggestMode ? (
+        <div className="nq-qvcap__weather" data-testid="capacity-weather-hint">
           <NguonChip>AI Forecast</NguonChip>
-          <span>{capacity.weatherHint}</span>
-        </p>
+          {capacity.weatherHint ? <span>{capacity.weatherHint}</span> : null}
+          {capacity.weatherNeedsLocation ? (
+            <Link
+              href="/cau-hinh-quan"
+              className="nq-qvcap__weather-cta"
+              data-testid="capacity-weather-setup"
+            >
+              Lấy vị trí quán
+            </Link>
+          ) : null}
+          {suggestMode && onProposeWeatherMode ? (
+            <button
+              type="button"
+              className="nq-qvcap__weather-btn"
+              data-testid="capacity-weather-propose"
+              disabled={!canProposeWeatherMode || weatherModeBusy}
+              onClick={() => onProposeWeatherMode(suggestMode)}
+            >
+              {weatherModeBusy
+                ? "Đang đề xuất…"
+                : `Đề xuất chế độ ${suggestLabel} (cần duyệt)`}
+            </button>
+          ) : null}
+        </div>
       ) : null}
     </Card>
   );

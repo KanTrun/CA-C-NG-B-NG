@@ -88,6 +88,8 @@ type StoreProfile = {
   toa_do_lat?: string;
   toa_do_lon?: string;
   google_maps_url?: string;
+  lat?: number | null;
+  lon?: number | null;
   hotline: string;
   hotline_phu?: string;
   email?: string;

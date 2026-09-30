@@ -29,6 +29,8 @@ def _setup(monkeypatch: pytest.MonkeyPatch) -> None:
             "dia_chi": "",
             "tinh": "",
             "thanh_pho": "",
+            "lat": None,
+            "lon": None,
             "hotline": "",
             "gio_mo_cua": "",
             "wifi_ssid": "",
@@ -57,13 +59,36 @@ def test_anh_huong_mua_de_xuat_troi_mua() -> None:
     assert impact["yeu_to"]
 
 
-def test_thieu_dia_chi_tra_co_du_lieu_false() -> None:
+def test_thieu_vi_tri_tra_co_du_lieu_false() -> None:
     r = client.get("/api/v1/thoi-tiet/hom-nay", headers=headers(client, "lan"))
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["co_du_lieu"] is False
     assert body["can_cau_hinh"] is True
-    assert "địa chỉ" in (body.get("ly_do") or "").lower() or "cấu hình" in (body.get("ly_do") or "").lower()
+    ly_do = (body.get("ly_do") or "").lower()
+    assert "vị trí" in ly_do or "gps" in ly_do or "địa chỉ" in ly_do
+
+
+def test_resolve_vi_tri_uu_tien_gps(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Có lat/lon → không gọi geocode."""
+
+    def boom(url: str) -> dict[str, Any] | None:
+        raise AssertionError(f"không được geocode khi có GPS: {url}")
+
+    monkeypatch.setattr(thoi_tiet_mod, "_http_get_json", boom)
+    vi = thoi_tiet_mod.resolve_vi_tri(
+        {
+            "lat": 10.7756,
+            "lon": 106.7019,
+            "thanh_pho": "Quận 1",
+            "tinh": "Hồ Chí Minh",
+            "dia_chi": "",
+        }
+    )
+    assert vi is not None
+    assert vi["nguon"] == "gps"
+    assert abs(vi["lat"] - 10.7756) < 0.001
+    assert abs(vi["lon"] - 106.7019) < 0.001
 
 
 def test_resolve_vi_tri_fallback_tinh(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -74,7 +99,11 @@ def test_resolve_vi_tri_fallback_tinh(monkeypatch: pytest.MonkeyPatch) -> None:
         calls.append(url)
         if "name=Qu%E1%BA%ADn" in url or "Qu%E1%BA%ADn+1" in url or "Quận" in urllib.parse.unquote(url):
             return {"results": []}
-        if "H%E1%BB%93+Ch%C3%AD+Minh" in url or "Ho+Chi+Minh" in url or "Hồ Chí Minh" in urllib.parse.unquote(url):
+        if (
+            "H%E1%BB%93+Ch%C3%AD+Minh" in url
+            or "Ho+Chi+Minh" in url
+            or "Hồ Chí Minh" in urllib.parse.unquote(url)
+        ):
             return {
                 "results": [
                     {
@@ -107,6 +136,40 @@ def _mock_http(monkeypatch: pytest.MonkeyPatch, payloads: dict[str, dict[str, An
         return None
 
     monkeypatch.setattr(thoi_tiet_mod, "_http_get_json", fake_get)
+
+
+def test_hom_nay_voi_gps(monkeypatch: pytest.MonkeyPatch) -> None:
+    set_store_profile({"lat": 10.7756, "lon": 106.7019})
+    from datetime import datetime as _dt
+
+    ngay = _dt.now(thoi_tiet_mod._VN_TZ).date().isoformat()
+    _mock_http(
+        monkeypatch,
+        {
+            "api.open-meteo.com": {
+                "current": {
+                    "temperature_2m": 31.2,
+                    "relative_humidity_2m": 70,
+                    "precipitation": 0.0,
+                    "weather_code": 1,
+                },
+                "hourly": {
+                    "time": [f"{ngay}T{h:02d}:00" for h in range(24)],
+                    "temperature_2m": [28 + (h % 5) for h in range(24)],
+                    "weather_code": [1 if h < 14 else 61 for h in range(24)],
+                    "precipitation": [0.0 if h < 14 else 1.2 for h in range(24)],
+                },
+            },
+        },
+    )
+
+    r = client.get("/api/v1/thoi-tiet/hom-nay", headers=headers(client, "lan"))
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["co_du_lieu"] is True
+    assert body["vi_tri"]["nguon"] == "gps"
+    assert body["hien_tai"]["nhom"] == "nang"
+    assert body["anh_huong_quan"]["tom_tat"]
 
 
 def test_hom_nay_voi_tinh_thanh(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -159,7 +222,7 @@ def test_hom_nay_voi_tinh_thanh(monkeypatch: pytest.MonkeyPatch) -> None:
     assert r2.json().get("tu_cache") is True
 
 
-def test_profile_co_tinh_thanh_pho() -> None:
+def test_profile_co_lat_lon_va_tinh_thanh() -> None:
     ql = headers(client, "lan")
     r = client.put(
         "/api/v1/store/profile",
@@ -168,6 +231,8 @@ def test_profile_co_tinh_thanh_pho() -> None:
             "dia_chi": "45 Nguyễn Huệ",
             "tinh": "Hồ Chí Minh",
             "thanh_pho": "Quận 1",
+            "lat": 10.7756,
+            "lon": 106.7019,
             "hotline": "0901234567",
             "gio_mo_cua": "07:00-22:00",
         },
@@ -177,3 +242,5 @@ def test_profile_co_tinh_thanh_pho() -> None:
     got = client.get("/api/v1/store/profile", headers=ql).json()
     assert got["tinh"] == "Hồ Chí Minh"
     assert got["thanh_pho"] == "Quận 1"
+    assert abs(float(got["lat"]) - 10.7756) < 0.001
+    assert abs(float(got["lon"]) - 106.7019) < 0.001

@@ -29,7 +29,9 @@ DEFAULT_STORE_PROFILE: dict[str, Any] = {
     "toa_do_lat": "",
     "toa_do_lon": "",
     "google_maps_url": "",
-    # Liên hệ & Kênh truyền thông
+    # Toạ độ quán từ GPS trình duyệt (Open-Meteo forecast không cần geocode).
+    "lat": None,
+    "lon": None,
     "hotline": "",
     "hotline_phu": "",
     "email": "",

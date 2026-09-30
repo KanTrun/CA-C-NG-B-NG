@@ -60,3 +60,4 @@ def test_brief_thieu_dia_chi_data_quality() -> None:
     )
     codes = [dq.code for dq in facts.data_quality]
     assert "thoi_tiet_thieu_dia_chi" in codes
+    assert any("vị trí" in dq.message.lower() or "gps" in dq.message.lower() for dq in facts.data_quality)

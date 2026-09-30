@@ -747,6 +747,31 @@
   line-height: 1.4;
 }
 
+.nq-qvcap__weather-cta {
+  color: var(--nq-accent);
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.nq-qvcap__weather-btn {
+  appearance: none;
+  border: 1px solid var(--nq-accent);
+  border-radius: var(--nq-radius);
+  background: color-mix(in srgb, var(--nq-accent) 14%, transparent);
+  color: var(--nq-accent-ink-text, var(--nq-ink));
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 650;
+  padding: 0.35rem 0.7rem;
+  cursor: pointer;
+}
+
+.nq-qvcap__weather-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
 /* ── G. AI Copilot ────────────────────────────────────────────────────────── */
 
 .nq-qvai {
@@ -1458,6 +1483,19 @@
   margin: 0;
   font-size: 0.72rem;
   color: var(--nq-dim);
+}
+
+.nq-qvmode__checklist {
+  margin: 0;
+  padding-left: 1.1rem;
+  font-size: 0.72rem;
+  color: var(--nq-ink);
+  line-height: 1.45;
+}
+
+.nq-qvmode__item--suggest {
+  border-color: color-mix(in srgb, var(--nq-accent) 45%, var(--nq-line));
+  background: color-mix(in srgb, var(--nq-accent) 8%, transparent);
 }
 
 .nq-qvmode__actions { display: flex; flex-wrap: wrap; gap: 0.35rem; }
