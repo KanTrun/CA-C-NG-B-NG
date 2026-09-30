@@ -285,6 +285,19 @@ def brief_living_map(
     if not zone_rows:
         out.risks.append("Chưa đọc được khu vực nào của quán.")
 
+    # ── Dự báo NGÀY MAI + độ tin cậy (P1): phần mở rộng, không trùng khối
+    # giờ-đông-hôm-nay ở trên (giữ một metric `forecast_days` duy nhất).
+    if isinstance(forecast, dict) and forecast.get("co_du_lieu"):
+        so_ngay = forecast.get("so_ngay_du_lieu")
+        do_tin = str(forecast.get("do_tin_cay") or "")
+        dinh_mai = [p for p in (forecast.get("dinh_ngay_mai") or [])]
+        if dinh_mai:
+            txt_mai = ", ".join(f"{int(h):02d}:00" for h in dinh_mai[:4])
+            out.facts.append(f"Dự báo ngày mai đông nhất: {txt_mai}.")
+            out.grounded_refs.append("forecast:tomorrow")
+        if do_tin:
+            out.facts.append(f"Độ tin cậy dự báo: {do_tin} ({so_ngay} ngày dữ liệu).")
+
     return out
 
 

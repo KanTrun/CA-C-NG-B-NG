@@ -7,6 +7,7 @@
  * citations / unsupportedClaims / grounded. AI không ghi DB.
  */
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
 import { Icon } from "../../../icons";
 import {
@@ -26,6 +27,7 @@ export default function AiCopilot({
   suggestions,
   onAsk,
   onClearAsk,
+  onFocusZone,
 }: {
   copilot: QuanverseCopilot | null;
   provenance: readonly QuanverseProvenance[];
@@ -35,6 +37,7 @@ export default function AiCopilot({
   suggestions: readonly string[];
   onAsk: (question: string) => void;
   onClearAsk: () => void;
+  onFocusZone?: (zoneId: string) => void;
 }) {
   const [draft, setDraft] = useState("");
   useEffect(() => {
@@ -130,6 +133,49 @@ export default function AiCopilot({
                   </li>
                 ))}
               </ul>
+              {(() => {
+                const links =
+                  copilot.actionLinks && copilot.actionLinks.length > 0
+                    ? copilot.actionLinks
+                    : copilot.suggestedActions
+                        .map((s) => {
+                          const t = s.toLowerCase();
+                          let href: string | null = null;
+                          let zoneId: string | null = null;
+                          if (t.includes("phân công") || t.includes("lịch tuần") || t.includes("điều người")) href = "/lich-tuan";
+                          else if (t.includes("sop") || t.includes("vệ sinh") || t.includes("máy pha")) href = "/sop";
+                          else if (t.includes("tồn kho") || t.includes("tiêu thụ") || t.includes("nguyên liệu")) href = "/tieu-thu";
+                          else if (t.includes("treo")) href = "/treo";
+                          if (t.includes("quầy pha")) zoneId = "quay_pha";
+                          else if (t.includes("thu ngân")) zoneId = "quay_thu_ngan";
+                          else if (t.includes("khu bàn")) zoneId = "khu_ban";
+                          else if (/\bkho\b/.test(t)) zoneId = "kho";
+                          return href || zoneId ? { label: s, href, zoneId } : null;
+                        })
+                        .filter((x): x is NonNullable<typeof x> => x !== null);
+                return links.length > 0 ? (
+                <div className="nq-qvcmd__chips" data-testid="copilot-action-links">
+                  {links.map((l) => (
+                    <span key={l.label} className="nq-qvcmd__chips">
+                      {l.href ? (
+                        <Link className="nq-qvact__cta" href={l.href}>
+                          {l.href === "/lich-tuan" ? "Mở Lịch tuần" : l.href === "/sop" ? "Mở SOP" : l.href === "/tieu-thu" ? "Mở Tiêu thụ" : "Mở trang"}: {l.label.slice(0, 40)}
+                        </Link>
+                      ) : null}
+                      {l.zoneId && onFocusZone ? (
+                        <button
+                          type="button"
+                          className="nq-qvcmd__cite"
+                          onClick={() => onFocusZone(l.zoneId as string)}
+                        >
+                          Xem {l.zoneId} →
+                        </button>
+                      ) : null}
+                    </span>
+                  ))}
+                </div>
+                ) : null;
+              })()}
               <p className="nq-qvai__disclaimer">
                 Đây là đề xuất — người quản lý quyết định và thực hiện.
               </p>

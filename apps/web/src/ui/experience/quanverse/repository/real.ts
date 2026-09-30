@@ -75,6 +75,10 @@ interface ForecastTho {
   so_ngay_du_lieu?: unknown;
   series?: unknown;
   giao_dich_nhat?: unknown;
+  do_tin_cay?: unknown;
+  du_bao_ngay_mai?: unknown;
+  dinh_ngay_mai?: unknown;
+  ghi_chu?: unknown;
 }
 
 interface ThoiTietTho {
@@ -604,6 +608,12 @@ export class RealQuanverseRepository implements QuanverseRepository {
       forecastBody?.co_du_lieu === true,
       forecastBody?.so_ngay_du_lieu,
       mangTho(forecastBody?.giao_dich_nhat),
+      {
+        do_tin_cay: forecastBody?.do_tin_cay,
+        du_bao_ngay_mai: mangTho(forecastBody?.du_bao_ngay_mai),
+        dinh_ngay_mai: mangTho(forecastBody?.dinh_ngay_mai),
+        ghi_chu: forecastBody?.ghi_chu,
+      },
     );
     // AI FORECAST — gắn nhãn ảnh hưởng thời tiết + CTA đề xuất chế độ (không đổi số nhu cầu).
     const tt = thoiTiet.data;

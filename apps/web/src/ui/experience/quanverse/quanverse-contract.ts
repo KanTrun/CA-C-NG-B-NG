@@ -153,7 +153,13 @@ export interface QuanverseCapacityPoint {
   demand: number | null;
   /** Hàng chờ dự báo. `null` khi chưa đủ lịch sử. */
   backlog: number | null;
+  /** Biên dưới khoảng tin cậy 80%. `null` khi chưa tính được. */
+  low?: number | null;
+  /** Biên trên khoảng tin cậy 80%. `null` khi chưa tính được. */
+  high?: number | null;
 }
+
+export type QuanverseConfidence = "cao" | "trung_binh" | "thap";
 
 export interface QuanverseCapacity {
   points: QuanverseCapacityPoint[];
@@ -173,6 +179,14 @@ export interface QuanverseCapacity {
   weatherSuggestModeLabel: string | null;
   /** Thiếu GPS/địa chỉ — UI hiện CTA lấy vị trí. */
   weatherNeedsLocation: boolean;
+  /** Độ tin cậy suy từ số ngày dữ liệu. Optional để tương thích fixture cũ. */
+  confidence?: QuanverseConfidence | null;
+  /** Dự báo ngày mai (cùng khung 7..22). Rỗng khi chưa đủ dữ liệu. */
+  tomorrow?: QuanverseCapacityPoint[];
+  /** Giờ cao điểm ngày mai. */
+  tomorrowPeaks?: number[];
+  /** Ghi chú ngắn cho người đọc, vd "Trung bình 4 ngày gần nhất". */
+  note?: string | null;
 }
 
 // ── G. AI COPILOT ──────────────────────────────────────────────────────────
@@ -182,6 +196,14 @@ export interface QuanverseCapacity {
  * trả về (chỉ có `grounded: boolean`) — hợp đồng không được bịa ra thứ backend
  * không có. Khi backend bổ sung, thêm `confidence?: number | null` tại đây.
  */
+export interface QuanverseActionLink {
+  label: string;
+  /** Đường dẫn nội bộ. `null` khi chỉ là gợi ý xem bản đồ. */
+  href: string | null;
+  /** Zone liên quan để đánh dấu trên bản đồ. */
+  zoneId: string | null;
+}
+
 export interface QuanverseCopilot {
   headline: string;
   /** Lý do / diễn giải. */
@@ -195,6 +217,8 @@ export interface QuanverseCopilot {
   provider: string;
   /** Hành động gợi ý (chỉ đề xuất — không bao giờ tự ghi DB). */
   suggestedActions: string[];
+  /** Liên kết hành động suy từ suggestedActions + actions. Optional. */
+  actionLinks?: QuanverseActionLink[];
 }
 
 // ── H. SỰ KIỆN VẬN HÀNH ────────────────────────────────────────────────────
@@ -280,9 +304,19 @@ export interface QuanverseModesState {
 
 // ── Selection helpers (con trỏ hệ thống) ───────────────────────────────────
 
-/** Lấy zoneId từ action id dạng `zone_<id>`; null nếu không gắn khu vực. */
+/**
+ * Lấy zoneId từ action: ưu tiên id dạng `zone_<id>` (dữ liệu thật), lùi về suy
+ * từ tiêu đề/lý do cho fixture mock (`cd_a_*`/`qt_a_*` không mang zoneId) để
+ * nút "Xem trên bản đồ" không rơi vào "Chỉ để biết" oan. Null = toàn quán.
+ */
 export function zoneIdTuAction(action: QuanverseActionItem): string | null {
   if (action.id.startsWith("zone_")) return action.id.slice("zone_".length);
+  const t = `${action.title} ${action.reason}`.toLowerCase();
+  if (t.includes("quầy pha")) return "quay_pha";
+  if (t.includes("thu ngân") || t.includes("thanh toán")) return "quay_thu_ngan";
+  if (t.includes("khu bàn") || t.includes("khu khách")) return "khu_ban";
+  // Word-boundary: "kho" trần khớp cả "không"/"khoảng" nên phải chặn.
+  if (/\bkho\b/.test(t)) return "kho";
   return null;
 }
 
