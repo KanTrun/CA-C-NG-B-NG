@@ -267,6 +267,9 @@ export function chuanHoaCapacity(
     daysOfData: soHoacNull(soNgay),
     peaks,
     weatherHint: null,
+    weatherSuggestMode: null,
+    weatherSuggestModeLabel: null,
+    weatherNeedsLocation: false,
   };
 }
 

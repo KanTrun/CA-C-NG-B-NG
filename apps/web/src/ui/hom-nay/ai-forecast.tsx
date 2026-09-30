@@ -3,16 +3,18 @@
 /**
  * AI FORECAST — khối thời tiết hôm nay trên /hom-nay.
  *
- * Một section một việc: vị trí quán · thời tiết hiện tại · timeline giờ ·
- * ảnh hưởng vận hành → link /quanverse. Không vẽ dữ liệu giả khi thiếu địa chỉ.
+ * Vị trí: GPS quán (ưu tiên) hoặc một ô địa chỉ — không bắt điền tách tỉnh/thành.
+ * Một section một việc: vị trí · thời tiết hiện tại · timeline giờ · ảnh hưởng
+ * vận hành → link /quanverse. Không vẽ dữ liệu giả khi thiếu vị trí.
  */
 
 import Link from "next/link";
 import { motion, useReducedMotion } from "framer-motion";
 import { useCallback, useEffect, useState } from "react";
-import { apiGet } from "../../lib/api";
+import { apiGet, apiSend } from "../../lib/api";
 import { beat } from "../../lib/motion";
 import { viError } from "../../lib/present";
+import { isManager } from "../../lib/session";
 import { Icon, type IconName } from "../icons";
 import { BtnLink } from "../kit";
 
@@ -58,6 +60,22 @@ export type ThoiTietHomNay = {
   tu_cache?: boolean;
 };
 
+type StoreProfile = {
+  ten_quan: string;
+  dia_chi: string;
+  tinh: string;
+  thanh_pho: string;
+  lat: number | null;
+  lon: number | null;
+  hotline: string;
+  gio_mo_cua: string;
+  wifi_ssid: string;
+  wifi_pass: string;
+  mo_ta: string;
+  chinh_sach_dat_ban: string;
+  huong_dan_agent: string;
+};
+
 function iconForNhom(nhom: string | undefined): IconName {
   switch (nhom) {
     case "nang":
@@ -80,7 +98,18 @@ function iconForNhom(nhom: string | undefined): IconName {
 function viTriLabel(v: ThoiTietHomNay["vi_tri"]): string {
   if (!v) return "";
   const parts = [v.thanh_pho, v.tinh].map((x) => (x || "").trim()).filter(Boolean);
-  return parts.join(", ");
+  if (parts.length) return parts.join(", ");
+  if (typeof v.lat === "number" && typeof v.lon === "number") {
+    return `${v.lat.toFixed(3)}, ${v.lon.toFixed(3)}`;
+  }
+  return "";
+}
+
+function nguonLabel(nguon: string | undefined): string {
+  if (nguon === "gps") return "GPS";
+  if (nguon === "dia_chi") return "Địa chỉ";
+  if (nguon === "tinh_thanh") return "Tỉnh/thành";
+  return "";
 }
 
 function formatCapNhat(iso: string | undefined): string {
@@ -98,10 +127,40 @@ function formatCapNhat(iso: string | undefined): string {
   }
 }
 
+async function luuViTriProfile(patch: Partial<StoreProfile>): Promise<void> {
+  const current = await apiGet<StoreProfile>("/api/v1/store/profile");
+  await apiSend(
+    "/api/v1/store/profile",
+    {
+      ten_quan: current.ten_quan ?? "",
+      dia_chi: current.dia_chi ?? "",
+      tinh: current.tinh ?? "",
+      thanh_pho: current.thanh_pho ?? "",
+      lat: current.lat ?? null,
+      lon: current.lon ?? null,
+      hotline: current.hotline ?? "",
+      gio_mo_cua: current.gio_mo_cua ?? "",
+      wifi_ssid: current.wifi_ssid ?? "",
+      wifi_pass: current.wifi_pass ?? "",
+      mo_ta: current.mo_ta ?? "",
+      chinh_sach_dat_ban: current.chinh_sach_dat_ban ?? "",
+      huong_dan_agent: current.huong_dan_agent ?? "",
+      ...patch,
+    },
+    "PUT",
+  );
+}
+
 export function AiForecastBlock() {
   const [data, setData] = useState<ThoiTietHomNay | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [gpsBusy, setGpsBusy] = useState(false);
+  const [addrBusy, setAddrBusy] = useState(false);
+  const [showAddr, setShowAddr] = useState(false);
+  const [diaChi, setDiaChi] = useState("");
+  const [locMsg, setLocMsg] = useState<string | null>(null);
+  const [manager, setManager] = useState(false);
   const reduced = useReducedMotion() ?? false;
 
   const load = useCallback(() => {
@@ -114,15 +173,71 @@ export function AiForecastBlock() {
   }, []);
 
   useEffect(() => {
+    setManager(isManager());
     load();
   }, [load]);
+
+  const layGps = useCallback(() => {
+    if (!navigator.geolocation) {
+      setLocMsg("Trình duyệt không cho lấy vị trí. Nhập một địa chỉ bên dưới.");
+      setShowAddr(true);
+      return;
+    }
+    setGpsBusy(true);
+    setLocMsg(null);
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        void (async () => {
+          try {
+            await luuViTriProfile({
+              lat: Number(pos.coords.latitude.toFixed(6)),
+              lon: Number(pos.coords.longitude.toFixed(6)),
+            });
+            setLocMsg("Đã lưu vị trí GPS. Đang đọc dự báo…");
+            load();
+          } catch (e) {
+            setLocMsg(viError(e, { doing: "lưu được vị trí quán" }));
+          } finally {
+            setGpsBusy(false);
+          }
+        })();
+      },
+      () => {
+        setGpsBusy(false);
+        setLocMsg("Không lấy được vị trí. Nhập một địa chỉ bên dưới.");
+        setShowAddr(true);
+      },
+      { timeout: 10000 },
+    );
+  }, [load]);
+
+  const luuDiaChi = useCallback(() => {
+    const text = diaChi.trim();
+    if (!text) {
+      setLocMsg("Nhập một địa chỉ quán (ví dụ: 45 Nguyễn Huệ, Quận 1, TP. HCM).");
+      return;
+    }
+    setAddrBusy(true);
+    setLocMsg(null);
+    void (async () => {
+      try {
+        await luuViTriProfile({ dia_chi: text });
+        setLocMsg("Đã lưu địa chỉ. Đang đọc dự báo…");
+        load();
+      } catch (e) {
+        setLocMsg(viError(e, { doing: "lưu được địa chỉ quán" }));
+      } finally {
+        setAddrBusy(false);
+      }
+    })();
+  }, [diaChi, load]);
 
   if (loading && !data) {
     return (
       <section className="nq-aiforecast nq-aiforecast--loading" data-testid="ai-forecast" aria-busy="true">
         <p className="nq-eyebrow">AI Forecast</p>
         <h2 className="nq-block-title">Thời tiết hôm nay</h2>
-        <p className="nq-aiforecast__hint">Đang đọc dự báo theo địa chỉ quán…</p>
+        <p className="nq-aiforecast__hint">Đang đọc dự báo theo vị trí quán…</p>
       </section>
     );
   }
@@ -145,12 +260,58 @@ export function AiForecastBlock() {
       <section className="nq-aiforecast nq-aiforecast--empty" data-testid="ai-forecast">
         <p className="nq-eyebrow">AI Forecast</p>
         <h2 className="nq-block-title">Thời tiết hôm nay</h2>
-        <p className="nq-aiforecast__hint">
+        <p className="nq-aiforecast__hint" data-testid="ai-forecast-empty-hint">
           {data?.ly_do || "Chưa có dữ liệu thời tiết cho quán."}
         </p>
-        {data?.can_cau_hinh ? (
+        {data?.can_cau_hinh && manager ? (
+          <div className="nq-aiforecast__setup" data-testid="ai-forecast-setup">
+            <button
+              type="button"
+              className="nq-aiforecast__retry"
+              data-testid="ai-forecast-gps"
+              disabled={gpsBusy}
+              onClick={layGps}
+            >
+              {gpsBusy ? "Đang lấy vị trí…" : "Lấy vị trí hiện tại"}
+            </button>
+            {!showAddr ? (
+              <button
+                type="button"
+                className="nq-aiforecast__linkbtn"
+                data-testid="ai-forecast-show-addr"
+                onClick={() => setShowAddr(true)}
+              >
+                Hoặc nhập một địa chỉ
+              </button>
+            ) : (
+              <div className="nq-aiforecast__addr" data-testid="ai-forecast-addr-form">
+                <label className="nq-aiforecast__addr-label" htmlFor="ai-forecast-dia-chi">
+                  Địa chỉ quán
+                </label>
+                <input
+                  id="ai-forecast-dia-chi"
+                  className="nq-aiforecast__addr-input"
+                  data-testid="ai-forecast-dia-chi"
+                  value={diaChi}
+                  onChange={(e) => setDiaChi(e.target.value)}
+                  placeholder="VD: 45 Nguyễn Huệ, Quận 1, TP. HCM"
+                />
+                <button
+                  type="button"
+                  className="nq-aiforecast__retry"
+                  data-testid="ai-forecast-save-addr"
+                  disabled={addrBusy}
+                  onClick={luuDiaChi}
+                >
+                  {addrBusy ? "Đang lưu…" : "Lưu địa chỉ & xem dự báo"}
+                </button>
+              </div>
+            )}
+            {locMsg ? <p className="nq-aiforecast__loc-msg">{locMsg}</p> : null}
+          </div>
+        ) : data?.can_cau_hinh ? (
           <BtnLink href="/cau-hinh-quan" variant="ghost">
-            Cấu hình địa chỉ quán
+            Cấu hình vị trí quán
           </BtnLink>
         ) : null}
       </section>
@@ -161,6 +322,7 @@ export function AiForecastBlock() {
   const nhom = String(hienTai?.nhom || "may");
   const icon = iconForNhom(nhom);
   const viTri = viTriLabel(data.vi_tri);
+  const nguon = nguonLabel(data.vi_tri?.nguon);
   const capNhat = formatCapNhat(data.cap_nhat_luc);
   const impact = data.anh_huong_quan;
   const hours = data.theo_gio ?? [];
@@ -185,6 +347,7 @@ export function AiForecastBlock() {
             <p className="nq-aiforecast__loc" data-testid="ai-forecast-location">
               <Icon name="location" size={14} />
               <span>{viTri}</span>
+              {nguon ? <span className="nq-aiforecast__meta">· {nguon}</span> : null}
               {capNhat ? <span className="nq-aiforecast__meta">· cập nhật {capNhat}</span> : null}
             </p>
           ) : null}

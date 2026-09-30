@@ -78,6 +78,8 @@ type StoreProfile = {
   dia_chi: string;
   tinh?: string;
   thanh_pho?: string;
+  lat?: number | null;
+  lon?: number | null;
   hotline: string;
   gio_mo_cua: string;
   wifi_ssid?: string;

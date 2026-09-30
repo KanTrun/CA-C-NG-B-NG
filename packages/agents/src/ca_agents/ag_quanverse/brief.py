@@ -273,7 +273,7 @@ def brief_living_map(
             DataQualityNotice(
                 code="thoi_tiet_thieu_dia_chi",
                 level="info",
-                message="Chưa cấu hình địa chỉ quán nên AI FORECAST chưa có tín hiệu thời tiết.",
+                message="Chưa có vị trí quán (GPS hoặc địa chỉ) nên AI FORECAST chưa có tín hiệu thời tiết.",
             )
         )
 

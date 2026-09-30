@@ -369,6 +369,9 @@ export default function QuanversePage() {
                     );
                   }
                 }}
+                canProposeWeatherMode={Boolean(modesState?.canActivate)}
+                weatherModeBusy={busyMode === vm.capacity.weatherSuggestMode}
+                onProposeWeatherMode={(m) => void runMode(m, "propose")}
               />
             </div>
 
@@ -389,6 +392,7 @@ export default function QuanversePage() {
               <ModeRail
                 modesState={modesState}
                 busyMode={busyMode}
+                highlightMode={vm.capacity.weatherSuggestMode}
                 onPropose={(m) => void runMode(m, "propose")}
                 onConfirm={(m) => void runMode(m, "confirm")}
                 onDeactivate={(m) => void runMode(m, "deactivate")}

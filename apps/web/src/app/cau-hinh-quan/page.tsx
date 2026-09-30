@@ -32,6 +32,8 @@ type StoreProfile = {
   dia_chi: string;
   tinh: string;
   thanh_pho: string;
+  lat: number | null;
+  lon: number | null;
   hotline: string;
   gio_mo_cua: string;
   wifi_ssid: string;
@@ -53,6 +55,8 @@ const EMPTY_PROFILE: StoreProfile = {
   dia_chi: "",
   tinh: "",
   thanh_pho: "",
+  lat: null,
+  lon: null,
   hotline: "",
   gio_mo_cua: "",
   wifi_ssid: "",
@@ -79,6 +83,8 @@ export default function CauHinhQuanPage() {
   const [profile, setProfile] = useState<StoreProfile>(EMPTY_PROFILE);
   const [promos, setPromos] = useState<Promotion[]>([]);
   const [error, setError] = useState("");
+  const [gpsBusy, setGpsBusy] = useState(false);
+  const [gpsMsg, setGpsMsg] = useState("");
   const [savedSnapshot, setSavedSnapshot] = useState<{ profile: StoreProfile; promos: Promotion[] } | null>(null);
   const dirty =
     savedSnapshot !== null &&
@@ -141,6 +147,8 @@ export default function CauHinhQuanPage() {
         dia_chi: profile.dia_chi.trim(),
         tinh: profile.tinh.trim(),
         thanh_pho: profile.thanh_pho.trim(),
+        lat: profile.lat,
+        lon: profile.lon,
         hotline: profile.hotline.trim(),
         gio_mo_cua: profile.gio_mo_cua.trim(),
         wifi_ssid: profile.wifi_ssid.trim(),
@@ -188,8 +196,33 @@ export default function CauHinhQuanPage() {
     }
   }
 
-  function setField<K extends keyof StoreProfile>(key: K, value: string) {
+  function setField<K extends keyof StoreProfile>(key: K, value: StoreProfile[K]) {
     setProfile((prev) => ({ ...prev, [key]: value }));
+  }
+
+  function layViTriGps() {
+    if (!navigator.geolocation) {
+      setGpsMsg("Trình duyệt không cho lấy vị trí. Nhập địa chỉ bên dưới.");
+      return;
+    }
+    setGpsBusy(true);
+    setGpsMsg("");
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        setProfile((prev) => ({
+          ...prev,
+          lat: Number(pos.coords.latitude.toFixed(6)),
+          lon: Number(pos.coords.longitude.toFixed(6)),
+        }));
+        setGpsMsg("Đã lấy vị trí GPS. Bấm Lưu thông tin quán để áp dụng cho thời tiết.");
+        setGpsBusy(false);
+      },
+      () => {
+        setGpsMsg("Không lấy được vị trí. Nhập địa chỉ quán bên dưới.");
+        setGpsBusy(false);
+      },
+      { timeout: 10000 },
+    );
   }
 
   function updatePromo(index: number, patch: Partial<Promotion>) {
@@ -268,20 +301,48 @@ export default function CauHinhQuanPage() {
                 placeholder="VD: 45 Nguyễn Huệ, P. Bến Nghé, Q. 1, TP. HCM"
               />
             </Field>
-            <Field label="Thành phố / Quận">
-              <Input
-                value={profile.thanh_pho}
-                onChange={(e) => setField("thanh_pho", e.target.value)}
-                placeholder="VD: Quận 1 hoặc TP. Hồ Chí Minh"
-              />
-            </Field>
-            <Field label="Tỉnh / Thành phố trực thuộc TW">
-              <Input
-                value={profile.tinh}
-                onChange={(e) => setField("tinh", e.target.value)}
-                placeholder="VD: Hồ Chí Minh, Hà Nội, Đà Nẵng"
-              />
-            </Field>
+            <div className="sm:col-span-2 mb-4">
+              <p className="mb-2 text-sm text-[var(--nq-fg-muted)]">
+                Vị trí cho thời tiết: lấy GPS quán (ưu tiên) hoặc dùng địa chỉ ở trên.
+                Không cần điền tách tỉnh/thành.
+              </p>
+              <div className="flex flex-wrap items-center gap-3">
+                <Btn type="button" variant="ghost" disabled={gpsBusy} onClick={layViTriGps}>
+                  {gpsBusy ? "Đang lấy vị trí…" : "Lấy vị trí GPS"}
+                </Btn>
+                {profile.lat != null && profile.lon != null ? (
+                  <span className="text-sm text-[var(--nq-fg-muted)]" data-testid="cau-hinh-gps-coords">
+                    GPS: {profile.lat.toFixed(4)}, {profile.lon.toFixed(4)}
+                  </span>
+                ) : (
+                  <span className="text-sm text-[var(--nq-fg-muted)]">Chưa có toạ độ GPS</span>
+                )}
+              </div>
+              {gpsMsg ? <p className="mt-2 text-sm text-[var(--nq-fg-muted)]">{gpsMsg}</p> : null}
+              {(profile.tinh || profile.thanh_pho) ? (
+                <details className="mt-3">
+                  <summary className="cursor-pointer text-sm text-[var(--nq-fg-muted)]">
+                    Tỉnh / thành đã lưu (tuỳ chọn)
+                  </summary>
+                  <div className="mt-2 grid gap-x-4 sm:grid-cols-2">
+                    <Field label="Thành phố / Quận">
+                      <Input
+                        value={profile.thanh_pho}
+                        onChange={(e) => setField("thanh_pho", e.target.value)}
+                        placeholder="VD: Quận 1"
+                      />
+                    </Field>
+                    <Field label="Tỉnh / TP trực thuộc TW">
+                      <Input
+                        value={profile.tinh}
+                        onChange={(e) => setField("tinh", e.target.value)}
+                        placeholder="VD: Hồ Chí Minh"
+                      />
+                    </Field>
+                  </div>
+                </details>
+              ) : null}
+            </div>
             <Field label="Giờ mở cửa">
               <Input
                 value={profile.gio_mo_cua}

@@ -3223,6 +3223,49 @@ a:focus-visible {
   color: var(--nq-dim);
   font-size: var(--nq-t-body);
 }
+.nq-aiforecast__setup {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--nq-s3);
+  margin-top: var(--nq-s2);
+}
+.nq-aiforecast__linkbtn {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--nq-accent);
+  padding: 0;
+  font: inherit;
+  font-size: var(--nq-t-small);
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.nq-aiforecast__addr {
+  display: flex;
+  flex-direction: column;
+  gap: var(--nq-s2);
+  width: min(100%, 28rem);
+}
+.nq-aiforecast__addr-label {
+  font-size: var(--nq-t-small);
+  color: var(--nq-dim);
+}
+.nq-aiforecast__addr-input {
+  width: 100%;
+  border: 1px solid var(--nq-line);
+  border-radius: var(--nq-radius-bubble);
+  background: var(--nq-surface);
+  color: var(--nq-ink);
+  padding: 0.55rem 0.75rem;
+  font: inherit;
+}
+.nq-aiforecast__loc-msg {
+  margin: 0;
+  color: var(--nq-dim);
+  font-size: var(--nq-t-small);
+}
 .nq-aiforecast__retry {
   appearance: none;
   border: 1px solid var(--nq-line);
