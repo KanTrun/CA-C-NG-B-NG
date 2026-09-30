@@ -227,8 +227,10 @@ def _anh_huong_quan(
 
 
 def _parse_forecast(data: dict[str, Any], vi_tri: dict[str, Any]) -> dict[str, Any]:
-    current = data.get("current") if isinstance(data.get("current"), dict) else {}
-    hourly = data.get("hourly") if isinstance(data.get("hourly"), dict) else {}
+    current_raw = data.get("current")
+    hourly_raw = data.get("hourly")
+    current: dict[str, Any] = current_raw if isinstance(current_raw, dict) else {}
+    hourly: dict[str, Any] = hourly_raw if isinstance(hourly_raw, dict) else {}
 
     code_now = current.get("weather_code")
     try:
@@ -249,10 +251,14 @@ def _parse_forecast(data: dict[str, Any], vi_tri: dict[str, Any]) -> dict[str, A
     except (TypeError, ValueError):
         precip_now = None
 
-    times = hourly.get("time") if isinstance(hourly.get("time"), list) else []
-    temps = hourly.get("temperature_2m") if isinstance(hourly.get("temperature_2m"), list) else []
-    codes = hourly.get("weather_code") if isinstance(hourly.get("weather_code"), list) else []
-    precips = hourly.get("precipitation") if isinstance(hourly.get("precipitation"), list) else []
+    times_raw = hourly.get("time")
+    temps_raw = hourly.get("temperature_2m")
+    codes_raw = hourly.get("weather_code")
+    precips_raw = hourly.get("precipitation")
+    times: list[Any] = times_raw if isinstance(times_raw, list) else []
+    temps: list[Any] = temps_raw if isinstance(temps_raw, list) else []
+    codes: list[Any] = codes_raw if isinstance(codes_raw, list) else []
+    precips: list[Any] = precips_raw if isinstance(precips_raw, list) else []
 
     ngay_vn = datetime.now(_VN_TZ).date().isoformat()
     theo_gio: list[dict[str, Any]] = []
@@ -295,6 +301,15 @@ def _parse_forecast(data: dict[str, Any], vi_tri: dict[str, Any]) -> dict[str, A
     impact = _anh_huong_quan(nhom=nhom, nhiet_do=temp_now, mua_mm=precip_now, mo_ta=mo_ta)
 
     now_iso = datetime.now(UTC).isoformat().replace("+00:00", "Z")
+    do_am: float | None
+    try:
+        do_am = (
+            float(current["relative_humidity_2m"])
+            if current.get("relative_humidity_2m") is not None
+            else None
+        )
+    except (TypeError, ValueError):
+        do_am = None
     return {
         "co_du_lieu": True,
         "vi_tri": {
@@ -310,11 +325,7 @@ def _parse_forecast(data: dict[str, Any], vi_tri: dict[str, Any]) -> dict[str, A
             "mo_ta": mo_ta,
             "ma_thoi_tiet": code_now_i,
             "mua_mm": precip_now,
-            "do_am": (
-                float(current["relative_humidity_2m"])
-                if current.get("relative_humidity_2m") is not None
-                else None
-            ),
+            "do_am": do_am,
         },
         "theo_gio": theo_gio,
         "anh_huong_quan": impact,

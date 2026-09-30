@@ -26,11 +26,13 @@
  * RỖNG và UI hiện "—" — không đoán.
  */
 
-import { ApiError, apiGet } from "../../../../lib/api";
+import { ApiError, apiGet, apiSend } from "../../../../lib/api";
 import { getRole } from "../../../../lib/session";
 import {
   type QuanverseActionItem,
+  type QuanverseAskResult,
   type QuanverseKpi,
+  type QuanverseModesState,
   type QuanverseProvenance,
   type QuanverseRole,
   type QuanverseViewModel,
@@ -41,16 +43,22 @@ import {
 } from "../quanverse-contract";
 import {
   chuanHoaActions,
+  chuanHoaAsk,
   chuanHoaCapacity,
   chuanHoaCopilot,
   chuanHoaDataQuality,
   chuanHoaEvents,
   chuanHoaHeader,
+  chuanHoaModes,
   chuanHoaTimeline,
   chuanHoaZone,
   kpi,
 } from "./mappers";
-import type { QuanverseReadOptions, QuanverseRepository } from "./types";
+import type {
+  QuanverseAskOptions,
+  QuanverseReadOptions,
+  QuanverseRepository,
+} from "./types";
 
 // ── Hình dạng thô của các nguồn (chỉ khai trường mình đọc) ─────────────────
 
@@ -266,14 +274,69 @@ export function suyNguoiTruc(
 
 // ── Adapter ────────────────────────────────────────────────────────────────
 
+interface StaffOnShiftTho {
+  names?: unknown;
+  count?: unknown;
+  shift_label?: unknown;
+  co_du_lieu?: unknown;
+}
+
 export class RealQuanverseRepository implements QuanverseRepository {
   readonly dataSource = "real" as const;
+
+  async askQuestion(opts: QuanverseAskOptions): Promise<QuanverseAskResult> {
+    const question = opts.question.trim();
+    try {
+      const raw = await apiSend<{
+        question?: unknown;
+        answer?: unknown;
+        citations?: unknown;
+        unsupported_claims?: unknown;
+        grounded?: unknown;
+        provider?: unknown;
+      }>("/api/v1/experience/quanverse/ask", {
+        page: opts.page ?? "living_map",
+        question,
+      });
+      return chuanHoaAsk(raw, question);
+    } catch {
+      return chuanHoaAsk(null, question);
+    }
+  }
+
+  async listModes(): Promise<QuanverseModesState> {
+    try {
+      const raw = await apiGet<{
+        modes?: unknown;
+        can_activate?: unknown;
+        role?: unknown;
+      }>("/api/v1/experience/quanverse/modes");
+      return chuanHoaModes(raw);
+    } catch {
+      return chuanHoaModes(null);
+    }
+  }
+
+  async proposeMode(mode: string): Promise<QuanverseModesState> {
+    await apiSend(`/api/v1/experience/quanverse/modes/${encodeURIComponent(mode)}/propose`);
+    return this.listModes();
+  }
+
+  async confirmMode(mode: string): Promise<QuanverseModesState> {
+    await apiSend(`/api/v1/experience/quanverse/modes/${encodeURIComponent(mode)}/confirm`);
+    return this.listModes();
+  }
+
+  async deactivateMode(mode: string): Promise<QuanverseModesState> {
+    await apiSend(`/api/v1/experience/quanverse/modes/${encodeURIComponent(mode)}/deactivate`);
+    return this.listModes();
+  }
 
   async getViewModel(opts: QuanverseReadOptions): Promise<QuanverseViewModel> {
     const role = (opts.role ?? getRole() ?? "quan_ly") as QuanverseRole;
     const provenance: QuanverseProvenance[] = [];
 
-    const [snap, stations, forecast, brief, lich, homNay, thoiTiet] = await Promise.all([
+    const [snap, stations, forecast, brief, lich, homNay, thoiTiet, staff] = await Promise.all([
       doc<SnapshotTho>(
         "Bản chiếu vận hành",
         "/api/v1/experience/quanverse/snapshot",
@@ -316,6 +379,12 @@ export class RealQuanverseRepository implements QuanverseRepository {
         "/api/v1/thoi-tiet/hom-nay",
         ["co_du_lieu"],
       ),
+      doc<StaffOnShiftTho>(
+        "Nhân sự trong ca",
+        "/api/v1/experience/quanverse/staff-on-shift",
+        "/api/v1/experience/quanverse/staff-on-shift",
+        ["names", "count"],
+      ),
     ]);
 
     provenance.push(
@@ -326,6 +395,7 @@ export class RealQuanverseRepository implements QuanverseRepository {
       { label: "Phân công tuần", endpoint: "/api/v1/lich-tuan", ok: lich.ok, status: lich.status, missingFields: lich.missing },
       { label: "Việc và cảnh báo", endpoint: "/api/v1/hom-nay", ok: homNay.ok, status: homNay.status, missingFields: homNay.missing },
       { label: "AI Forecast thời tiết", endpoint: "/api/v1/thoi-tiet/hom-nay", ok: thoiTiet.ok, status: thoiTiet.status, missingFields: thoiTiet.missing },
+      { label: "Nhân sự trong ca", endpoint: "/api/v1/experience/quanverse/staff-on-shift", ok: staff.ok, status: staff.status, missingFields: staff.missing },
     );
 
     // ── Khu vực: ưu tiên `/stations` (có số tải), bù bằng `/snapshot.zones` ──
@@ -337,6 +407,13 @@ export class RealQuanverseRepository implements QuanverseRepository {
     if (stationsBody?.stations) {
       for (const z of mangHoacRong(stationsBody.stations as readonly unknown[])) {
         const zone = chuanHoaZone(z as Record<string, unknown>);
+        // Chưa có đơn quầy thật → không trình bày tải 0 như "quán rảnh đo được".
+        if (stationsBody.co_du_lieu !== true) {
+          zone.load = null;
+          zone.queue = null;
+          zone.status = "chua_co_du_lieu";
+          zone.alerts = [];
+        }
         zones.push(zone);
         zoneLabelById.set(zone.zoneId, zone.label);
       }
@@ -349,9 +426,22 @@ export class RealQuanverseRepository implements QuanverseRepository {
       }
     }
 
-    // ── Nhân sự đang trực (suy từ lịch tuần — backend chưa có endpoint riêng) ──
+    // ── Nhân sự đang trực: ưu tiên endpoint chuyên dụng, fallback lịch tuần ──
     const { gio, phut, thu } = gioQuanHienTai();
-    const nguoiTruc = suyNguoiTruc(lich.data, gio, phut, thu);
+    const suyTuLich = suyNguoiTruc(lich.data, gio, phut, thu);
+    const staffBody = staff.data;
+    const nguoiTruc = staff.ok && staffBody
+      ? {
+          names: mangHoacRong(staffBody.names as readonly string[]).filter(
+            (n): n is string => typeof n === "string" && n.length > 0,
+          ),
+          count: soHoacNull(staffBody.count) ?? suyTuLich.count,
+          shiftLabel:
+            typeof staffBody.shift_label === "string" && staffBody.shift_label
+              ? staffBody.shift_label
+              : suyTuLich.shiftLabel,
+        }
+      : suyTuLich;
 
     // ── KPI ────────────────────────────────────────────────────────────────
     const chiSo = (stationsBody?.chi_so ?? {}) as Record<string, unknown>;

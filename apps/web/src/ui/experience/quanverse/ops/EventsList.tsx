@@ -1,10 +1,7 @@
 "use client";
 
 /**
- * QUÁNVERSE — H. SỰ KIỆN VẬN HÀNH.
- *
- * Dòng sự kiện có mốc thời gian, nhãn loại, nguồn và khu vực gắn kết. Bấm vào
- * nhãn khu vực để đánh dấu khu vực đó trên bản đồ (không điều hướng đi đâu).
+ * QUÁNVERSE — H. SỰ KIỆN VẬN HÀNH (compact, scroll nội bộ).
  */
 
 import { Icon } from "../../../icons";
@@ -14,9 +11,13 @@ import { Card, CardHead, NguonChip } from "./kit";
 
 export default function EventsList({
   events,
+  filterZoneLabel,
+  onClearFilter,
   onFocusZone,
 }: {
   events: readonly QuanverseEvent[];
+  filterZoneLabel: string | null;
+  onClearFilter: () => void;
   onFocusZone: (zoneId: string) => void;
 }) {
   return (
@@ -26,6 +27,15 @@ export default function EventsList({
         icon="bell"
         trailing={<span className="nq-qv-card__count">{events.length} mục</span>}
       />
+
+      {filterZoneLabel ? (
+        <div className="nq-qvact__filter" data-testid="events-filter">
+          <span>Đang lọc · {filterZoneLabel}</span>
+          <button type="button" className="nq-linkbtn" onClick={onClearFilter}>
+            Xem tất cả
+          </button>
+        </div>
+      ) : null}
 
       {events.length === 0 ? (
         <p className="nq-qv-trong" data-testid="events-empty">

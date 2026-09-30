@@ -361,7 +361,21 @@ def process_inbound(msg: InboundMessage, *, reply_backend: str | None = None) ->
     except Exception:
         pass
 
-    r = classify(text, mode=agent_mode(), staff=staff_list if staff_list else None)
+    # Phải truyền tuần THẬT — giống sprint3 msg_classify. Thiếu base_iso_week
+    # thì «tuần sau» luôn ra W02 từ mặc định W01 (bug QA đợt 4).
+    try:
+        from datetime import UTC, datetime
+
+        iso = datetime.now(UTC).isocalendar()
+        base_week = f"{iso[0]}-W{iso[1]:02d}"
+    except Exception:
+        base_week = None
+    r = classify(
+        text,
+        mode=agent_mode(),
+        staff=staff_list if staff_list else None,
+        base_iso_week=base_week,
+    )
     if not should_enqueue_constraint(text, r.intent, r.do_tin_cay):
         sent = port.send(
             msg.external_user_id,

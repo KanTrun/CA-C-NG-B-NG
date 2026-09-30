@@ -140,6 +140,8 @@ export interface QuanverseTimelineItem {
   kind: string;
   source: string;
   status: QuanverseTimelineStatus;
+  /** Khu vực gắn mốc (nếu nguồn có). `null` = toàn quán. */
+  zoneId?: string | null;
 }
 
 // ── F. NĂNG LỰC / TẢI VẬN HÀNH ─────────────────────────────────────────────
@@ -237,6 +239,86 @@ export interface QuanverseDataQualityNotice {
   code: string;
   level: "info" | "warning" | "error";
   message: string;
+}
+
+// ── AI Ask (kết quả một lần hỏi) ───────────────────────────────────────────
+
+/** Kết quả `POST /ask` — tách khỏi brief tĩnh để UI giữ cả hai. */
+export interface QuanverseAskResult {
+  question: string;
+  answer: string;
+  citations: string[];
+  unsupportedClaims: string[];
+  grounded: boolean;
+  provider: string;
+}
+
+// ── Cafe Modes (đề xuất → xác nhận) ────────────────────────────────────────
+
+export type QuanverseModeStatus = "off" | "draft" | "active";
+
+export interface QuanverseMode {
+  mode: string;
+  label: string;
+  active: boolean;
+  proposalStatus: string;
+  status: QuanverseModeStatus;
+  effect: string;
+  affectedProjections: string[];
+}
+
+export interface QuanverseModesState {
+  modes: QuanverseMode[];
+  canActivate: boolean;
+  role: QuanverseRole;
+}
+
+// ── Selection helpers (con trỏ hệ thống) ───────────────────────────────────
+
+/** Lấy zoneId từ action id dạng `zone_<id>`; null nếu không gắn khu vực. */
+export function zoneIdTuAction(action: QuanverseActionItem): string | null {
+  if (action.id.startsWith("zone_")) return action.id.slice("zone_".length);
+  return null;
+}
+
+/** Lọc actions theo khu vực đang chọn — giữ mục toàn quán (không gắn zone). */
+export function locActionsTheoZone(
+  actions: readonly QuanverseActionItem[],
+  zoneId: string | null,
+): QuanverseActionItem[] {
+  if (!zoneId) return [...actions];
+  return actions.filter((a) => {
+    const z = zoneIdTuAction(a);
+    return z === null || z === zoneId;
+  });
+}
+
+/** Lọc events theo khu vực — mục không gắn zone vẫn hiện. */
+export function locEventsTheoZone(
+  events: readonly QuanverseEvent[],
+  zoneId: string | null,
+): QuanverseEvent[] {
+  if (!zoneId) return [...events];
+  return events.filter((e) => e.zoneId === null || e.zoneId === zoneId);
+}
+
+/** Lọc timeline theo khu vực khi nguồn có `zoneId`. */
+export function locTimelineTheoZone(
+  items: readonly QuanverseTimelineItem[],
+  zoneId: string | null,
+): QuanverseTimelineItem[] {
+  if (!zoneId) return [...items];
+  const coZone = items.some((i) => i.zoneId);
+  if (!coZone) return [...items];
+  return items.filter((i) => !i.zoneId || i.zoneId === zoneId);
+}
+
+/** Zone nóng nhất (quá tải > chú ý) — dùng khi bấm KPI alerts/queue. */
+export function zoneNongNhat(zones: readonly QuanverseZone[]): string | null {
+  const quaTai = zones.find((z) => z.status === "qua_tai");
+  if (quaTai) return quaTai.zoneId;
+  const chuY = zones.find((z) => z.status === "chu_y");
+  return chuY?.zoneId ?? null;
 }
 
 // ── Hàm hiển thị dùng CHUNG (một chỗ duy nhất cho quy ước null) ────────────

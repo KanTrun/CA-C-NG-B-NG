@@ -1017,6 +1017,7 @@ def tkb_xep_lai(
         tuan_iso=week,
         actor_id=s["nv_id"],
         idempotency_key=f"tkb-xep-lai:{week}:{fingerprint[:16]}",
+        nguon_nhat_ky="tkb",
     )
     ket_qua = cast(dict[str, Any], authoritative.get("result") or {})
 

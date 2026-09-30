@@ -3,24 +3,30 @@
 /**
  * QUÁNVERSE — D. CẦN XỬ LÝ NGAY.
  *
- * Danh sách việc có thể hành động, sắp theo mức độ. Mỗi mục nói RÕ:
- * mức độ · chuyện gì · vì sao · nguồn dữ liệu · CTA.
- *
- * RANH GIỚI AI: khối này KHÔNG tự quyết định thay đổi gì. CTA chỉ mở một trang
- * để người dùng tự làm — không có "áp dụng", không có ghi dữ liệu.
+ * Danh sách việc có thể hành động. Khi có zone filter, hiện chip lọc.
+ * CTA nội bộ: focus zone / hỏi AI; CTA ngoài: link trang nghiệp vụ.
  */
 
 import Link from "next/link";
 import { Icon } from "../../../icons";
-import type { QuanverseActionItem } from "../quanverse-contract";
+import {
+  type QuanverseActionItem,
+  zoneIdTuAction,
+} from "../quanverse-contract";
 import { Card, CardHead, MucDoChip, NguonChip } from "./kit";
 
 export default function NeedsAttention({
   actions,
+  filterZoneLabel,
+  onClearFilter,
   onFocusZone,
+  onAsk,
 }: {
   actions: readonly QuanverseActionItem[];
+  filterZoneLabel: string | null;
+  onClearFilter: () => void;
   onFocusZone: (zoneId: string) => void;
+  onAsk: (question: string) => void;
 }) {
   const canXuLy = actions.length > 0;
 
@@ -35,24 +41,38 @@ export default function NeedsAttention({
         title="Cần xử lý ngay"
         icon="bell"
         trailing={
-          <span className="nq-qv-card__count">{actions.length} mục</span>
+          <span className="nq-qv-card__count" data-testid="actions-count">
+            {actions.length} mục
+          </span>
         }
       />
 
+      {filterZoneLabel ? (
+        <div className="nq-qvact__filter" data-testid="actions-filter">
+          <span>Đang lọc · {filterZoneLabel}</span>
+          <button type="button" className="nq-linkbtn" onClick={onClearFilter}>
+            Xem tất cả
+          </button>
+        </div>
+      ) : null}
+
       {!canXuLy ? (
         <p className="nq-qv-trong" data-testid="actions-empty">
-          <span className="nq-qv-trong__text">Không có việc cần xử lý ngay</span>
+          <span className="nq-qv-trong__text">
+            {filterZoneLabel
+              ? `Không có việc gắn ${filterZoneLabel}`
+              : "Không có việc cần xử lý ngay"}
+          </span>
           <span className="nq-qv-trong__hint">
-            Tải, hàng chờ và định biên đều đang trong ngưỡng.
+            {filterZoneLabel
+              ? "Bỏ lọc để xem việc toàn quán."
+              : "Tải, hàng chờ và định biên đều đang trong ngưỡng."}
           </span>
         </p>
       ) : (
         <ol className="nq-qvact__list">
           {actions.map((a) => {
-            // Việc gắn khu vực: nếu có `ctaHref` thì đi trang khác, ngược lại
-            // cuộn/đánh dấu khu vực trên bản đồ (không có mutation nào cả).
-            const laZone = a.id.startsWith("zone_");
-            const zoneId = laZone ? a.id.slice("zone_".length) : null;
+            const zoneId = zoneIdTuAction(a);
             return (
               <li key={a.id} className="nq-qvact__item" data-muc-do={a.severity}>
                 <div className="nq-qvact__head">
@@ -68,14 +88,24 @@ export default function NeedsAttention({
                       <Icon name="arrow-right" size={13} />
                     </Link>
                   ) : zoneId ? (
-                    <button
-                      type="button"
-                      className="nq-qvact__cta"
-                      onClick={() => onFocusZone(zoneId)}
-                    >
-                      Xem trên bản đồ
-                      <Icon name="arrow-right" size={13} />
-                    </button>
+                    <>
+                      <button
+                        type="button"
+                        className="nq-qvact__cta"
+                        onClick={() => onFocusZone(zoneId)}
+                      >
+                        Xem trên bản đồ
+                        <Icon name="arrow-right" size={13} />
+                      </button>
+                      <button
+                        type="button"
+                        className="nq-qvact__cta nq-qvact__cta--secondary"
+                        data-testid={`action-ask-${a.id}`}
+                        onClick={() => onAsk(`Cần làm gì với: ${a.title}?`)}
+                      >
+                        Hỏi AI
+                      </button>
+                    </>
                   ) : (
                     <span className="nq-qvact__cta nq-qvact__cta--none">
                       Chỉ để biết

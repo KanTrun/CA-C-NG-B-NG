@@ -245,6 +245,7 @@ EXCLUDED_ROUTES: dict[str, str] = {
     "/api/v1/experience/quanverse/snapshot": "experience — deep-link /quanverse (bản chiếu theo vai trò)",
     "/api/v1/experience/quanverse/stations": "experience — deep-link /quanverse (tải/hàng chờ theo khu vực, đọc đơn thật)",
     "/api/v1/experience/quanverse/forecast": "experience — deep-link /quanverse (dự báo nhu cầu theo giờ, đọc lịch sử đơn)",
+    "/api/v1/experience/quanverse/staff-on-shift": "experience — deep-link /quanverse (nhân sự đang trong ca theo phân công tuần)",
     "/api/v1/experience/quanverse/modes": "experience — deep-link /quanverse (danh sách chế độ)",
     "/api/v1/experience/quanverse/modes/{mode}/propose": "R2: đề xuất chế độ qua UI /quanverse",
     "/api/v1/experience/quanverse/modes/{mode}/confirm": "R3: duyệt chế độ qua UI /quanverse (quản lý/chủ quán)",

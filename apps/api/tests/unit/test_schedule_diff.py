@@ -222,3 +222,94 @@ def test_tran_nhat_ky_dung_20_ban_ghi():
     finally:
         kv_set("lich_thay_doi_by_week", {})
 
+
+def test_ghi_nhat_ky_nhan_nguon_va_bo_qua_khi_khong_doi():
+    """Helper chung phải tôn trọng tag nguồn; không đổi thì không ghi."""
+    from ca_api.services.solver_adapter import ghi_nhat_ky_thay_doi
+
+    week = "2026-W48"
+    kv_set("lich_thay_doi_by_week", {})
+    kv_set("phan_cong_by_week", {week: {"w1_c01": ["nv_01"]}})
+    try:
+        khong = ghi_nhat_ky_thay_doi(
+            week, {"w1_c01": ["nv_01"]}, CA_META, nguon="doi_ca", nhan_vien=NHAN_VIEN,
+        )
+        assert khong is None
+        assert kv_get("lich_thay_doi_by_week", {}).get(week, []) == []
+
+        ban = ghi_nhat_ky_thay_doi(
+            week,
+            {"w1_c01": ["nv_02"]},
+            CA_META,
+            nguon="doi_ca",
+            truoc={"w1_c01": ["nv_01"]},
+            nhan_vien=NHAN_VIEN,
+        )
+        assert ban is not None
+        assert ban["nguon"] == "doi_ca"
+        assert ban["diff"]["hoan_doi"]
+        assert ban["diff"]["hoan_doi"][0]["ra"][0]["ten"] == "Nguyễn Văn A"
+        assert ban["diff"]["hoan_doi"][0]["vao"][0]["ten"] == "Trần Thị B"
+        stored = kv_get("lich_thay_doi_by_week", {})[week]
+        assert len(stored) == 1
+        assert stored[0]["nguon"] == "doi_ca"
+    finally:
+        kv_set("lich_thay_doi_by_week", {})
+        kv_set("phan_cong_by_week", {})
+
+
+def test_duyet_doi_ca_ghi_nhat_ky_hoan_doi():
+    """Duyệt đổi ca phải ghi nhật ký nguồn doi_ca — đúng lỗ hổng 'không thấy ai thay ai'."""
+    week = "2026-W49"
+    ca_id = "w1_c01"
+    kv_set("phan_cong", {ca_id: ["nv_01"]})
+    kv_set("phan_cong_by_week", {week: {ca_id: ["nv_01"]}})
+    kv_set("lich_thay_doi_by_week", {})
+    kv_set("lich_tuan_lifecycle", {"tuan_iso": week, "trang_thai": "da_cong_bo"})
+    kv_set(
+        "lich_tuan_lifecycle_by_week",
+        {week: {"tuan_iso": week, "trang_thai": "da_cong_bo"}},
+    )
+    try:
+        opened = client.post(
+            "/api/v1/cho-doi-ca",
+            json={"a": "nv_01", "b": "nv_03", "ca_id": ca_id},
+            headers=headers(client, "lan"),
+        ).json()
+        # Gắn tuần phiếu đúng tuần fixture (mặc định có thể lấy lifecycle khác).
+        from ca_api.persist import kv_mutate
+
+        def mut_tuan(items):
+            for it in items:
+                if it.get("id") == opened["id"]:
+                    it["tuan_id"] = week
+            return items
+
+        kv_mutate("swap", mut_tuan, [])
+
+        client.post(
+            f"/api/v1/cho-doi-ca/{opened['id']}/dong-y",
+            headers=headers(client, "minh"),
+        )
+        duyet = client.post(
+            f"/api/v1/cho-doi-ca/{opened['id']}/duyet",
+            headers=headers(client, "lan"),
+        )
+        assert duyet.status_code == 200, duyet.text
+        assert kv_get("phan_cong_by_week", {})[week][ca_id] == ["nv_03"]
+
+        journal = kv_get("lich_thay_doi_by_week", {}).get(week) or []
+        assert journal, "duyệt đổi ca phải ghi nhật ký"
+        ban = journal[-1]
+        assert ban["nguon"] == "doi_ca"
+        assert ban["diff"]["hoan_doi"], ban
+        ra_ids = [r["nv_id"] for r in ban["diff"]["hoan_doi"][0]["ra"]]
+        vao_ids = [v["nv_id"] for v in ban["diff"]["hoan_doi"][0]["vao"]]
+        assert "nv_01" in ra_ids
+        assert "nv_03" in vao_ids
+    finally:
+        kv_set("lich_thay_doi_by_week", {})
+        kv_set("phan_cong_by_week", {})
+        kv_set("phan_cong", {})
+        kv_set("swap", [])
+

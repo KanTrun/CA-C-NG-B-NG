@@ -3,9 +3,16 @@ import {
   CHUA_CO_DU_LIEU,
   KHONG_CO_DU_LIEU,
   formatSo,
+  locActionsTheoZone,
+  locEventsTheoZone,
   mangHoacRong,
   mangTho,
   soHoacNull,
+  zoneIdTuAction,
+  zoneNongNhat,
+  type QuanverseActionItem,
+  type QuanverseEvent,
+  type QuanverseZone,
 } from "./quanverse-contract";
 
 /**
@@ -89,5 +96,105 @@ describe("nhãn hằng số", () => {
     expect(KHONG_CO_DU_LIEU).toBe("—");
     expect(CHUA_CO_DU_LIEU).toBe("Chưa có dữ liệu");
     expect(KHONG_CO_DU_LIEU).not.toBe(CHUA_CO_DU_LIEU);
+  });
+});
+
+describe("selection helpers — lọc theo khu vực", () => {
+  const actions: QuanverseActionItem[] = [
+    {
+      id: "zone_quay_pha",
+      severity: "danger",
+      title: "Pha quá tải",
+      reason: "r",
+      source: "Đơn",
+      at: null,
+      ctaLabel: null,
+      ctaHref: null,
+    },
+    {
+      id: "ton_sua",
+      severity: "warn",
+      title: "Sữa thấp",
+      reason: "r",
+      source: "Kho",
+      at: null,
+      ctaLabel: "Xem",
+      ctaHref: "/tieu-thu",
+    },
+  ];
+
+  const events: QuanverseEvent[] = [
+    {
+      id: "e1",
+      type: "signal",
+      typeLabel: "Tín hiệu",
+      status: "confirmed",
+      occurredAt: "2026-09-30T10:00:00Z",
+      source: "ops",
+      sourceLabel: "Vận hành",
+      summary: "Pha nóng",
+      zoneId: "quay_pha",
+      zoneLabel: "Quầy pha",
+    },
+    {
+      id: "e2",
+      type: "signal",
+      typeLabel: "Tín hiệu",
+      status: "confirmed",
+      occurredAt: "2026-09-30T10:01:00Z",
+      source: "ops",
+      sourceLabel: "Vận hành",
+      summary: "Toàn quán",
+      zoneId: null,
+      zoneLabel: "Toàn quán",
+    },
+  ];
+
+  it("zoneIdTuAction đọc id zone_*", () => {
+    expect(zoneIdTuAction(actions[0])).toBe("quay_pha");
+    expect(zoneIdTuAction(actions[1])).toBeNull();
+  });
+
+  it("locActionsTheoZone giữ mục toàn quán + khớp zone", () => {
+    const loc = locActionsTheoZone(actions, "quay_pha");
+    expect(loc).toHaveLength(2);
+    expect(locActionsTheoZone(actions, "kho")).toHaveLength(1);
+    expect(locActionsTheoZone(actions, "kho")[0].id).toBe("ton_sua");
+  });
+
+  it("locEventsTheoZone giữ event không gắn zone", () => {
+    const loc = locEventsTheoZone(events, "quay_pha");
+    expect(loc.map((e) => e.id)).toEqual(["e1", "e2"]);
+    expect(locEventsTheoZone(events, "kho").map((e) => e.id)).toEqual(["e2"]);
+  });
+
+  it("zoneNongNhat ưu tiên quá tải", () => {
+    const zones: QuanverseZone[] = [
+      {
+        zoneId: "a",
+        label: "A",
+        kind: "k",
+        status: "chu_y",
+        load: 4,
+        threshold: 5,
+        queue: 1,
+        assignedStaff: 1,
+        assignedNames: [],
+        alerts: [],
+      },
+      {
+        zoneId: "b",
+        label: "B",
+        kind: "k",
+        status: "qua_tai",
+        load: 7,
+        threshold: 5,
+        queue: 3,
+        assignedStaff: 1,
+        assignedNames: [],
+        alerts: [],
+      },
+    ];
+    expect(zoneNongNhat(zones)).toBe("b");
   });
 });
