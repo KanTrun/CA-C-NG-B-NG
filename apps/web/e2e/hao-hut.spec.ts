@@ -32,7 +32,7 @@ async function loginAs(page: import("@playwright/test").Page, username = "lan") 
 }
 
 test.describe("Hao hụt — bảng theo nguyên liệu", () => {
-  test("trang mở được và có tiêu đề Hao phí", async ({ page }) => {
+  test("trang mở được và có tiêu đề Hao phí @smoke", async ({ page }) => {
     await loginAs(page);
     await page.goto("/hao-phi", { waitUntil: "networkidle" });
     await expect(page.getByRole("heading", { name: /Hao phí/i })).toBeVisible();

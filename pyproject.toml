@@ -24,6 +24,9 @@ disable_error_code = ["redundant-cast"]
 
 [tool.pytest.ini_options]
 testpaths = ["apps", "packages"]
+markers = [
+    "slow: test tốn CPU/thời gian (solver CP-SAT, hypothesis, sleep wall-clock) — chạy ở job unit-slow, PR fast bỏ qua",
+]
 pythonpath = ["apps/api/src", "apps/api/tests", "packages/contracts/src", "packages/agents/src", "packages/gates/src", "packages/solver/src", "packages/opsengine/src", "packages/playbook/src"]
 filterwarnings = [
     "ignore:Using `httpx` with `starlette.testclient` is deprecated",

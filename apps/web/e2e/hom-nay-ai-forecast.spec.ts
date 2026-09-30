@@ -38,7 +38,7 @@ const EMPTY = {
 };
 
 test.describe("/hom-nay AI FORECAST", () => {
-  test("hiện vị trí, timeline giờ và link Quánverse", async ({ page }) => {
+  test("hiện vị trí, timeline giờ và link Quánverse @smoke", async ({ page }) => {
     await page.route("**/api/v1/thoi-tiet/hom-nay**", (route) =>
       route.fulfill({
         status: 200,

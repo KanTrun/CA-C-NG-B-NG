@@ -142,9 +142,11 @@ jobs:
             sudo rm -rf /tmp/* 2>/dev/null || true
             # 4. Xóa bớt log container quá lớn nếu có
             sudo truncate -s 0 /var/lib/docker/containers/*/*-json.log 2>/dev/null || true
-            # 5. Xóa toàn bộ images cũ không còn container nào dùng (cờ -a để xóa cả tagged images)
-            sudo docker image prune -a -f || true
-            sudo docker builder prune -a -f || true
+            # 5. Chỉ xóa image lơ lửng (dangling), KHÔNG `-a`: xóa cả tagged
+            # image đang làm `pull` sau chậm/kẹt khi phải tải lại từ đầu, và
+            # xoá mất tag `:rollback` cứu hộ. Dọn triệt để ra cron đêm trên VM.
+            sudo docker image prune -f || true
+            sudo docker builder prune -f || true
             sudo docker system prune -f || true
             # 6. Dọn containerd snapshot cache dở dang từ các lần pull trước
             sudo ctr -n moby content prune 2>/dev/null || true
@@ -153,14 +155,17 @@ jobs:
             echo "=== Dung lượng đĩa trước khi pull ==="
             df -h /
 
+            # Fail-closed: image đúng SHA phải tồn tại trên GHCR. Bỏ fallback
+            # `:latest` — đã có lần nó kéo bản KHÁC với release được duyệt mà
+            # workflow vẫn xanh (fail-open). Thiếu image là ĐỎ ngay tại đây.
             target_tag="$release_sha"
-            if ! sudo IMAGE_TAG="$target_tag" docker compose pull 2>/dev/null; then
-              echo "Image tag $release_sha chưa có trên GHCR; dùng tag :latest"
-              target_tag="latest"
-              sudo IMAGE_TAG="$target_tag" docker compose pull
-            fi
+            sudo IMAGE_TAG="$target_tag" docker compose pull
 
             if sudo IMAGE_TAG="$target_tag" docker compose run --rm --no-deps api sh -c "cd /app/apps/api && alembic -c alembic/alembic.ini upgrade head" &&
+               # Khởi động theo thứ tự để giảm giật: api (+postgres/redis) lên
+               # và healthy trước, rồi worker/web/caddy mới lên theo. Nhanh hơn
+               # và ít 502 hơn kiểu recreate đồng loạt.
+               sudo IMAGE_TAG="$target_tag" docker compose up -d --remove-orphans --wait --wait-timeout 180 api &&
                sudo IMAGE_TAG="$target_tag" docker compose up -d --remove-orphans --wait --wait-timeout 180 &&
                # Caddyfile mount dạng bind `:ro` nên compose KHÔNG thấy config đổi →
                # không recreate container caddy → nó giữ Caddyfile cũ trong bộ nhớ.
@@ -170,9 +175,9 @@ jobs:
                ( sudo IMAGE_TAG="$target_tag" docker compose exec -T caddy caddy reload --config /etc/caddy/Caddyfile 2>/dev/null || sudo docker compose restart caddy ) &&
                test -n "$domain" &&
                curl -fsS --retry 12 --retry-delay 5 "https://${domain}/health" &&
-               curl -fsS --retry 12 --retry-delay 5 "https://${domain}/"; then
+               curl -fsS --retry 12 --retry-delay 5 "https://${domain}/";             then
               printf '%s\n' "$release_sha" | sudo tee .deployed_sha >/dev/null
-              sudo docker image prune -a -f || true
+              sudo docker image prune -f || true
               sudo IMAGE_TAG="$target_tag" docker compose ps
               echo "=== Dung lượng đĩa sau khi deploy ==="
               df -h /

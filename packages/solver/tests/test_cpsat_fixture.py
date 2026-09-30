@@ -3,7 +3,11 @@
 
 from __future__ import annotations
 
+import pytest
 from ca_solver import build_lich_input, solve_cpsat, solve_hard_only
+
+# Chậm (~2 phút: 2 lần solve 60s) — chạy ở job unit-slow.
+pytestmark = pytest.mark.slow
 
 
 def test_cpsat_fixture_zero_hard() -> None:

@@ -185,7 +185,7 @@ test.describe("QUÁNVERSE — dữ liệu thật", () => {
     );
   });
 
-  test("nhãn nói DỮ LIỆU THẬT chứ không phải mô phỏng", async ({ page }) => {
+  test("nhãn nói DỮ LIỆU THẬT chứ không phải mô phỏng @smoke", async ({ page }) => {
     await page.goto("/quanverse");
     await expect(page.getByTestId("quanverse-source")).toHaveAttribute("data-nguon", "real");
     await expect(page.getByTestId("source-badge")).toContainText("Dữ liệu thật");
