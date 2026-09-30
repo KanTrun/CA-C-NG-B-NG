@@ -736,19 +736,14 @@ def test_tao_don_thu_cong_qua_api():
     client = TestClient(fastapi_app)
     ql = headers(client, "lan")
 
-    # Giờ đặt phải ở tương lai (VN) — cứng "hôm nay 19:00" đỏ khi CI chạy sau 19h.
-    vn = timezone(timedelta(hours=7))
-    booking = (datetime.now(vn) + timedelta(days=1)).replace(
-        hour=19, minute=0, second=0, microsecond=0
-    )
-    booking_iso = booking.strftime("%Y-%m-%dT%H:%M:%S")
+    future_time = (datetime.now(ICT) + timedelta(days=1)).strftime("%Y-%m-%dT19:00:00")
 
     res = client.post(
         "/api/v1/reservations",
         json={
             "customer_name": "Khách Quầy",
             "phone": "0900444555",
-            "booking_time": booking_iso,
+            "booking_time": future_time,
             "party_size": 2,
         },
         headers=ql,
@@ -766,7 +761,7 @@ def test_tao_don_thu_cong_qua_api():
         json={
             "customer_name": "X",
             "phone": "0900000000",
-            "booking_time": booking_iso,
+            "booking_time": future_time,
             "party_size": 2,
         },
         headers=nv,
