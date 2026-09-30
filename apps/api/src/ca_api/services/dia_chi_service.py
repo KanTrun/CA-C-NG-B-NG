@@ -13,7 +13,7 @@ import logging
 import urllib.error
 import urllib.request
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 log = logging.getLogger(__name__)
 
@@ -31,7 +31,8 @@ def _load_provinces_fallback() -> list[dict[str, Any]]:
     if _PROVINCES_FALLBACK_FILE.exists():
         try:
             with open(_PROVINCES_FALLBACK_FILE, encoding="utf-8") as f:
-                return json.load(f)
+                raw = json.load(f)
+                return cast(list[dict[str, Any]], raw)
         except Exception as e:
             log.warning("Khong the doc vietnam_provinces.json: %s", e)
     return []
@@ -41,7 +42,8 @@ def _load_districts_fallback() -> dict[str, list[dict[str, Any]]]:
     if _DISTRICTS_FALLBACK_FILE.exists():
         try:
             with open(_DISTRICTS_FALLBACK_FILE, encoding="utf-8") as f:
-                return json.load(f)
+                raw = json.load(f)
+                return cast(dict[str, list[dict[str, Any]]], raw)
         except Exception as e:
             log.warning("Khong the doc vietnam_districts_fallback.json: %s", e)
     return {}
