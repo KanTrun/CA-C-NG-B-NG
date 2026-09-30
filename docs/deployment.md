@@ -77,7 +77,7 @@ curl -fsS https://nhipquan.duckdns.org/health
 | Trieu chung | Kiem tra |
 |---|---|
 | Web trang hoac goi API loi | `NEXT_PUBLIC_API_URL` phai la `https://nhipquan.duckdns.org` luc build image web |
-| CORS | `NHIPQUAN_CORS_ORIGINS` phai khop domain, khong co dau `/` cuoi |
+| CORS | `NHIPQUAN_CORS_ORIGINS` phai khop domain, khong co dau `/` cuoi. Bien nay CHI THEM origin trien khai — cac origin dev (`http://localhost:3000..3002`) luon duoc phep. Muon chan han origin dev o production: dat `NHIPQUAN_CORS_DISABLE_DEV=1` |
 | File chat khong kha dung | Kiem tra volume `/app/data/uploads` va quyen ghi cua container API |
 | Container khong healthy | `sudo docker compose ps` va `sudo docker compose logs --tail=200` |
 | HTTPS loi | Kiem tra DuckDNS, security group port 80/443 va log Caddy |

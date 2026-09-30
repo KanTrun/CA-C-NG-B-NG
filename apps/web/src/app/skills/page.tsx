@@ -5,20 +5,20 @@ import { apiGet, apiSend } from "../../lib/api";
 import { viError } from "../../lib/present";
 import { getToken, isChuQuan, isManager } from "../../lib/session";
 import {
-  Alert,
-  AuthGate,
-  Btn,
-  Dialog,
-  Empty,
-  Loading,
-  Notice,
-  OpsCard,
-  PageHeader,
-  StatusChip,
-  Summary,
-  TechnicalDrawer,
-  inputClassName,
-  textareaClassName,
+    Alert,
+    AuthGate,
+    Btn,
+    Dialog,
+    Empty,
+    Loading,
+    Notice,
+    OpsCard,
+    PageHeader,
+    StatusChip,
+    Summary,
+    TechnicalDrawer,
+    inputClassName,
+    textareaClassName,
 } from "../../ui/kit";
 
 type SkillSummary = {

@@ -13,7 +13,7 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Icon } from "../icons";
 import { chatSounds } from "../../lib/chat-sound";
 import { ActionProposalCard } from "./ActionProposalCard";
-import { Avatar2D } from "./Avatar2D";
+import { Avatar2D, type AvatarMood } from "./Avatar2D";
 import { ChatText } from "./ChatText";
 import type { ChatMessage, Mode } from "./useCopilotChat";
 import { useCopilotVoice, type VoiceInputMode, type VoiceState } from "./useCopilotVoice";
@@ -69,6 +69,8 @@ export function CopilotBody({ chat, mode, onClose, onOpenFullPage, onClearHistor
   const [voiceMode, setVoiceMode] = useState<VoiceInputMode>("open_mic");
   const [selectedMicId, setSelectedMicId] = useState<string>("");
   const [voiceEnabled, setVoiceEnabled] = useState<boolean>(VOICE_ENABLED);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [showScrollBottom, setShowScrollBottom] = useState(false);
 
   useEffect(() => {
     try {
@@ -283,6 +285,30 @@ export function CopilotBody({ chat, mode, onClose, onOpenFullPage, onClearHistor
     voice.state === "superseded" ||
     voice.state === "idle_timeout";
 
+  // Suy luận mood tổng hợp cho cả Text Chat và Voice:
+  const chatMood: AvatarMood = (() => {
+    if (isVoiceActive) {
+      if (voice.state === "speaking") return "speaking";
+      if (voice.state === "listening") return "listening";
+      if (voice.state === "processing") return "processing";
+      if (voice.state === "error") return "error";
+    }
+    if (loading && !streamingId) return "processing";
+    if (Boolean(streamingId)) return "speaking";
+
+    const lastMsg = messages[messages.length - 1];
+    if (lastMsg && lastMsg.sender === "copilot") {
+      if (lastMsg.action_proposal?.status === "executed") return "success";
+      const txt = lastMsg.text.toLowerCase();
+      if (txt.includes("lỗi") || txt.includes("thất bại") || txt.includes("không thể")) return "error";
+      if (txt.includes("cảnh báo") || txt.includes("chú ý") || txt.includes("thiếu ca")) return "alert";
+      if (txt.includes("xin chào") || txt.includes("chào Ký chủ") || txt.includes("chào bạn") || txt.includes("hello") || txt.startsWith("chào")) return "greeting";
+      if (txt.includes("tuyệt vời") || txt.includes("hoàn tất") || txt.includes("chúc mừng") || txt.includes("xuất sắc")) return "happy";
+    }
+    if (messages.length === 0) return "greeting";
+    return "idle";
+  })();
+
   const handleVoiceToggle = () => {
     if (isVoiceActive) {
       voice.stop();
@@ -370,22 +396,37 @@ export function CopilotBody({ chat, mode, onClose, onOpenFullPage, onClearHistor
       )}
 
       {/* Header */}
-      <div className="flex shrink-0 items-center justify-between border-b border-[var(--nq-line)] bg-[var(--nq-surface)] p-4">
+      <div className="flex shrink-0 items-center justify-between border-b border-[var(--nq-line)] bg-[var(--nq-surface)] p-3 sm:p-4">
         <div className="flex items-center gap-2.5">
-          <div
-            className="flex h-8 w-8 items-center justify-center border-2"
-            style={{
-              borderColor: "var(--nq-accent)",
-              color: "var(--nq-accent)",
-            }}
-          >
-            <Icon name="copilot" size={18} />
+          <div className="shrink-0 -my-1">
+            <Avatar2D
+              size={42}
+              speaking={isSpeaking || Boolean(streamingId)}
+              listening={isListening}
+              mouthOpen={mouthOpen}
+              mood={chatMood}
+            />
           </div>
           <div>
-            <h3 className="text-sm font-bold uppercase text-[var(--nq-fg)]">{profile.label}</h3>
-            <p className="flex items-center gap-1 text-2xs text-[var(--nq-dim)]">
-              <span className="h-1.5 w-1.5 rounded-full bg-[var(--nq-st-ok)]" />
-              Sẵn sàng hỗ trợ · AI trả lời kèm đề xuất, người duyệt mới áp dụng
+            <h3 className="text-sm font-bold uppercase text-[var(--nq-fg)] leading-tight">{profile.label}</h3>
+            <p className="flex items-center gap-1.5 text-2xs text-[var(--nq-dim)]">
+              <span className={`h-1.5 w-1.5 rounded-full ${
+                chatMood === "processing" ? "bg-amber-400 animate-ping" :
+                chatMood === "speaking" ? "bg-cyan-400 animate-pulse" :
+                chatMood === "alert" || chatMood === "error" ? "bg-rose-400" :
+                "bg-[var(--nq-st-ok)]"
+              }`} />
+              {chatMood === "processing"
+                ? "Đang tính toán & tra cứu quy trình…"
+                : chatMood === "speaking"
+                ? "Đang phản hồi Ký chủ…"
+                : chatMood === "alert"
+                ? "Cảnh báo ca làm việc!"
+                : chatMood === "error"
+                ? "Hệ thống gặp sự cố"
+                : chatMood === "success"
+                ? "Nhiệm vụ hoàn thành xuất sắc!"
+                : "Sẵn sàng hỗ trợ · AI trả lời kèm đề xuất"}
             </p>
           </div>
         </div>
@@ -441,7 +482,14 @@ export function CopilotBody({ chat, mode, onClose, onOpenFullPage, onClearHistor
       ) : (
         <>
           {/* Messages */}
-          <div className="flex-1 space-y-4 overflow-y-auto p-4 text-xs">
+          <div
+            onScroll={(e) => {
+              const target = e.currentTarget;
+              const isUp = target.scrollHeight - target.scrollTop - target.clientHeight > 120;
+              setShowScrollBottom(isUp);
+            }}
+            className="relative flex-1 space-y-4 overflow-y-auto p-4 text-xs"
+          >
             {messages.map((msg) => (
               <div
                 key={msg.id}
@@ -514,6 +562,36 @@ export function CopilotBody({ chat, mode, onClose, onOpenFullPage, onClearHistor
                     )}
                   </p>
 
+                  {/* Nút sao chép nội dung tin nhắn của AI */}
+                  {msg.sender === "copilot" && msg.text && msg.id !== "welcome" && (
+                    <div className="mt-2 pt-1 border-t border-[var(--nq-dim)]/20 flex justify-end">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (typeof navigator !== "undefined" && navigator.clipboard) {
+                            navigator.clipboard.writeText(msg.text);
+                          }
+                          setCopiedId(msg.id);
+                          setTimeout(() => setCopiedId(null), 2000);
+                        }}
+                        className="flex items-center gap-1 text-[10px] text-[var(--nq-dim)] hover:text-[var(--nq-fg)] transition px-1.5 py-0.5 rounded hover:bg-black/10"
+                        title="Sao chép nội dung tin nhắn"
+                      >
+                        {copiedId === msg.id ? (
+                          <>
+                            <span className="text-emerald-400 font-bold">✓</span>
+                            <span className="text-emerald-400 font-medium">Đã chép</span>
+                          </>
+                        ) : (
+                          <>
+                            <Icon name="clipboard" size={11} />
+                            <span>Sao chép</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  )}
+
                   {msg.sender === "copilot" &&
                     msg.id === "welcome" &&
                     profile.capabilities.length > 0 && (
@@ -536,6 +614,31 @@ export function CopilotBody({ chat, mode, onClose, onOpenFullPage, onClearHistor
                             {profile.deniedNote}
                           </p>
                         ) : null}
+
+                        {/* Thẻ thao tác nhanh tiện lợi gợi ý ngay dưới lời chào */}
+                        {profile.quickPrompts.length > 0 && (
+                          <div className="mt-3 pt-2 border-t border-[var(--nq-line)] space-y-1.5">
+                            <p className="text-2xs font-bold uppercase tracking-wider text-[var(--nq-accent)] flex items-center gap-1">
+                              <span>⚡</span> Thao tác nhanh cho ca trực:
+                            </p>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
+                              {profile.quickPrompts.slice(0, 4).map((qp, idx) => (
+                                <button
+                                  key={`hero-qp-${idx}`}
+                                  type="button"
+                                  onClick={() => send(qp)}
+                                  disabled={loading || Boolean(streamingId)}
+                                  className="flex items-center gap-2 rounded border border-[var(--nq-dim)]/40 bg-[var(--nq-bg)] p-2 text-left text-2xs text-[var(--nq-fg)] transition hover:border-[var(--nq-accent)] hover:bg-[var(--nq-accent)]/10 hover:text-[var(--nq-accent)] disabled:opacity-50 group"
+                                >
+                                  <span className="shrink-0 text-amber-400 group-hover:scale-110 transition">
+                                    {idx === 0 ? "📅" : idx === 1 ? "⚠️" : idx === 2 ? "🥛" : "✨"}
+                                  </span>
+                                  <span className="line-clamp-2 leading-tight font-medium">{qp}</span>
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        )}
                       </div>
                     )}
 
@@ -586,6 +689,18 @@ export function CopilotBody({ chat, mode, onClose, onOpenFullPage, onClearHistor
               <div className="flex w-fit items-center gap-2 border border-[var(--nq-dim)] bg-[var(--nq-surface)] p-2 text-xs italic text-[var(--nq-dim)]">
                 <span className="h-2 w-2 animate-pulse rounded-full bg-[var(--nq-accent)]" />
                 Đang xử lý yêu cầu…
+              </div>
+            )}
+            {showScrollBottom && (
+              <div className="sticky bottom-2 flex justify-center z-10 pointer-events-none">
+                <button
+                  type="button"
+                  onClick={() => messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })}
+                  className="pointer-events-auto flex items-center gap-1.5 rounded-full border border-[var(--nq-accent)] bg-[var(--nq-bg-elevated)] px-3 py-1 text-2xs font-semibold text-[var(--nq-accent)] shadow-xl backdrop-blur-md transition hover:scale-105 active:scale-95 animate-in fade-in slide-in-from-bottom-2"
+                >
+                  <span>↓</span>
+                  <span>Xuống tin nhắn mới nhất</span>
+                </button>
               </div>
             )}
             <div ref={messagesEndRef} />
@@ -702,6 +817,17 @@ export function CopilotBody({ chat, mode, onClose, onOpenFullPage, onClearHistor
                       mouthOpen={mouthOpen}
                       speaking={isSpeaking}
                       listening={isListening}
+                      mood={
+                        voice.state === "speaking"
+                          ? "speaking"
+                          : voice.state === "listening"
+                          ? "listening"
+                          : voice.state === "processing"
+                          ? "processing"
+                          : voice.state === "error"
+                          ? "error"
+                          : "idle"
+                      }
                       size={72}
                     />
                     <div className="min-w-0 flex-1">
@@ -776,15 +902,27 @@ export function CopilotBody({ chat, mode, onClose, onOpenFullPage, onClearHistor
               >
                 <Icon name="attachment" size={16} />
               </button>
-              <input
-                ref={inputRef}
-                type="text"
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                placeholder={attachedFile ? "Thêm ghi chú cho tệp đính kèm..." : "Nhập lệnh hoặc hỏi quy trình..."}
-                disabled={loading || Boolean(streamingId) || uploading}
-                className="flex-1 border border-[var(--nq-line-control)] rounded bg-[var(--nq-bg)] px-3.5 py-2 text-xs text-[var(--nq-fg)] placeholder:text-[var(--nq-dim)] focus:outline-none focus:border-[var(--nq-accent)] disabled:opacity-50"
-              />
+              <div className="relative flex-1">
+                <input
+                  ref={inputRef}
+                  type="text"
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  placeholder={attachedFile ? "Thêm ghi chú cho tệp đính kèm..." : "Nhập câu hỏi hoặc chọn thao tác nhanh..."}
+                  disabled={loading || Boolean(streamingId) || uploading}
+                  className="w-full border border-[var(--nq-line-control)] rounded bg-[var(--nq-bg)] pl-3.5 pr-8 py-2 text-xs text-[var(--nq-fg)] placeholder:text-[var(--nq-dim)] focus:outline-none focus:border-[var(--nq-accent)] disabled:opacity-50 transition"
+                />
+                {input.trim().length > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setInput("")}
+                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-[var(--nq-dim)] hover:text-[var(--nq-fg)] transition"
+                    title="Xóa nội dung đang nhập"
+                  >
+                    ✕
+                  </button>
+                )}
+              </div>
               {voiceEnabled && (
                 <button
                   type="button"

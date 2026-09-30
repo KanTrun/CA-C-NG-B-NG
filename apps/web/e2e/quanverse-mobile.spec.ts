@@ -68,7 +68,7 @@ test.describe("QUÁNVERSE mobile", () => {
 
   test("bấm khu vực trên mobile vẫn đổi được trạng thái chọn", async ({ page }) => {
     await page.goto("/quanverse");
-    const zone = page.getByTestId("qv-zone-thanh_toan").or(page.getByTestId("qv-zone-quay_pha"));
+    const zone = page.getByTestId("qv-zone-quay_thu_ngan").or(page.getByTestId("qv-zone-quay_pha"));
     await expect(zone.first()).toBeVisible({ timeout: 15_000 });
     await zone.first().click();
     await expect(zone.first()).toHaveAttribute("aria-pressed", "true");

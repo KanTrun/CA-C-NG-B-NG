@@ -4,12 +4,12 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { Fragment, ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { apiGet } from "../lib/api";
-import { canAccess, clearSession, getName, getToken, isChuQuan, isKnownPath, isManager, roleLabel } from "../lib/session";
-import { Icon, iconForHref } from "../ui/icons";
-import { Tour } from "../ui/tour";
+import { canAccess, clearSession, getName, getToken, isKnownPath, roleLabel } from "../lib/session";
+import { CommandPalette, flattenNavGroups } from "../ui/CommandPalette";
 import { Logo } from "../ui/Logo";
 import { CopilotPane } from "../ui/copilot/CopilotPane";
-import { CommandPalette, flattenNavGroups } from "../ui/CommandPalette";
+import { Icon, iconForHref } from "../ui/icons";
+import { Tour } from "../ui/tour";
 
 const COLLAPSE_KEY = "nq_side_collapsed";
 /** Khoá lưu nhóm nào đang mở. Giá trị là JSON map `{ [groupId]: true }`. */
@@ -302,6 +302,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   const hideFloatingCopilot =
     path === "/copilot" ||
     path === "/chat" ||
+    path.startsWith("/quanverse") ||
     COPILOT_LAUNCHER_ROUTES.has(path);
 
   function logout() {

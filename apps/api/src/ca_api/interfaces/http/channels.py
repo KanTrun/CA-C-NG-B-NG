@@ -73,6 +73,7 @@ from ca_api.ai_learning.operations import circuit_breaker_open
 from ca_api.ai_learning.repository import AILearningRepository
 from ca_api.ai_learning.rollout import select_active_rules
 from ca_api.interfaces.http.sprint3 import (
+    _current_iso_week,
     _known_nv,
     _nv_from_token,
     _phan_cong,
@@ -361,13 +362,12 @@ def process_inbound(msg: InboundMessage, *, reply_backend: str | None = None) ->
     except Exception:
         pass
 
-    # Phải truyền tuần THẬT — giống sprint3 msg_classify. Thiếu base_iso_week
-    # thì «tuần sau» luôn ra W02 từ mặc định W01 (bug QA đợt 4).
+    # `base_iso_week` BẮT BUỘC: phải truyền tuần THẬT — giống sprint3 msg_classify.
+    # Thiếu nó, "tuần sau" được tính từ mốc mặc định cứng "2026-W01" trong `ag_msg.extract`
+    # → mọi tin nhắn kênh (Zalo/Telegram/Facebook) báo bận cho tuần tới đều bị ghi vào
+    # tuần SAI (vd 2026-W02), nên lượt xếp lịch thật của tuần tới không hề thấy ràng buộc.
     try:
-        from datetime import UTC, datetime
-
-        iso = datetime.now(UTC).isocalendar()
-        base_week = f"{iso[0]}-W{iso[1]:02d}"
+        base_week = _current_iso_week()
     except Exception:
         base_week = None
     r = classify(
@@ -1893,15 +1893,35 @@ class StoreProfileBody(BaseModel):
     """
 
     ten_quan: str = Field(default="", max_length=120)
+    slogan: str = Field(default="", max_length=200)
     dia_chi: str = Field(default="", max_length=300)
+    dia_chi_chi_tiet: str = Field(default="", max_length=200)
+    phuong_xa: str = Field(default="", max_length=80)
+    phuong_xa_code: str = Field(default="", max_length=20)
+    quan_huyen: str = Field(default="", max_length=80)
+    quan_huyen_code: str = Field(default="", max_length=20)
     tinh: str = Field(default="", max_length=80)
+    tinh_code: str = Field(default="", max_length=20)
     thanh_pho: str = Field(default="", max_length=80)
+    toa_do_lat: str = Field(default="", max_length=30)
+    toa_do_lon: str = Field(default="", max_length=30)
+    google_maps_url: str = Field(default="", max_length=500)
     lat: float | None = Field(default=None, ge=-90, le=90)
     lon: float | None = Field(default=None, ge=-180, le=180)
     hotline: str = Field(default="", max_length=40)
+    hotline_phu: str = Field(default="", max_length=40)
+    email: str = Field(default="", max_length=120)
+    website: str = Field(default="", max_length=200)
+    fanpage_url: str = Field(default="", max_length=250)
     gio_mo_cua: str = Field(default="", max_length=120)
+    gio_mo_cua_chi_tiet: str = Field(default="", max_length=300)
+    khoang_gia: str = Field(default="", max_length=100)
+    tien_ich: str = Field(default="", max_length=500)
     wifi_ssid: str = Field(default="", max_length=60)
     wifi_pass: str = Field(default="", max_length=60)
+    ngan_hang: str = Field(default="", max_length=100)
+    stk_ngan_hang: str = Field(default="", max_length=60)
+    chu_tai_khoan: str = Field(default="", max_length=120)
     mo_ta: str = Field(default="", max_length=1000)
     chinh_sach_dat_ban: str = Field(default="", max_length=1000)
     huong_dan_agent: str = Field(default="", max_length=4000)
@@ -1951,6 +1971,12 @@ def update_profile(
     hotline = str(sach.get("hotline") or "")
     if hotline and not re.fullmatch(r"[0-9+()\-.\s]{6,40}", hotline):
         raise HTTPException(status_code=422, detail="hotline_khong_hop_le")
+    hotline_phu = sach.get("hotline_phu", "")
+    if hotline_phu and not re.fullmatch(r"[0-9+()\-.\s]{6,40}", hotline_phu):
+        raise HTTPException(status_code=422, detail="hotline_phu_khong_hop_le")
+    email = sach.get("email", "")
+    if email and ("@" not in email or len(email) < 5):
+        raise HTTPException(status_code=422, detail="email_khong_hop_le")
     set_store_profile(sach)
     _audit(role, "store_profile_update", {**sach, "lat": sach.get("lat"), "lon": sach.get("lon")})
     return {"ok": True, "profile": get_store_profile()}

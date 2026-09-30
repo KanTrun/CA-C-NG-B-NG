@@ -167,6 +167,14 @@ def quanverse_reset(
 
 
 def _rate_limit(user_id: str) -> None:
+    import os
+
+    if os.environ.get("NHIPQUAN_DISABLE_RATE_LIMIT", "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+    }:
+        return
     now = time.time()
     with _LOCK:
         recent = [t for t in _USER_TS.get(user_id, []) if now - t < _WINDOW_S]
@@ -233,14 +241,24 @@ def _project_role(role: ExperienceRole) -> dict[str, Any]:
     # "Duyệt" — vòng đời đề xuất → duyệt bị kẹt ngay ở bước đề xuất.
     # Endpoint `/modes` (thêm sau) đã đọc đúng; ở đây phải đọc giống hệt.
     # Thứ tự ưu tiên: kv → fixture → None. `confirmed` chỉ khi đang active.
+    #
+    # BẪY THỨ HAI (đã vấp): kv CÓ bản ghi nhưng `proposal_status` rỗng nghĩa là
+    # "đã bỏ đề xuất", KHÁC với "chưa từng có đề xuất". Bản trước dùng
+    # `state.get("proposal_status") or fixture.proposal_status` nên sau khi bấm
+    # "Bỏ đề xuất" (deactivate ghi `active: False` mà không kèm proposal_status),
+    # giá trị rỗng rơi về FIXTURE — mà fixture khai `khach_doan` là `draft`. Hệ
+    # quả: UI vẫn hiện "Chờ duyệt · Bản nháp" kèm nút Duyệt cho một đề xuất
+    # người dùng vừa bỏ; bấm Duyệt lần nữa lại bật mode. Có kv ⇒ tin kv.
     for i, m in enumerate(modes):
         state = kv_get(f"experience_mode_{m.mode.value}", None) or {}
         active = bool(state.get("active", m.active))
         if active:
             proposal_status: str | None = "confirmed"
         else:
-            raw = state.get("proposal_status") or (
-                m.proposal_status.value if m.proposal_status else None
+            raw = (
+                state.get("proposal_status")
+                if state
+                else (m.proposal_status.value if m.proposal_status else None)
             )
             # `confirmed` trong khi chưa active là vô nghĩa (mâu thuẫn trạng thái),
             # và UI đọc nó thành "chờ duyệt" nên sẽ hiện nút Duyệt sai. Bỏ đi.
@@ -285,7 +303,16 @@ def _project_role(role: ExperienceRole) -> dict[str, Any]:
             "events": [e.model_dump(mode="json") for e in events_proj],
             "modes": [m.model_dump(mode="json") for m in modes],
             "next_horizon": horizon,
-            "data_quality": [{"code": "fixture_replay", "level": "info", "message": "fixture"}],
+            "data_quality": [
+                {
+                    "code": "fixture_replay",
+                    "level": "info",
+                    "message": (
+                        "Bản chiếu nhân viên — dữ liệu diễn tập, "
+                        "không phải đo thật"
+                    ),
+                }
+            ],
         }
     # Manager / Chu quan — full authorized projection
     return {
@@ -293,7 +320,13 @@ def _project_role(role: ExperienceRole) -> dict[str, Any]:
         "events": [e.model_dump(mode="json") for e in events],
         "modes": [m.model_dump(mode="json") for m in modes],
         "next_horizon": horizon,
-        "data_quality": [{"code": "fixture_replay", "level": "info", "message": "fixture"}],
+        "data_quality": [
+            {
+                "code": "fixture_replay",
+                "level": "info",
+                "message": "Dữ liệu diễn tập — không phải đo thật từ quán",
+            }
+        ],
     }
 
 
@@ -358,9 +391,16 @@ def quanverse_modes(
         else:
             # Đề xuất đã ghi vào kv phải đọc lại được — nếu không, UI hiện
             # "Đang tắt" cho một chế độ đang chờ duyệt.
+            #
+            # Và ngược lại: kv CÓ bản ghi với `proposal_status` rỗng nghĩa là
+            # "đã bỏ đề xuất" — không được rơi về giá trị của fixture, nếu không
+            # nút "Bỏ đề xuất" thành nút chết (xem ghi chú ở `_project_role`).
             proposal_status = str(
-                state.get("proposal_status")
-                or (m.proposal_status.value if m.proposal_status else "")
+                (
+                    state.get("proposal_status")
+                    if state
+                    else (m.proposal_status.value if m.proposal_status else "")
+                )
                 or ""
             )
         with_state.append(
@@ -686,10 +726,8 @@ def quanverse_tour(
     _require_role(authorization)
     from ca_agents.ag_spatial_memory.tour import plan_tour
 
-    tour = plan_tour()
+    tour = plan_tour(tour_id=tour_id)
     if tour is None:
-        # `plan_tour` trả None khi tour_id không hợp lệ; ở đây dùng route mặc
-        # định nên không xảy ra — chặn rõ ràng thay vì crash `union-attr`.
         raise HTTPException(status_code=404, detail="tour_not_found")
     return cast(dict[str, Any], tour.model_dump(mode="json"))
 
@@ -828,16 +866,25 @@ def _payload_for_page(page: QuanversePage, role: ExperienceRole) -> dict[str, An
         # KHÔNG nằm trong fixture `spatial-memory.json` — fixture đó chỉ có
         # `memories`/`audit`/`tour_route`. Đọc sai nguồn sẽ luôn ra "0 neo" dù
         # quán có đủ neo, và brief sẽ nói dối về trạng thái thật của hệ thống.
+        #
+        # Số ký ức đọc từ kho ĐANG SỐNG (`_get_repo()`), không phải fixture thô:
+        # fixture khai `mem_bar_draft_01` là draft, nhưng một bài test cấp consent
+        # cho nó là neo `bar` từ 1 ký ức đã xác nhận thành 2 — brief đọc fixture
+        # sẽ nói 1 trong khi chi tiết neo hiện 2.
         from ca_agents.grand_experience.adapter import resolve_experience_read_adapter
+
+        from ca_api.interfaces.http.spatial_memory import _get_repo
 
         adapter = resolve_experience_read_adapter()
         anchors = [a.model_dump(mode="json") for a in adapter.list_anchors()]
-        data = _fixture("spatial-memory.json")
         counts: dict[str, int] = {}
-        for row in data.get("memories") or []:
-            if str(row.get("status") or "") == "confirmed":
-                aid = str(row.get("anchor_id") or "")
-                counts[aid] = counts.get(aid, 0) + 1
+        try:
+            for mem in _get_repo().all_memories():
+                if str(getattr(mem.status, "value", mem.status)) == "confirmed":
+                    aid = str(mem.anchor_id or "")
+                    counts[aid] = counts.get(aid, 0) + 1
+        except Exception:
+            counts = {}
         return {"anchors": anchors, "memory_counts": counts, "selected_anchor": None}
 
     return {}

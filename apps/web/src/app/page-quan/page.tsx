@@ -75,15 +75,35 @@ type Draft = {
 
 type StoreProfile = {
   ten_quan: string;
+  slogan?: string;
   dia_chi: string;
+  dia_chi_chi_tiet?: string;
+  phuong_xa?: string;
+  phuong_xa_code?: string;
+  quan_huyen?: string;
+  quan_huyen_code?: string;
   tinh?: string;
+  tinh_code?: string;
   thanh_pho?: string;
+  toa_do_lat?: string;
+  toa_do_lon?: string;
+  google_maps_url?: string;
   lat?: number | null;
   lon?: number | null;
   hotline: string;
+  hotline_phu?: string;
+  email?: string;
+  website?: string;
+  fanpage_url?: string;
   gio_mo_cua: string;
+  gio_mo_cua_chi_tiet?: string;
+  khoang_gia?: string;
+  tien_ich?: string;
   wifi_ssid?: string;
   wifi_pass?: string;
+  ngan_hang?: string;
+  stk_ngan_hang?: string;
+  chu_tai_khoan?: string;
   mo_ta?: string;
   chinh_sach_dat_ban?: string;
   huong_dan_agent?: string;
