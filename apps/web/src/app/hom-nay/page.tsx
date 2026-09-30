@@ -17,6 +17,7 @@ import {
 import { getRole, getToken, isChuQuan, isManager } from "../../lib/session";
 import { todayHeroLine, todayMetaLine, todayTechnicalDetail } from "../../lib/status";
 import { SuaTimeline, TonBarChart, TreoDonutChart } from "../../ui/hom-nay/dashboard-charts";
+import { AiForecastBlock } from "../../ui/hom-nay/ai-forecast";
 import { useActorName } from "../../ui/ops-pickers";
 import { HeroMotif, KpiCard, StatusStrip } from "../../ui/hom-nay/kpi-card";
 import { OpsPulseLite } from "../../ui/hom-nay/ops-pulse-lite";
@@ -243,6 +244,7 @@ export default function HomNayPage() {
               <FixtureChip />
             </p>
           ) : null}
+          <AiForecastBlock />
           {data.viec_cho_toi && data.viec_cho_toi.length > 0 ? (
             /* Khối "việc của bạn" được NHẤN bằng viền accent: đây là việc người
                dùng phải làm, khác hẳn các khối chỉ để đọc. Không tô nền accent —

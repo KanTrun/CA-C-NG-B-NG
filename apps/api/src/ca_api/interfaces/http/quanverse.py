@@ -657,6 +657,16 @@ def ar_session(
 # cảnh đưa cho LLM là MỘT khối duy nhất — không có đường nào để hai bên lệch số.
 
 
+def _thoi_tiet_for_brief() -> dict[str, Any] | None:
+    """Đọc AI FORECAST thời tiết cho brief — hỏng thì trả None, không làm sập Quánverse."""
+    try:
+        from ca_api.services.thoi_tiet import get_thoi_tiet_hom_nay
+
+        return get_thoi_tiet_hom_nay()
+    except Exception:  # noqa: BLE001 — brief vẫn phải hiện khi Open-Meteo lỗi
+        return None
+
+
 def _payload_for_page(page: QuanversePage, role: ExperienceRole) -> dict[str, Any]:
     """Đọc dữ liệu thật của một trang Quánverse thành tham số cho `build_brief`.
 
@@ -699,6 +709,7 @@ def _payload_for_page(page: QuanversePage, role: ExperienceRole) -> dict[str, An
             "data_quality": _as_dicts(proj["data_quality"]),
             "stations": stations_payload,
             "forecast": forecast_payload,
+            "thoi_tiet": _thoi_tiet_for_brief(),
         }
 
     if page == QuanversePage.WAR_ROOM:

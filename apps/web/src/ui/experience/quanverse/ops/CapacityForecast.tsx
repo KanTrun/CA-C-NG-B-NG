@@ -214,6 +214,13 @@ export default function CapacityForecast({
           ) : null}
         </>
       )}
+
+      {capacity.weatherHint ? (
+        <p className="nq-qvcap__weather" data-testid="capacity-weather-hint">
+          <NguonChip>AI Forecast</NguonChip>
+          <span>{capacity.weatherHint}</span>
+        </p>
+      ) : null}
     </Card>
   );
 }

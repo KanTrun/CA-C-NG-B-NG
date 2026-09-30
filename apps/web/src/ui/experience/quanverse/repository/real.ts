@@ -77,6 +77,19 @@ interface ForecastTho {
   giao_dich_nhat?: unknown;
 }
 
+interface ThoiTietTho {
+  co_du_lieu?: unknown;
+  anh_huong_quan?: {
+    tom_tat?: unknown;
+    de_xuat_mode?: unknown;
+    de_xuat_mode_label?: unknown;
+  };
+  hien_tai?: {
+    mo_ta?: unknown;
+    nhiet_do?: unknown;
+  };
+}
+
 interface SnapshotTho {
   snapshot_id?: unknown;
   store_id?: unknown;
@@ -323,7 +336,7 @@ export class RealQuanverseRepository implements QuanverseRepository {
     const role = (opts.role ?? getRole() ?? "quan_ly") as QuanverseRole;
     const provenance: QuanverseProvenance[] = [];
 
-    const [snap, stations, forecast, brief, lich, homNay, staff] = await Promise.all([
+    const [snap, stations, forecast, brief, lich, homNay, thoiTiet, staff] = await Promise.all([
       doc<SnapshotTho>(
         "Bản chiếu vận hành",
         "/api/v1/experience/quanverse/snapshot",
@@ -360,6 +373,12 @@ export class RealQuanverseRepository implements QuanverseRepository {
         "/api/v1/hom-nay",
         ["viec_cho_toi", "canh_bao_ton"],
       ),
+      doc<ThoiTietTho>(
+        "AI Forecast thời tiết",
+        "/api/v1/thoi-tiet/hom-nay",
+        "/api/v1/thoi-tiet/hom-nay",
+        ["co_du_lieu"],
+      ),
       doc<StaffOnShiftTho>(
         "Nhân sự trong ca",
         "/api/v1/experience/quanverse/staff-on-shift",
@@ -375,6 +394,7 @@ export class RealQuanverseRepository implements QuanverseRepository {
       { label: "Tóm tắt cho AI", endpoint: "/api/v1/experience/quanverse/brief/living_map", ok: brief.ok, status: brief.status, missingFields: brief.missing },
       { label: "Phân công tuần", endpoint: "/api/v1/lich-tuan", ok: lich.ok, status: lich.status, missingFields: lich.missing },
       { label: "Việc và cảnh báo", endpoint: "/api/v1/hom-nay", ok: homNay.ok, status: homNay.status, missingFields: homNay.missing },
+      { label: "AI Forecast thời tiết", endpoint: "/api/v1/thoi-tiet/hom-nay", ok: thoiTiet.ok, status: thoiTiet.status, missingFields: thoiTiet.missing },
       { label: "Nhân sự trong ca", endpoint: "/api/v1/experience/quanverse/staff-on-shift", ok: staff.ok, status: staff.status, missingFields: staff.missing },
     );
 
@@ -583,6 +603,14 @@ export class RealQuanverseRepository implements QuanverseRepository {
       forecastBody?.so_ngay_du_lieu,
       mangTho(forecastBody?.giao_dich_nhat),
     );
+    // AI FORECAST — gắn nhãn ảnh hưởng thời tiết (không đổi số nhu cầu).
+    const tt = thoiTiet.data;
+    if (tt?.co_du_lieu === true) {
+      const tomTat =
+        typeof tt.anh_huong_quan?.tom_tat === "string" ? tt.anh_huong_quan.tom_tat.trim() : "";
+      const moTa = typeof tt.hien_tai?.mo_ta === "string" ? tt.hien_tai.mo_ta.trim() : "";
+      capacity.weatherHint = tomTat || (moTa ? `Điều chỉnh theo thời tiết: ${moTa}` : null);
+    }
 
     // ── Sự kiện ────────────────────────────────────────────────────────────
     const events = chuanHoaEvents(mangTho(snapBody?.events), zoneLabelById);

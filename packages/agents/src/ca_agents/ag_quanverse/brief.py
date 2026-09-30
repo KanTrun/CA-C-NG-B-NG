@@ -101,6 +101,7 @@ def brief_living_map(
     modes: list[dict[str, Any]],
     horizon: list[dict[str, Any]],
     data_quality: list[dict[str, Any]] | None = None,
+    thoi_tiet: dict[str, Any] | None = None,
     stations: dict[str, Any] | None = None,
     forecast: dict[str, Any] | None = None,
 ) -> PageFacts:
@@ -230,6 +231,51 @@ def brief_living_map(
         if code:
             out.facts.append(f"Chế độ {code} đang bật.")
             out.grounded_refs.append(code)
+
+    # AI FORECAST — tín hiệu thời tiết (nếu có). Chỉ gắn fact/risk tất định,
+    # không bịa số nhu cầu. Mode Trời mưa vẫn cần người duyệt.
+    if isinstance(thoi_tiet, dict) and thoi_tiet.get("co_du_lieu"):
+        hien_tai_raw = thoi_tiet.get("hien_tai")
+        vi_tri_raw = thoi_tiet.get("vi_tri")
+        impact_raw = thoi_tiet.get("anh_huong_quan")
+        hien_tai: dict[str, Any] = hien_tai_raw if isinstance(hien_tai_raw, dict) else {}
+        vi_tri: dict[str, Any] = vi_tri_raw if isinstance(vi_tri_raw, dict) else {}
+        impact: dict[str, Any] = impact_raw if isinstance(impact_raw, dict) else {}
+        mo_ta = str(hien_tai.get("mo_ta") or "").strip()
+        nhiet = hien_tai.get("nhiet_do")
+        thanh = str(vi_tri.get("thanh_pho") or "").strip()
+        tinh = str(vi_tri.get("tinh") or "").strip()
+        noi = ", ".join(x for x in (thanh, tinh) if x)
+        if mo_ta:
+            temp_s = f", {nhiet:.0f}°C" if isinstance(nhiet, (int, float)) else ""
+            loc_s = f" tại {noi}" if noi else ""
+            out.facts.append(f"Thời tiết hiện tại{loc_s}: {mo_ta}{temp_s}.")
+            out.grounded_refs.append("thoi_tiet_hom_nay")
+        tom_tat = str(impact.get("tom_tat") or "").strip()
+        if tom_tat:
+            if impact.get("de_xuat_mode"):
+                out.risks.append(tom_tat)
+            else:
+                out.facts.append(tom_tat)
+        for yeu in list(impact.get("yeu_to") or [])[:3]:
+            text = str(yeu).strip()
+            if text:
+                out.facts.append(text)
+        mode_dx = str(impact.get("de_xuat_mode") or "").strip()
+        if mode_dx:
+            label = str(impact.get("de_xuat_mode_label") or mode_dx)
+            out.next_actions.append(
+                f"Cân nhắc đề xuất chế độ {label} (cần quản lý duyệt — không tự bật)."
+            )
+            out.grounded_refs.append(f"de_xuat_mode:{mode_dx}")
+    elif isinstance(thoi_tiet, dict) and thoi_tiet.get("can_cau_hinh"):
+        out.data_quality.append(
+            DataQualityNotice(
+                code="thoi_tiet_thieu_dia_chi",
+                level="info",
+                message="Chưa cấu hình địa chỉ quán nên AI FORECAST chưa có tín hiệu thời tiết.",
+            )
+        )
 
     for dq in data_quality or []:
         try:

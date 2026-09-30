@@ -266,6 +266,7 @@ export function chuanHoaCapacity(
     hasHistory: coDuLieu && points.some((p) => p.demand !== null),
     daysOfData: soHoacNull(soNgay),
     peaks,
+    weatherHint: null,
   };
 }
 

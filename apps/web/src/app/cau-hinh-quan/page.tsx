@@ -30,6 +30,8 @@ import {
 type StoreProfile = {
   ten_quan: string;
   dia_chi: string;
+  tinh: string;
+  thanh_pho: string;
   hotline: string;
   gio_mo_cua: string;
   wifi_ssid: string;
@@ -49,6 +51,8 @@ type Promotion = {
 const EMPTY_PROFILE: StoreProfile = {
   ten_quan: "",
   dia_chi: "",
+  tinh: "",
+  thanh_pho: "",
   hotline: "",
   gio_mo_cua: "",
   wifi_ssid: "",
@@ -135,6 +139,8 @@ export default function CauHinhQuanPage() {
         ...profile,
         ten_quan: profile.ten_quan.trim(),
         dia_chi: profile.dia_chi.trim(),
+        tinh: profile.tinh.trim(),
+        thanh_pho: profile.thanh_pho.trim(),
         hotline: profile.hotline.trim(),
         gio_mo_cua: profile.gio_mo_cua.trim(),
         wifi_ssid: profile.wifi_ssid.trim(),
@@ -260,6 +266,20 @@ export default function CauHinhQuanPage() {
                 value={profile.dia_chi}
                 onChange={(e) => setField("dia_chi", e.target.value)}
                 placeholder="VD: 45 Nguyễn Huệ, P. Bến Nghé, Q. 1, TP. HCM"
+              />
+            </Field>
+            <Field label="Thành phố / Quận">
+              <Input
+                value={profile.thanh_pho}
+                onChange={(e) => setField("thanh_pho", e.target.value)}
+                placeholder="VD: Quận 1 hoặc TP. Hồ Chí Minh"
+              />
+            </Field>
+            <Field label="Tỉnh / Thành phố trực thuộc TW">
+              <Input
+                value={profile.tinh}
+                onChange={(e) => setField("tinh", e.target.value)}
+                placeholder="VD: Hồ Chí Minh, Hà Nội, Đà Nẵng"
               />
             </Field>
             <Field label="Giờ mở cửa">
