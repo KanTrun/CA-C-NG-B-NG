@@ -113,8 +113,10 @@ test("lịch tuần: nhật ký mở sẵn, filter, khối trạng thái chốt/
   const journal = page.locator('[data-panel="nhat-ky-doi-ca"]');
   await expect(journal).toBeVisible();
   await expect(journal.getByText(/Ai đổi ca với ai/)).toBeVisible();
-  // Dùng class ra/vào — getByText('Lan') khớp cả filter + nhiều dòng (strict mode).
-  await expect(journal.locator(".nq-shiftdiff__out").filter({ hasText: "Lan" })).toBeVisible();
-  await expect(journal.locator(".nq-shiftdiff__in").filter({ hasText: "Minh" })).toBeVisible();
+  // Scope vào article — panel còn khối "Hôm nay nhanh" cũng có .nq-shiftdiff__out
+  // (Lan xuất hiện 2 lần → strict mode nếu query cả journal).
+  const entry = journal.getByRole("article").first();
+  await expect(entry.locator(".nq-shiftdiff__out").filter({ hasText: "Lan" })).toBeVisible();
+  await expect(entry.locator(".nq-shiftdiff__in").filter({ hasText: "Minh" })).toBeVisible();
   await expect(journal.getByLabel("Lọc theo loại thay đổi")).toBeVisible();
 });
