@@ -176,6 +176,45 @@ def test_intent_parser_uses_dynamic_iso_week() -> None:
     assert p2.params["tuan"] == ip._iso_week(today)
 
 
+def test_intent_parser_schedule_solve_hieu_w41_va_hom_nay() -> None:
+    """SCHEDULE_SOLVE phải hiểu W41 / 2026-W41 — trước đây bỏ qua."""
+    from datetime import date, timedelta
+
+    import ca_agents.ag_copilot.intent_parser as ip
+
+    p = ip.parse_intent("Xếp lịch W41", {"active_date": "2026-09-30"})
+    assert p.intent == "SCHEDULE_SOLVE"
+    assert p.params["tuan"] == "2026-W41"
+
+    p2 = ip.parse_intent("Xếp lịch 2026-W41 giúp chị", {"active_date": "2026-09-30"})
+    assert p2.params["tuan"] == "2026-W41"
+
+    # Follow-up «tuần sau» không bị dính W45 của tin trước.
+    p3 = ip.parse_intent(
+        "Tuần sau nhé",
+        {"active_date": "2026-09-30", "recent_messages": ["Xếp lịch W45"]},
+    )
+    assert p3.intent == "SCHEDULE_SOLVE"
+    assert p3.params["tuan"] == ip._iso_week(date(2026, 9, 30) + timedelta(weeks=1))
+    assert p3.params["tuan"] != "2026-W45"
+
+
+def test_intent_parser_get_schedule_hom_nay_va_time_off_tuan_id() -> None:
+    """GET_SCHEDULE «hôm nay» gắn ngay_hom_nay; TIME_OFF gắn tuan_id."""
+    from datetime import date, timedelta
+
+    import ca_agents.ag_copilot.intent_parser as ip
+
+    p = ip.parse_intent("Xem lịch hôm nay", {"active_date": "2026-10-08"})
+    assert p.intent == "GET_SCHEDULE"
+    assert p.params.get("ngay_hom_nay") == "2026-10-08"
+    assert p.params["tuan"] == "2026-W41"
+
+    p2 = ip.parse_intent("Tôi bận thứ 5 tuần sau", {"active_date": "2026-09-30"})
+    assert p2.intent == "PROPOSE_TIME_OFF"
+    assert p2.params.get("tuan_id") == ip._iso_week(date(2026, 9, 30) + timedelta(weeks=1))
+
+
 def test_intent_parser_uses_dynamic_date() -> None:
     """Ngày bản tin không hardcode: phải là ngày hôm nay."""
     from datetime import date
@@ -681,6 +720,51 @@ def test_pr13_get_my_shifts_fail_closed_without_user_id(monkeypatch) -> None:
         res = tr.execute_whitelisted_tool("GET_MY_SHIFTS", {"store_id": "quan_01"})
         assert res.success is True
         assert res.data["found"] is False
+    finally:
+        tr.configure_data_sources(**saved)
+
+
+def test_get_schedule_doc_phan_cong_by_week_khong_nham_ban_phang() -> None:
+    """GET_SCHEDULE hỏi W41 phải đọc phan_cong_by_week[W41], không lấy bản phẳng."""
+    import ca_agents.ag_copilot.tool_registry as tr
+
+    saved = dict(tr._SOURCES)
+    store = {
+        "phan_cong": {"w1_c01": ["nv_99"]},
+        "phan_cong_by_week": {
+            "2026-W41": {"w1_c01": ["nv_01"], "w1_c02": ["nv_03"]},
+            "2026-W40": {"w1_c01": ["nv_02"]},
+        },
+        "lich_tuan_lifecycle_by_week": {
+            "2026-W41": {"trang_thai": "da_cong_bo", "tuan_iso": "2026-W41"},
+        },
+        "tkb_nv_by_week": {
+            "2026-W41": {
+                "nv_01": {
+                    "khoang_ban": [{"thu": "T2", "start": "07:00", "end": "12:00"}],
+                }
+            }
+        },
+    }
+    try:
+        tr.configure_data_sources(
+            kv_get=lambda key, default: store.get(key, default),
+            list_nhan_vien_ops=lambda: [
+                {"id": "nv_01", "ten": "Lan"},
+                {"id": "nv_03", "ten": "Minh"},
+            ],
+            list_ca_meta=lambda: {
+                "w1_c01": {"thu": "T2", "khung": "sang", "bat_dau": "07:00", "ket_thuc": "12:00"},
+                "w1_c02": {"thu": "CN", "khung": "toi", "bat_dau": "17:30", "ket_thuc": "22:30"},
+            },
+        )
+        res = tr.execute_whitelisted_tool("GET_SCHEDULE", {"tuan": "2026-W41"})
+        assert res.success is True
+        assert res.data["tuan"] == "2026-W41"
+        assert res.data["phan_cong"]["w1_c01"] == ["nv_01"]
+        assert "nv_99" not in res.data["phan_cong"].get("w1_c01", [])
+        assert res.data["trang_thai"] == "da_cong_bo"
+        assert any("Lan" in x for x in (res.data.get("tkb_tom_tat") or []))
     finally:
         tr.configure_data_sources(**saved)
 

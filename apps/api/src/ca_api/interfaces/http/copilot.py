@@ -907,11 +907,25 @@ def copilot_execute_action(
             st[tuan_ap_dung] = week_st
             return st
 
+        def mut_phan_cong_by_week(cur: dict[str, Any]) -> dict[str, Any]:
+            # Ghi đúng tuần — trước đây chỉ ghi bản phẳng nên GET_SCHEDULE
+            # hỏi «tuần sau»/W41 vẫn đọc nhầm tuần hiện tại.
+            weeks = dict(cur or {})
+            weeks[str(tuan_ap_dung)] = phan_cong_moi
+            return weeks
+
+        def mut_life_by_week(cur: dict[str, Any]) -> dict[str, Any]:
+            weeks = dict(cur or {})
+            weeks[str(tuan_ap_dung)] = mut_life(weeks.get(str(tuan_ap_dung)) or {})
+            return weeks
+
         internal_mutations = {
             "phan_cong": (lambda _current: phan_cong_moi, {}),
+            "phan_cong_by_week": (mut_phan_cong_by_week, {}),
             "lich_tuan": (lambda _current: phan_cong_moi, {}),
             "lich_tuan_status": (lambda _current: "da_duyet", ""),
             "lich_tuan_lifecycle": (mut_life, {}),
+            "lich_tuan_lifecycle_by_week": (mut_life_by_week, {}),
             "roster_nv_status": (mut_roster_status, {}),
         }
 

@@ -22,6 +22,7 @@ from ca_api.persist import (
 def run_authoritative_schedule(
     *, store_id: str, tuan_iso: str, actor_id: str, idempotency_key: str,
     expected_fingerprint: str | None = None, extra_pin: tuple[str, str] | None = None,
+    nguon_nhat_ky: str = "xep_tu_dong",
 ) -> dict[str, Any]:
     """Run the one production CP-SAT path and persist its immutable input run."""
     snapshot, fingerprint = authoritative_input_fingerprint(store_id, tuan_iso)
@@ -47,7 +48,12 @@ def run_authoritative_schedule(
     # remains the only authoritative scheduling application boundary.
     from ca_api.services.solver_adapter import run_solver
 
-    result = run_solver(tuan_iso, confirmed_availability=availability, extra_pin=extra_pin)
+    result = run_solver(
+        tuan_iso,
+        confirmed_availability=availability,
+        extra_pin=extra_pin,
+        nguon_nhat_ky=nguon_nhat_ky,
+    )
     final_status = "computed" if result.get("ok") else "needs_gap_resolution"
     schedule_run_update_result(
         str(run["id"]), status=final_status, result_snapshot=result,
@@ -155,4 +161,5 @@ def resolve_schedule_gaps(
         idempotency_key=f"{idempotency_key}{pin_suffix}",
         expected_fingerprint=expected_fingerprint,
         extra_pin=pin,
+        nguon_nhat_ky="gap",
     )

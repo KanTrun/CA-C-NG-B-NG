@@ -545,6 +545,90 @@ def _add_week(d: Any, n: int = 1) -> Any:
     if not isinstance(d, date):
         d = date.today()
     return d + timedelta(weeks=n)
+
+
+def _ngay_hom_nay_vn(active_date: Any | None = None) -> str:
+    """Ngày hôm nay theo giờ VN (UTC+7) — hoặc active_date nếu context gắn sẵn."""
+    from datetime import date, datetime, timedelta, timezone
+
+    if isinstance(active_date, date) and not isinstance(active_date, datetime):
+        # Context test gắn active_date tường minh → tôn trọng, không lệch TZ.
+        return active_date.isoformat()
+    try:
+        from ca_agents.ag_waste import ngay_hom_nay
+
+        return ngay_hom_nay()
+    except Exception:
+        vn = timezone(timedelta(hours=7))
+        return datetime.now(vn).date().isoformat()
+
+
+def _tuan_tuong_doi(lower: str, active_date: Any) -> dict[str, Any] | None:
+    """Nhận diện tuần tương đối trên MỘT câu — không lẫn lịch sử chat."""
+    from datetime import date
+
+    if any(k in lower for k in ("hôm nay", "hom nay")):
+        ngay = _ngay_hom_nay_vn(active_date)
+        try:
+            d = date.fromisoformat(ngay)
+            tuan = _iso_week(d)
+        except ValueError:
+            tuan = _iso_week(active_date)
+        return {"tuan": tuan, "ngay_hom_nay": ngay}
+    if any(k in lower for k in ("tuần sau", "tuan sau", "tuần tới", "tuan toi")):
+        return {"tuan": _iso_week(_add_week(active_date, 1))}
+    if any(k in lower for k in ("tuần này", "tuan nay")):
+        return {"tuan": _iso_week(active_date)}
+    return None
+
+
+def _tuan_tuong_minh(lower: str, active_date: Any) -> dict[str, Any] | None:
+    """Nhận diện `2026-W41` / `W41` / `tuần 41`."""
+    m_iso = re.search(r"\b(\d{4})-w(\d{1,2})\b", lower)
+    if m_iso:
+        return {"tuan": f"{int(m_iso.group(1)):04d}-W{int(m_iso.group(2)):02d}"}
+    m_w = re.search(r"\bw(\d{1,2})\b", lower)
+    if m_w:
+        return {"tuan": f"{active_date.year}-W{int(m_w.group(1)):02d}"}
+    m_tuan_so = re.search(r"\btu[aầ]n\s*(\d{1,2})\b", lower)
+    if m_tuan_so:
+        return {"tuan": f"{active_date.year}-W{int(m_tuan_so.group(1)):02d}"}
+    return None
+
+
+def parse_tuan_tu_van_ban(
+    text: str,
+    *,
+    active_date: Any | None = None,
+    mac_dinh_tuan_sau: bool = False,
+    uu_tien: str | None = None,
+) -> dict[str, Any]:
+    """Parser tuần thống nhất cho SCHEDULE_SOLVE / GET_SCHEDULE / TIME_OFF.
+
+    Nhận: `tuần sau` · `tuần này` · `hôm nay` · `2026-W41` · `W41` · `tuần 41`.
+    `uu_tien` = câu hiện tại (ưu tiên tương đối trước khi đọc lịch sử chat trong
+    `text`, tránh «tuần sau nhé» bị dính W41 của tin trước).
+    """
+    from datetime import date
+
+    if not isinstance(active_date, date):
+        active_date = _active_date({})
+    current = (uu_tien or "").lower()
+    combined = (text or "").lower()
+
+    for blob in (current, combined):
+        if not blob:
+            continue
+        hit = _tuan_tuong_doi(blob, active_date)
+        if hit:
+            return hit
+        hit = _tuan_tuong_minh(blob, active_date)
+        if hit:
+            return hit
+
+    if mac_dinh_tuan_sau:
+        return {"tuan": _iso_week(_add_week(active_date, 1))}
+    return {"tuan": _iso_week(active_date)}
 _THU_CAN = {
     # Dạng dài — match bằng substring an toàn (không bị ambiguity)
     "thứ 2": "T2", "thứ hai": "T2", "thu 2": "T2", "thu hai": "T2",
@@ -887,17 +971,17 @@ def parse_intent(message: str, context: dict[str, Any] | None = None) -> IntentP
 
     # Extract common parameters
     if matched_intent == SCHEDULE_SOLVE:
-        # Week detection (ISO week thực tế — không hardcode).
+        # Week detection thống nhất với GET_SCHEDULE (W41 / tuần sau / hôm nay).
         active_date = _active_date(context)
         combined_lower = f"{recent_text} {lower}"
-        tuan = _iso_week(active_date)
-        if "tuần sau" in combined_lower or "tuan sau" in combined_lower:
-            params["tuan"] = _iso_week(_add_week(active_date, 1))
-        elif "tuần này" in combined_lower or "tuan nay" in combined_lower:
-            params["tuan"] = tuan
-        else:
-            # Mặc định tuần sau (nhu cầu lập lịch phổ biến).
-            params["tuan"] = _iso_week(_add_week(active_date, 1))
+        params.update(
+            parse_tuan_tu_van_ban(
+                combined_lower,
+                active_date=active_date,
+                mac_dinh_tuan_sau=True,
+                uu_tien=lower,
+            )
+        )
         # Preference detection
         lan_match = re.search(r"ưu\s*tiên\s*(\w+)\s*ca\s*(\w+)", lower)
         if lan_match:
@@ -910,21 +994,14 @@ def parse_intent(message: str, context: dict[str, Any] | None = None) -> IntentP
     elif matched_intent == GET_SCHEDULE:
         active_date = _active_date(context)
         combined_lower = f"{recent_text} {lower}"
-        tuan = _iso_week(active_date)
-        if "tuần sau" in combined_lower or "tuan sau" in combined_lower:
-            params["tuan"] = _iso_week(_add_week(active_date, 1))
-        elif "tuần này" in combined_lower or "tuan nay" in combined_lower:
-            params["tuan"] = tuan
-        else:
-            m_iso = re.search(r"(\d{4}-w\d{2})", combined_lower)
-            if m_iso:
-                params["tuan"] = m_iso.group(1).upper()
-            else:
-                m_t = re.search(r"\btuần\s*(\d{1,2})\b", combined_lower)
-                if m_t:
-                    params["tuan"] = f"{active_date.year}-W{int(m_t.group(1)):02d}"
-                else:
-                    params["tuan"] = tuan
+        params.update(
+            parse_tuan_tu_van_ban(
+                combined_lower,
+                active_date=active_date,
+                mac_dinh_tuan_sau=False,
+                uu_tien=lower,
+            )
+        )
 
     elif matched_intent == QUERY_SOP:
         params["cau_hoi"] = text
@@ -941,6 +1018,15 @@ def parse_intent(message: str, context: dict[str, Any] | None = None) -> IntentP
         ca_range = _parse_ca_range(lower)
         if ca_range:
             params["start"], params["end"] = ca_range
+        # Gắn tuan_id — trước đây thiếu nên ràng buộc nghỉ rơi tuần sai.
+        active_date = _active_date(context)
+        tuan_params = parse_tuan_tu_van_ban(
+            f"{recent_text} {lower}",
+            active_date=active_date,
+            mac_dinh_tuan_sau=False,
+            uu_tien=lower,
+        )
+        params["tuan_id"] = tuan_params.get("tuan")
         ly_do_raw = text.strip()
         # BUG7 fix: trích phần lý do sau dấu ',' hoặc ':' đầu tiên nếu có.
         # Regex cũ dùng lazy {0,40}? → match 0 ký tự → không strip được gì.
