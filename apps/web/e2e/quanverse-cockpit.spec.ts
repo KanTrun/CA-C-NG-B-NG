@@ -16,6 +16,10 @@ test.describe("QUÁNVERSE cockpit", () => {
     await page.goto("/quanverse");
     await expect(page.getByTestId("quanverse-root")).toBeVisible({ timeout: 15_000 });
 
+    // ZoneFocus luôn chiếm chỗ (idle hoặc đã chọn) — không để lỗ trống dưới map.
+    await expect(page.getByTestId("quanverse-zone-focus")).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId("quanverse-capability")).toBeVisible();
+
     // Bật mô phỏng quá tải để chắc có action gắn zone.
     const toggle = page.getByTestId("toggle-source");
     if (await toggle.count()) {
@@ -28,7 +32,10 @@ test.describe("QUÁNVERSE cockpit", () => {
     await zone.click();
     await expect(zone).toHaveAttribute("aria-pressed", "true");
 
-    await expect(page.getByTestId("quanverse-zone-focus")).toBeVisible();
+    await expect(page.getByTestId("quanverse-zone-focus")).toHaveAttribute(
+      "data-zone",
+      "quay_pha",
+    );
     await expect(page.getByTestId("actions-filter")).toBeVisible();
   });
 

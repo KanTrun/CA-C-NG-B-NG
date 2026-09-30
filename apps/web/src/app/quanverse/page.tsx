@@ -34,6 +34,7 @@ import {
   type QuanverseScenario,
 } from "../../ui/experience/quanverse/repository";
 import AiCopilot from "../../ui/experience/quanverse/ops/AiCopilot";
+import CapabilityBoard from "../../ui/experience/quanverse/ops/CapabilityBoard";
 import CapacityForecast from "../../ui/experience/quanverse/ops/CapacityForecast";
 import DataSourceBadge, {
   ProvenancePanel,
@@ -319,7 +320,7 @@ export default function QuanversePage() {
             <ExecutiveSnapshot kpis={vm.kpis} onKpiClick={onKpiClick} />
           </div>
 
-          {/* Cockpit 3 cột */}
+          {/* Cockpit 3 cột — stretch đầy chiều cao, không để lỗ trống giữa cột */}
           <div className="nq-qv__deck">
             <div className="nq-qv__col nq-qv__col--map">
               <OperationalMap2dClient
@@ -329,12 +330,14 @@ export default function QuanversePage() {
               />
               <ZoneFocus
                 zone={zoneFocus}
+                zones={vm.zones}
                 onClear={() => setSelectedZone(null)}
                 onAsk={(q) => {
                   setAskPrefill(q);
                   void handleAsk(q);
                 }}
                 onFocusActions={() => setFocusPanel("actions")}
+                onPickZone={setSelectedZone}
               />
             </div>
 
@@ -399,11 +402,21 @@ export default function QuanversePage() {
             </div>
           </div>
 
+          <CapabilityBoard
+            vm={vm}
+            dataSource={vm.dataSource}
+            canMock={choPhepMock}
+            onEnableMock={() => {
+              setDungMock(true);
+              setScenario("cao_diem");
+              setAskResult(null);
+            }}
+          />
+
           <TechnicalDrawer
             summary="Chi tiết kỹ thuật · nguồn & chất lượng dữ liệu"
             lines={[...qualityLines, ...provenanceLines]}
           />
-          {/* Provenance lỗi vẫn hiện ngoài drawer để người vận hành thấy ngay. */}
           <ProvenancePanel provenance={vm.provenance} />
         </Reveal>
       )}

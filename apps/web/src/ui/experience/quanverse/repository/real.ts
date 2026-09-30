@@ -387,6 +387,13 @@ export class RealQuanverseRepository implements QuanverseRepository {
     if (stationsBody?.stations) {
       for (const z of mangHoacRong(stationsBody.stations as readonly unknown[])) {
         const zone = chuanHoaZone(z as Record<string, unknown>);
+        // Chưa có đơn quầy thật → không trình bày tải 0 như "quán rảnh đo được".
+        if (stationsBody.co_du_lieu !== true) {
+          zone.load = null;
+          zone.queue = null;
+          zone.status = "chua_co_du_lieu";
+          zone.alerts = [];
+        }
         zones.push(zone);
         zoneLabelById.set(zone.zoneId, zone.label);
       }

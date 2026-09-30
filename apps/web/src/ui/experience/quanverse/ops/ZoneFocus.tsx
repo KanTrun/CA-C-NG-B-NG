@@ -1,10 +1,8 @@
 "use client";
 
 /**
- * QUÁNVERSE — panel chi tiết khu vực đang chọn (con trỏ hệ thống).
- *
- * Hiện ngay dưới bản đồ khi có selectedZone. Không card lồng card: panel nằm
- * trong cột map, chỉ là khối thông tin + CTA hỏi AI / xem việc.
+ * QUÁNVERSE — panel chi tiết khu vực (hoặc hướng dẫn chọn khi chưa chọn).
+ * Luôn chiếm chỗ dưới map — không để cột map trống nửa dưới.
  */
 
 import { Icon } from "../../../icons";
@@ -25,16 +23,47 @@ const NHAN: Record<QuanverseZoneStatus, string> = {
 
 export default function ZoneFocus({
   zone,
+  zones,
   onClear,
   onAsk,
   onFocusActions,
+  onPickZone,
 }: {
   zone: QuanverseZone | null;
+  zones: readonly QuanverseZone[];
   onClear: () => void;
   onAsk: (question: string) => void;
   onFocusActions: () => void;
+  onPickZone: (zoneId: string) => void;
 }) {
-  if (!zone) return null;
+  if (!zone) {
+    const goiY = zones.slice(0, 4);
+    return (
+      <div className="nq-qvfocus nq-qvfocus--idle" data-testid="quanverse-zone-focus">
+        <div className="nq-qvfocus__head">
+          <strong className="nq-qvfocus__ten">Chọn khu vực trên bản đồ</strong>
+        </div>
+        <p className="nq-qvfocus__idle">
+          Bấm một khu vực để lọc việc cần xử lý, sự kiện và hỏi AI đúng ngữ cảnh.
+        </p>
+        {goiY.length > 0 ? (
+          <div className="nq-qvfocus__cta">
+            {goiY.map((z) => (
+              <button
+                key={z.zoneId}
+                type="button"
+                className="nq-qvfocus__btn nq-qvfocus__btn--ghost"
+                data-testid={`zone-focus-pick-${z.zoneId}`}
+                onClick={() => onPickZone(z.zoneId)}
+              >
+                {z.label}
+              </button>
+            ))}
+          </div>
+        ) : null}
+      </div>
+    );
+  }
 
   const severity =
     zone.status === "qua_tai" ? "danger" : zone.status === "chu_y" ? "warn" : "ok";

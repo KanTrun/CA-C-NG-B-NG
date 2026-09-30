@@ -79,19 +79,32 @@ export default function CapacityForecast({
       />
 
       {points.length === 0 ? (
-        <p className="nq-qv-trong" data-testid="capacity-empty">
-          <span className="nq-qv-trong__text">{CHUA_CO_DU_LIEU}</span>
-          <span className="nq-qv-trong__hint">Chưa đọc được chuỗi dự báo.</span>
-        </p>
+        <div className="nq-qvcap__emptyfill" data-testid="capacity-empty">
+          <p className="nq-qv-trong">
+            <span className="nq-qv-trong__text">{CHUA_CO_DU_LIEU}</span>
+            <span className="nq-qv-trong__hint">Chưa đọc được chuỗi dự báo.</span>
+          </p>
+          <ul className="nq-qvcap__empty-steps">
+            <li>API `/forecast` cần phản hồi series 07:00–22:00</li>
+            <li>Hoặc bật mô phỏng để xem biểu đồ tương tác đủ</li>
+          </ul>
+        </div>
       ) : !coDuLieu ? (
-        <p className="nq-qv-trong" data-testid="capacity-no-history">
-          <span className="nq-qv-trong__text">
-            Chưa đủ dữ liệu lịch sử để dự báo
-          </span>
-          <span className="nq-qv-trong__hint">
-            Cần thêm ngày có đơn thật để đường dự báo có nghĩa.
-          </span>
-        </p>
+        <div className="nq-qvcap__emptyfill" data-testid="capacity-no-history">
+          <p className="nq-qv-trong">
+            <span className="nq-qv-trong__text">
+              Chưa đủ dữ liệu lịch sử để dự báo
+            </span>
+            <span className="nq-qv-trong__hint">
+              Cần thêm ngày có đơn thật để đường dự báo có nghĩa — không vẽ đường
+              phẳng 0 giả.
+            </span>
+          </p>
+          <ul className="nq-qvcap__empty-steps">
+            <li>Ghi đơn quầy trong ngày → stations/forecast tự đầy</li>
+            <li>Pitch ngay: bật Mô phỏng · Giờ cao điểm</li>
+          </ul>
+        </div>
       ) : (
         <>
           <div className="nq-qvcap__chart">
