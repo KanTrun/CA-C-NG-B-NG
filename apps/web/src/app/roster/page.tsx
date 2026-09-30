@@ -125,9 +125,49 @@ const TRANG_THAI_NEXT: Record<string, { label: string; next: string }> = {
 const LIFECYCLE_CONFLICTS: Record<string, string> = {
   authoritative_schedule_run_required: "Tuần này chưa có kết quả xếp lịch chính thức. Bấm Xếp lịch tự động trước khi duyệt.",
   stale_schedule_run: "Dữ liệu lịch bận hoặc ràng buộc đã thay đổi sau lần xếp gần nhất. Hãy xếp lịch tự động lại rồi duyệt.",
+  stale_schedule_fingerprint: "Dữ liệu lịch bận/ràng buộc đã đổi sau lần xếp gần nhất. Xếp lịch tự động lại rồi duyệt.",
   schedule_has_unresolved_gaps: "Lịch còn ca thiếu người. Phân công hoặc xử lý các ca thiếu rồi chạy lại lịch.",
   invalid_schedule_run: "Kết quả xếp lịch chưa hợp lệ. Chạy lại lịch và xử lý các xung đột được hiển thị.",
   schedule_has_open_shifts: "Vẫn còn ca đang mở hoặc đã có người nhận nhưng chưa được quản lý xử lý. Hoàn tất các ca này rồi duyệt lại.",
+  mo_lai_phai_co_ly_do: "Mở lại lịch đã chốt cần ghi rõ lý do.",
+  idempotency_key_input_changed: "Lần xếp trước dùng dữ liệu khác. Bấm Xếp lịch tự động lại cho tuần đang xem.",
+};
+
+/** Khối "Tuần này đang ở đâu" — một chỗ cho trạng thái chốt vs bận gấp. */
+const WEEK_STATUS_GUIDE: Record<
+  string,
+  { y_nghia: string; ai_lam: string; log: string }
+> = {
+  nhap: {
+    y_nghia: "Đang xếp (nháp)",
+    ai_lam: "QL bấm «Xếp lịch tự động»",
+    log: "Nhật ký sau khi xếp xong",
+  },
+  dang_giai: {
+    y_nghia: "Đang xếp",
+    ai_lam: "Chờ máy phân công — không bấm lại",
+    log: "Nhật ký sau khi xếp xong",
+  },
+  cho_duyet: {
+    y_nghia: "Chờ duyệt",
+    ai_lam: "QL «Duyệt và công bố» hoặc «Về nháp»",
+    log: "Nhật ký phía dưới lưới",
+  },
+  da_duyet: {
+    y_nghia: "Đã chốt (duyệt)",
+    ai_lam: "NV nhả/đổi qua /doi-ca; QL duyệt swap",
+    log: "Nhật ký + chợ đổi ca",
+  },
+  da_cong_bo: {
+    y_nghia: "Đã chốt (công bố)",
+    ai_lam: "NV nhả/đổi qua /doi-ca; QL duyệt swap",
+    log: "Nhật ký + chợ đổi ca",
+  },
+  da_dong: {
+    y_nghia: "Đã đóng tuần",
+    ai_lam: "Chủ quán mở lại nếu cần chỉnh",
+    log: "Nhật ký lịch sử tuần",
+  },
 };
 
 function lifecycleError(error: unknown): string {
@@ -135,6 +175,26 @@ function lifecycleError(error: unknown): string {
     return LIFECYCLE_CONFLICTS[error.detail] ?? viError(error, { doing: "cập nhật trạng thái lịch" });
   }
   return viError(error, { doing: "cập nhật trạng thái lịch" });
+}
+
+function solverFailMessage(solver: unknown, weekIso: string): string | null {
+  if (!solver || typeof solver !== "object") return null;
+  const s = solver as {
+    ok?: boolean;
+    danh_sach_xung_dot?: string[];
+    status?: string;
+  };
+  if (s.ok) return null;
+  const gaps = Array.isArray(s.danh_sach_xung_dot) ? s.danh_sach_xung_dot : [];
+  if (gaps.length > 0) {
+    const preview = gaps.slice(0, 2).join(" ");
+    const them = gaps.length > 2 ? ` …(+${gaps.length - 2} ca khác)` : "";
+    return `Không xếp đủ người cho tuần ${weekIso}: ${preview}${them}. Kiểm tra lịch bận/TKB hoặc seed 4 NV demo, rồi xếp lại.`;
+  }
+  if (s.status && /INFEASIBLE|UNKNOWN/i.test(String(s.status))) {
+    return `Máy không tìm được phương án khả thi cho tuần ${weekIso} (${s.status}). Tuần trống hoặc quá ít người khả dụng — seed demo hoặc nới lịch bận rồi xếp lại.`;
+  }
+  return `Xếp lịch tuần ${weekIso} chưa thành công. Kiểm tra nhân sự khả dụng / lịch bận rồi bấm «Xếp lịch tự động» lại.`;
 }
 
 const TRANG_THAI_COLOR: Record<string, string> = {
@@ -236,6 +296,7 @@ export default function RosterPage() {
   const [showAllUnconfirmed, setShowAllUnconfirmed] = useState(false);
   const [copilotOpen, setCopilotOpen] = useState(false);
   const [scheduleNotifications, setScheduleNotifications] = useState<ScheduleNotification[]>([]);
+  const [journalRefreshKey, setJournalRefreshKey] = useState(0);
   const rosterDialogRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -468,22 +529,39 @@ export default function RosterPage() {
   async function runLifecycle(nextState: string, weekIso: string, reopenReason: string | null) {
     setLifecycleBusy(true);
     setLifecycleMsg(null);
+    setError(null);
     try {
+      let resp: Record<string, unknown> | null = null;
       if (reopenReason) {
-        await apiSend(
+        resp = (await apiSend(
           "/api/v1/lich/lifecycle",
           { to: nextState, ly_do: reopenReason, tuan_iso: weekIso },
           "POST",
-        );
+        )) as Record<string, unknown>;
       } else {
-        await apiSend(
+        resp = (await apiSend(
           "/api/v1/lich-tuan/lifecycle",
           { trang_thai: nextState, tuan_iso: weekIso },
           "PATCH",
-        );
+        )) as Record<string, unknown>;
       }
-      setLifecycleMsg(nextState === "da_duyet" ? "Đã duyệt, công bố lịch và gửi thông báo cho nhân viên." : "Đã cập nhật trạng thái lịch.");
+      // Xếp tự động (dang_giai) có thể trả ok HTTP nhưng solver thất bại —
+      // trước đây UI nói "đã cập nhật" rồi im, đúng lỗi W41 "không biết vì sao".
+      const fail =
+        nextState === "dang_giai" ? solverFailMessage(resp?.solver, weekIso) : null;
+      setJournalRefreshKey((k) => k + 1);
       await loadLich(baseWeek, soTuan);
+      // loadLich xoá lifecycleMsg — đặt lại SAU khi tải xong.
+      if (fail) {
+        setError(fail);
+        setLifecycleMsg(null);
+      } else if (nextState === "dang_giai") {
+        setLifecycleMsg(`Đã xếp lịch tuần ${weekIso}. Xem nhật ký «ai đổi ca với ai» bên dưới.`);
+      } else if (nextState === "da_duyet") {
+        setLifecycleMsg("Đã duyệt, công bố lịch và gửi thông báo cho nhân viên.");
+      } else {
+        setLifecycleMsg("Đã cập nhật trạng thái lịch.");
+      }
     } catch (e) {
       setError(lifecycleError(e));
     } finally {
@@ -520,8 +598,9 @@ export default function RosterPage() {
         ca_id: openShift.ca_id,
         nv_id: nvId,
       });
-      setLifecycleMsg("Đã ghim nhân sự và chạy lại lịch. Kiểm tra các ca còn thiếu trước khi duyệt.");
+      setJournalRefreshKey((k) => k + 1);
       await loadLich(baseWeek, soTuan);
+      setLifecycleMsg("Đã ghim nhân sự và chạy lại lịch. Kiểm tra các ca còn thiếu trước khi duyệt.");
     } catch (e) {
       setError(viError(e, { doing: "xử lý ca còn thiếu" }));
     } finally {
@@ -839,6 +918,36 @@ export default function RosterPage() {
         </section>
       )}
 
+      {/* Một chỗ: chốt vs bận gấp — trả lời "tuần này đang ở đâu / ai làm gì". */}
+      {canWrite && !loading ? (
+        <section className="nq-week-status mb-4" aria-label="Tuần này đang ở đâu" data-panel="tuan-dang-o-dau">
+          <h3 className="nq-week-status__title">Tuần {currentDisplayWeek} đang ở đâu</h3>
+          <dl className="nq-week-status__grid">
+            <div>
+              <dt>Trạng thái</dt>
+              <dd>{(WEEK_STATUS_GUIDE[trangThai] ?? WEEK_STATUS_GUIDE.nhap).y_nghia}</dd>
+            </div>
+            <div>
+              <dt>Ai làm gì</dt>
+              <dd>{(WEEK_STATUS_GUIDE[trangThai] ?? WEEK_STATUS_GUIDE.nhap).ai_lam}</dd>
+            </div>
+            <div>
+              <dt>Nhật ký ở đâu</dt>
+              <dd>{(WEEK_STATUS_GUIDE[trangThai] ?? WEEK_STATUS_GUIDE.nhap).log}</dd>
+            </div>
+            {(data?.open_shifts?.length ?? 0) > 0 ? (
+              <div data-tone="urgent">
+                <dt>Bận gấp / thiếu người</dt>
+                <dd>
+                  {data!.open_shifts!.length} ca mở — NV claim ở /doi-ca; QL xử lý «Ca còn thiếu»
+                  (nhật ký nguồn gap/TKB).
+                </dd>
+              </div>
+            ) : null}
+          </dl>
+        </section>
+      ) : null}
+
       {/* Trạng thái & nút duyệt của quản lý */}
       {canWrite && (
         <div className="nq-item mb-6 flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
@@ -1073,16 +1182,12 @@ export default function RosterPage() {
       {error ? <Alert kind="err">{error}</Alert> : null}
       {loading ? <Loading skeleton="table" rows={3}>Đang tải lịch tuần…</Loading> : null}
 
-      {/* Bằng chứng đổi ca: trả lời "ai bị đổi ca với ai" sau mỗi lần xếp lịch.
-          Trước đây solver ghi đè phân công im lặng — người dùng thấy lịch khác đi
-          mà không có gì giải thích. Panel này chỉ hiện khi CÓ thay đổi. */}
-      {!loading ? (
-        <details className="nq-constraint-panel mb-4" data-panel="nhat-ky-doi-ca">
-          <summary>Ai đổi ca với ai — nhật ký thay đổi tuần {currentDisplayWeek}</summary>
-          <div className="mt-3">
-            <ShiftChangeLog tuanIso={currentDisplayWeek} />
-          </div>
-        </details>
+      {/* Nhật ký mở sẵn — không chôn trong <details>. Sau xếp/duyệt/swap phải
+          thấy A→B ngay, không cần người dùng đoán có panel nào để mở. */}
+      {!loading && canWrite ? (
+        <div className="nq-constraint-panel mb-4">
+          <ShiftChangeLog tuanIso={currentDisplayWeek} refreshKey={journalRefreshKey} />
+        </div>
       ) : null}
 
       {!loading && viewMode === "all" && (

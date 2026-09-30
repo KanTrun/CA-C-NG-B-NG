@@ -5293,6 +5293,61 @@ a:focus-visible {
     gap: var(--nq-s4);
   }
 
+  .nq-shiftlog__panel-head {
+    display: flex;
+    flex-direction: column;
+    gap: var(--nq-s2);
+  }
+
+  .nq-shiftlog__panel-title {
+    margin: 0;
+    font-size: 1rem;
+    font-weight: 700;
+    color: var(--nq-fg);
+  }
+
+  .nq-shiftlog__panel-hint {
+    margin: 0;
+    font-size: 0.82rem;
+    color: var(--nq-ink-muted);
+  }
+
+  .nq-shiftlog__filters {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--nq-s2);
+  }
+
+  .nq-shiftlog__filters select {
+    min-height: 2rem;
+    padding: 0.25rem 0.6rem;
+    border: 1px solid var(--nq-line);
+    border-radius: var(--nq-radius-sm, 8px);
+    background: var(--nq-bg);
+    color: var(--nq-fg);
+    font-size: 0.82rem;
+  }
+
+  .nq-shiftlog__flat-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--nq-s2);
+  }
+
+  .nq-shiftlog__flat-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--nq-s3);
+    padding: var(--nq-s2) var(--nq-s3);
+    border: 1px solid var(--nq-line);
+    border-radius: var(--nq-radius-sm, 8px);
+    background-color: var(--nq-bg-elevated);
+  }
+
   .nq-shiftlog__entry {
     display: flex;
     flex-direction: column;
@@ -5324,6 +5379,44 @@ a:focus-visible {
   .nq-shiftlog__more {
     font-size: 0.8rem;
     color: var(--nq-ink-muted);
+  }
+
+  .nq-week-status {
+    padding: var(--nq-s4);
+    border: 1px solid var(--nq-line);
+    border-radius: var(--nq-radius-bubble);
+    background-color: var(--nq-surface);
+  }
+
+  .nq-week-status__title {
+    margin: 0 0 var(--nq-s3);
+    font-size: 0.95rem;
+    font-weight: 700;
+  }
+
+  .nq-week-status__grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+    gap: var(--nq-s3);
+    margin: 0;
+  }
+
+  .nq-week-status__grid dt {
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--nq-dim);
+  }
+
+  .nq-week-status__grid dd {
+    margin: 0.15rem 0 0;
+    font-size: 0.88rem;
+    color: var(--nq-fg);
+  }
+
+  .nq-week-status__grid [data-tone="urgent"] dd {
+    color: var(--nq-st-warn-ink);
   }
 
   .nq-shiftdiff {

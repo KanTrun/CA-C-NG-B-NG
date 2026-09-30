@@ -439,15 +439,27 @@ def tool_solve_weekly_schedule(
             source_snapshot=build_live_snapshot("SCHEDULE_SOLVE", store_id),
         )
     else:
+        violations = list(res.violations or [])
+        # Violations tiếng Việt theo tuần đang hỏi — không chỉ mã status.
+        vi_parts: list[str] = []
+        for v in violations[:5]:
+            text_v = str(v)
+            if text_v:
+                vi_parts.append(text_v)
         error_msg = f"Không thể tìm phương án xếp ca khả thi cho tuần {tuan} ({status})."
-        explanation = "Ràng buộc cứng không thể thỏa mãn (thiếu nhân sự ở một số ca hoặc xung đột lịch)."
+        if vi_parts:
+            error_msg += " " + " ".join(vi_parts)
+        explanation = (
+            f"Ràng buộc cứng tuần {tuan} không thể thỏa mãn "
+            "(thiếu nhân sự ở một số ca hoặc xung đột lịch/TKB)."
+        )
         if meeting_adjustments_used:
             explanation += f" Lưu ý: cuộc họp có {len(meeting_adjustments_used)} yêu cầu điều chỉnh có thể đã làm thu hẹp quỹ nhân sự."
         return ToolExecutionResult(
             success=False,
             tool_name="tool_solve_weekly_schedule",
             intent="SCHEDULE_SOLVE",
-            data={"status": status, "tuan": tuan, "violations": res.violations},
+            data={"status": status, "tuan": tuan, "tuan_iso": tuan, "violations": violations},
             summary=error_msg,
             explanation=explanation,
             requires_confirmation=False,
@@ -1551,6 +1563,24 @@ def tool_query_quanverse(
 
 
 
+def _phan_cong_cho_tuan(tuan_iso: str, kv_many: dict[str, Any] | None = None) -> dict[str, Any]:
+    """Đọc phân công ĐÚNG tuần — ưu tiên `phan_cong_by_week[tuan]`, không lấy bản phẳng.
+
+    Bản phẳng `phan_cong` là tuần vừa xếp gần nhất; dùng nó khi user hỏi
+    «tuần sau»/W41 khiến nhãn tuần đúng nhưng dữ liệu tuần hiện tại.
+    """
+    by_week = None
+    if kv_many is not None:
+        by_week = kv_many.get("phan_cong_by_week")
+    if by_week is None:
+        by_week = _kv_get("phan_cong_by_week", {}) or {}
+    if isinstance(by_week, dict):
+        week_pc = by_week.get(tuan_iso)
+        if isinstance(week_pc, dict):
+            return week_pc
+    return {}
+
+
 def tool_get_schedule(
     store_id: str = "quan_01",
     tuan: str | None = None,
@@ -1558,30 +1588,39 @@ def tool_get_schedule(
 ) -> ToolExecutionResult:
     """GET_SCHEDULE: lịch tuần hiệu lực — phân công ca + meta ca (R0_READ).
 
-    Đọc 6 khoá kv bằng MỘT `kv_get_many`: bản cũ gọi `_kv_get` sáu lần, mà mỗi
-    `kv_get` mở một connection SQLite mới + chạy `init_db()` → 6 connection cho
-    một câu hỏi. Đó là nguồn chậm chính của trợ lý ("trả lời rất chậm").
+    Đọc khoá kv bằng MỘT `kv_get_many`. Phân công lấy theo `phan_cong_by_week[tuan]`
+    — không còn đọc bản phẳng rồi gắn nhãn tuần sai.
     """
     tuan_iso = tuan or kwargs.get("tuan") or _tuan_hien_tai()
+    ngay_loc = str(kwargs.get("ngay_hom_nay") or "").strip()
     kv_many = _kv_get_many(
         [
             "phan_cong",
+            "phan_cong_by_week",
             "roster_nv_status",
             "inbox_rang_buoc",
             "tkb_nv_by_week",
             "tkb_nv",
             "lich_tuan_lifecycle",
+            "lich_tuan_lifecycle_by_week",
         ],
         {
             "phan_cong": {},
+            "phan_cong_by_week": {},
             "roster_nv_status": {},
             "inbox_rang_buoc": [],
             "tkb_nv_by_week": {},
             "tkb_nv": {},
             "lich_tuan_lifecycle": {},
+            "lich_tuan_lifecycle_by_week": {},
         },
     )
-    phan_cong = kv_many["phan_cong"] or {}
+    phan_cong = _phan_cong_cho_tuan(tuan_iso, kv_many)
+    # Fallback bản phẳng CHỈ khi tuần đang hỏi trùng tuần hiện tại (tránh nhãn dối).
+    if not phan_cong and tuan_iso == _tuan_hien_tai():
+        flat = kv_many.get("phan_cong") or {}
+        if isinstance(flat, dict):
+            phan_cong = flat
     ca_meta_fn = _src("list_ca_meta")
     ca_meta: dict[str, Any] = {}
     if ca_meta_fn is not None:
@@ -1589,13 +1628,33 @@ def tool_get_schedule(
             ca_meta = dict(ca_meta_fn() or {})
         except Exception:
             ca_meta = {}
+
+    # «hôm nay» → lọc ca theo ngày VN, không trả cả tuần mơ hồ.
+    if ngay_loc and phan_cong:
+        try:
+            from datetime import date as _date
+
+            d_loc = _date.fromisoformat(ngay_loc)
+            thu_map = {1: "T2", 2: "T3", 3: "T4", 4: "T5", 5: "T6", 6: "T7", 7: "CN"}
+            thu_hom_nay = thu_map.get(d_loc.isoweekday(), "")
+            if thu_hom_nay:
+                phan_cong = {
+                    ca_id: nvs
+                    for ca_id, nvs in phan_cong.items()
+                    if str((ca_meta.get(ca_id) or {}).get("thu") or "") == thu_hom_nay
+                }
+        except ValueError:
+            pass
+
     so_ca = len(phan_cong)
     if not phan_cong:
         return _read_result(
             "GET_SCHEDULE", "tool_get_schedule",
-            {"tuan": tuan_iso, "so_ca": 0, "phan_cong": {}, "co_du_lieu": False},
-            f"Chưa có phân công nào cho tuần {tuan_iso}.",
-            "Đọc KV phan_cong; lịch sẽ xuất hiện sau khi quản lý xếp lịch (solver) và duyệt.",
+            {"tuan": tuan_iso, "so_ca": 0, "phan_cong": {}, "co_du_lieu": False, "ngay": ngay_loc or None},
+            (
+                f"Chưa có phân công nào cho {'hôm nay (' + ngay_loc + ')' if ngay_loc else f'tuần {tuan_iso}'}."
+            ),
+            "Đọc KV phan_cong_by_week[tuan]; lịch sẽ xuất hiện sau khi quản lý xếp lịch (solver) và duyệt.",
         )
 
     # Đếm số ca phân công và tổng hợp nhân sự
@@ -1662,7 +1721,9 @@ def tool_get_schedule(
                 chua_xac_nhan.append(ten)
 
     total_assignments = sum(assigned_counts.values())
-    lifecycle = kv_many["lich_tuan_lifecycle"] or {}
+    life_by_week = kv_many.get("lich_tuan_lifecycle_by_week") or {}
+    week_life = life_by_week.get(tuan_iso) if isinstance(life_by_week, dict) else None
+    lifecycle = week_life if isinstance(week_life, dict) else (kv_many["lich_tuan_lifecycle"] or {})
     trang_thai = lifecycle.get("trang_thai") or _kv_get("lich_tuan_status", "da_duyet" if phan_cong else "nhap")
 
     trang_thai_label = {
@@ -1674,7 +1735,8 @@ def tool_get_schedule(
         "da_dong": "Đã đóng",
     }.get(trang_thai, trang_thai)
 
-    parts = [f"Lịch tuần {tuan_iso} (Trạng thái: {trang_thai_label}): {so_ca} ca đã phân công ({total_assignments} lượt phân công cho {len(da_xep)}/{len(all_nv) if all_nv else len(da_xep)} nhân sự)."]
+    scope = f"hôm nay {ngay_loc}" if ngay_loc else f"tuần {tuan_iso}"
+    parts = [f"Lịch {scope} (Trạng thái: {trang_thai_label}): {so_ca} ca đã phân công ({total_assignments} lượt phân công cho {len(da_xep)}/{len(all_nv) if all_nv else len(da_xep)} nhân sự)."]
     if chua_co_ca:
         parts.append(f"Nhân sự chưa có ca ({len(chua_co_ca)} người): {', '.join(chua_co_ca)}.")
     elif all_nv:
@@ -1686,6 +1748,47 @@ def tool_get_schedule(
         parts.append(f"Nhân sự chưa xác nhận lịch ({len(chua_xac_nhan)} người): {ten_chua_xn}{them}.")
     elif all_nv and da_xep:
         parts.append("Toàn bộ nhân sự đã được xác nhận ca.")
+
+    # Tóm tắt TKB/bận tuần đang hỏi — không chỉ «đã xác nhận».
+    tkb_summary_parts: list[str] = []
+    if isinstance(tkb_nv, dict) and tkb_nv:
+        for nvid, entry in list(tkb_nv.items())[:8]:
+            if not isinstance(entry, dict):
+                continue
+            khoang = entry.get("khoang_ban") or []
+            ten_nv = next(
+                (
+                    str(n.get("ten") or n.get("username") or nvid)
+                    for n in all_nv
+                    if isinstance(n, dict) and str(n.get("id", "")) == str(nvid)
+                ),
+                str(nvid),
+            )
+            if isinstance(khoang, list) and khoang:
+                mo_ta = ", ".join(
+                    f"{k.get('thu')} {k.get('start')}-{k.get('end')}"
+                    for k in khoang[:3]
+                    if isinstance(k, dict)
+                )
+                xung = 0
+                for ca_id, nvs in phan_cong.items():
+                    if str(nvid) not in (nvs if isinstance(nvs, list) else []):
+                        continue
+                    meta = ca_meta.get(ca_id) or {}
+                    for k in khoang:
+                        if not isinstance(k, dict):
+                            continue
+                        if str(k.get("thu") or "") == str(meta.get("thu") or ""):
+                            xung += 1
+                            break
+                bit = f"{ten_nv}: bận {mo_ta}"
+                if xung:
+                    bit += f" (xung đột {xung} ca đã xếp)"
+                tkb_summary_parts.append(bit)
+            else:
+                tkb_summary_parts.append(f"{ten_nv}: đã xác nhận TKB")
+    if tkb_summary_parts:
+        parts.append("Lịch bận/TKB tuần này: " + "; ".join(tkb_summary_parts) + ".")
 
     summary = " ".join(parts)
 
@@ -1706,6 +1809,7 @@ def tool_get_schedule(
         "GET_SCHEDULE", "tool_get_schedule",
         {
             "tuan": tuan_iso,
+            "ngay": ngay_loc or None,
             "so_ca": so_ca,
             "so_luot_phan_cong": total_assignments,
             "trang_thai": trang_thai,
@@ -1714,10 +1818,11 @@ def tool_get_schedule(
             "chua_xac_nhan": chua_xac_nhan,
             "phan_cong": phan_cong,
             "ca": ca_tom_tat,
+            "tkb_tom_tat": tkb_summary_parts,
             "co_du_lieu": True,
         },
         summary,
-        "Đọc KV phan_cong (tenant-scoped) + roster_nv_status + meta ca.",
+        "Đọc KV phan_cong_by_week[tuan] + roster_nv_status + TKB tuần + meta ca.",
     )
 
 
@@ -1733,7 +1838,12 @@ def tool_get_my_shifts(
             "Không xác định được tài khoản của anh/chị.",
             "Thiếu user_id từ session — fail-closed.",
         )
-    phan_cong = _kv_get("phan_cong", {}) or {}
+    tuan = str(kwargs.get("tuan") or _tuan_hien_tai())
+    phan_cong = _phan_cong_cho_tuan(tuan)
+    if not phan_cong and tuan == _tuan_hien_tai():
+        flat = _kv_get("phan_cong", {}) or {}
+        if isinstance(flat, dict):
+            phan_cong = flat
     ca_meta_fn = _src("list_ca_meta")
     ca_meta: dict[str, Any] = {}
     if ca_meta_fn is not None:
@@ -1755,13 +1865,12 @@ def tool_get_my_shifts(
     # Sắp theo thứ trong tuần (T2..CN) rồi giờ bắt đầu cho dễ đọc.
     thu_order = {"T2": 2, "T3": 3, "T4": 4, "T5": 5, "T6": 6, "T7": 7, "CN": 8}
     ca_cua_toi.sort(key=lambda c: (thu_order.get(str(c.get("thu")), 9), str(c.get("bat_dau") or "")))
-    tuan = _tuan_hien_tai()
     if not ca_cua_toi:
         return _read_result(
             "GET_MY_SHIFTS", "tool_get_my_shifts",
             {"nv_id": user_id, "tuan": tuan, "so_ca": 0, "ca": [], "co_du_lieu": False},
             f"Tuần {tuan} anh/chị chưa có ca nào trong lịch.",
-            "Đọc KV phan_cong lọc theo nv_id của session (self-scoped).",
+            "Đọc KV phan_cong_by_week[tuan] lọc theo nv_id của session (self-scoped).",
         )
     mo_ta = ", ".join(
         f"{c.get('thu') or c.get('ca_id')} {c.get('bat_dau') or ''}-{c.get('ket_thuc') or ''}".strip()
@@ -1772,7 +1881,7 @@ def tool_get_my_shifts(
         "GET_MY_SHIFTS", "tool_get_my_shifts",
         {"nv_id": user_id, "tuan": tuan, "so_ca": len(ca_cua_toi), "ca": ca_cua_toi, "co_du_lieu": True},
         f"Tuần {tuan} anh/chị có {len(ca_cua_toi)} ca: {mo_ta}{them}.",
-        "Đọc KV phan_cong lọc theo nv_id của session (self-scoped).",
+        "Đọc KV phan_cong_by_week[tuan] lọc theo nv_id của session (self-scoped).",
     )
 
 
@@ -2418,10 +2527,12 @@ def tool_propose_time_off(
     # Khung giờ ưu tiên từ tham số (intent parser đã tách); nếu không có thì tự
     # parse lại từ câu gốc (đường gọi trực tiếp có raw_message).
     ca_range = (start, end) if (start and end) else _parse_ca_range(raw)
+    tuan_id = str(kwargs.get("tuan_id") or kwargs.get("tuan") or _tuan_hien_tai())
     payload: dict[str, Any] = {
         "snapshot_version": "live-v1",
         "nv_id": user_id,
         "thu": thu,
+        "tuan_id": tuan_id,
         "ly_do": (ly_do or "").strip()[:200] or "bận",
     }
     if ca_range:
@@ -2436,7 +2547,7 @@ def tool_propose_time_off(
         tool_name="tool_propose_time_off",
         intent="PROPOSE_TIME_OFF",
         data=payload,
-        summary=f"Đề xuất ghi nhận: {user_id} bận {muc} (lý do: {payload['ly_do']}).",
+        summary=f"Đề xuất ghi nhận: {user_id} bận {muc} tuần {tuan_id} (lý do: {payload['ly_do']}).",
         explanation="Sau khi quản lý duyệt, ràng buộc áp vào lượt xếp lịch tới — AI không tự sửa lịch.",
         requires_confirmation=True,
         source_snapshot=build_live_snapshot("PROPOSE_TIME_OFF", store_id),

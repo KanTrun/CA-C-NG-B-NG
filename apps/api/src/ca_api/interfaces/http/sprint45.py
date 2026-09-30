@@ -1951,9 +1951,24 @@ def qr_use(
 def _apply_swap_to_assignments(
     *, giver: str, taker: str, ca_id: str, week: str, swap_id: str, actor: str,
 ) -> None:
-    """Cập nhật hoán đổi nhân viên ca làm việc thật trên lịch khi lệnh đổi ca được đồng ý."""
+    """Cập nhật hoán đổi nhân viên ca làm việc thật trên lịch khi lệnh đổi ca được đồng ý.
+
+    Sau khi ghi phân công, luôn ghi nhật ký `lich_thay_doi_by_week` nguồn `doi_ca`
+    — đây là điểm gãy cũ: duyệt đổi ca đổi người thật nhưng panel "ai đổi ca với
+    ai" trên `/lich-tuan` im lặng vì không có bản ghi.
+    """
     if not giver or not taker or not ca_id:
         return
+
+    # Chụp phân công TRƯỚC khi mutate để diff A→B chính xác.
+    by_week_truoc = kv_get("phan_cong_by_week", {})
+    week_truoc_raw = by_week_truoc.get(week, {}) if isinstance(by_week_truoc, dict) else {}
+    truoc: dict[str, list[str]] = {}
+    if isinstance(week_truoc_raw, dict):
+        truoc = {str(k): list(v) if isinstance(v, list) else [] for k, v in week_truoc_raw.items()}
+    elif isinstance(kv_get("phan_cong", {}), dict):
+        flat = kv_get("phan_cong", {})
+        truoc = {str(k): list(v) if isinstance(v, list) else [] for k, v in flat.items()}
 
     def mut_pc(cur: dict[str, Any]) -> dict[str, Any]:
         assigned = list(cur.get(ca_id, []))
@@ -1980,6 +1995,22 @@ def _apply_swap_to_assignments(
         return results
 
     kv_mutate("lich_tuan_results_by_week", mut_results_by_week, {})
+
+    # Diff sau mutate → nhật ký nguồn doi_ca (không để panel lịch tuần trống).
+    try:
+        from ca_api.services.solver_adapter import ghi_nhat_ky_thay_doi
+
+        by_week_sau = kv_get("phan_cong_by_week", {})
+        week_sau_raw = by_week_sau.get(week, {}) if isinstance(by_week_sau, dict) else {}
+        sau: dict[str, list[str]] = {}
+        if isinstance(week_sau_raw, dict):
+            sau = {
+                str(k): list(v) if isinstance(v, list) else []
+                for k, v in week_sau_raw.items()
+            }
+        ghi_nhat_ky_thay_doi(week, sau, nguon="doi_ca", truoc=truoc)
+    except Exception:
+        pass
 
     record_sua(
         loai="doi_ca",
