@@ -185,6 +185,83 @@ def loi_nhuan_them_nhan_su(
     return doanh_thu_tang_them - chi_phi_nhan_su
 
 
+# ── 4.6 Dự báo nhu cầu theo giờ + khoảng tin cậy (Quánverse P1) ──────────────
+#
+# Thuần tất định, không LLM, không IO. Cùng input → cùng output.
+# `None` = chưa có dữ liệu (giữ quy ước số của dự án).
+
+
+def do_tin_cay_tu_so_ngay(so_ngay: int) -> str:
+    """Số ngày lịch sử → nhãn độ tin cậy cho UI."""
+    if so_ngay >= 7:
+        return "cao"
+    if so_ngay >= 3:
+        return "trung_binh"
+    return "thap"
+
+
+def du_bao_nhu_cau_theo_gio(
+    luong_theo_ngay_gio: dict[str, dict[int, int]],
+    khung: list[int],
+) -> list[dict[str, float | int | None]]:
+    """Trung bình + khoảng tin cậy 80% theo giờ từ ma trận ngày×giờ.
+
+    `luong_theo_ngay_gio`: {ngay_iso: {gio: so_don}}.
+    Khoảng 80% xấp xỉ mean ± 1.28·std/√n (n = số ngày có dữ liệu). n<2 → biên
+    = mean (không đủ mẫu để ước lượng phương sai, nói thẳng qua độ tin cậy).
+    """
+    n = len(luong_theo_ngay_gio)
+    out: list[dict[str, float | int | None]] = []
+    for gio in khung:
+        cot = [float(d.get(gio, 0)) for d in luong_theo_ngay_gio.values()]
+        tb = _mean(cot) if cot else 0.0
+        if n >= 2:
+            sd = _stddev(cot)
+            sai_so = 1.28 * sd / math.sqrt(n) if n > 0 else 0.0
+            thap = max(0.0, tb - sai_so)
+            cao = tb + sai_so
+        else:
+            thap, cao = tb, tb
+        out.append(
+            {
+                "gio": gio,
+                "nhu_cau": round(tb, 2),
+                "thap_80": round(thap, 2),
+                "cao_80": round(cao, 2),
+                "hang_doi_du_bao": max(0, round(tb - 2)),
+            }
+        )
+    return out
+
+
+def he_so_ngay_trong_tuan(
+    tong_theo_ngay: dict[str, float],
+) -> dict[int, float]:
+    """Hệ số mùa theo thứ (0=CN..6=T7 theo getDay, đổi về T2..CN).
+
+    Trả {weekday_python 0=T2..6=CN: he_so}. Ngày thiếu → 1.0 (không hiệu chỉnh).
+    """
+    # tong_theo_ngay key là ISO date; suy weekday bằng fromisoformat (thuần).
+    from datetime import date as _date
+
+    theo_thu: dict[int, list[float]] = {}
+    for ngay_iso, tong in tong_theo_ngay.items():
+        try:
+            wd = _date.fromisoformat(ngay_iso[:10]).weekday()
+        except ValueError:
+            continue
+        theo_thu.setdefault(wd, []).append(float(tong))
+    tb_chung = _mean(list(tong_theo_ngay.values())) if tong_theo_ngay else 0.0
+    out: dict[int, float] = {}
+    for wd in range(7):
+        vals = theo_thu.get(wd, [])
+        if not vals or tb_chung == 0:
+            out[wd] = 1.0
+        else:
+            out[wd] = round(_mean(vals) / tb_chung, 3)
+    return out
+
+
 # ── 4.5 Phân rã mùa (Seasonal Decomposition) ─────────────────────────────────
 
 

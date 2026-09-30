@@ -641,6 +641,7 @@
 }
 
 .nq-qvtl__item {
+  position: relative;
   display: grid;
   grid-template-columns: minmax(0, 3.1rem) 12px minmax(0, 1fr);
   align-items: start;
@@ -667,8 +668,16 @@
 .nq-qvtl__item::after {
   content: "";
   position: absolute;
+  left: calc(minmax(0, 3.1rem) + 0.4rem + 4px);
+  left: 3.9rem;
+  top: 1.1rem;
+  bottom: -0.35rem;
   width: 1px;
   background: var(--nq-line);
+}
+
+.nq-qvtl__item:last-child::after {
+  display: none;
 }
 
 .nq-qvtl__item--sap_toi .nq-qvtl__dot { background: var(--nq-accent); }
@@ -1682,4 +1691,199 @@
   .nq-qvzone { transition: none; }
   .nq-qvfocus { animation: none; }
   .nq-qvk__item.is-clickable:hover { transition: none; }
+}
+
+/* ── Quán quân bổ sung: command bar, dự báo mai, war-room lite ──────────── */
+
+.nq-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+.nq-qvcmd {
+  display: grid;
+  gap: 0.45rem;
+  padding: 0.7rem 0.8rem;
+  border: 1px solid color-mix(in srgb, var(--nq-accent) 35%, var(--nq-line));
+  border-radius: var(--nq-radius);
+  background: var(--nq-bg-elevated);
+  min-width: 0;
+}
+
+.nq-qvcmd__row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  align-items: center;
+}
+
+.nq-qvcmd__input {
+  flex: 1 1 min(100%, 16rem);
+  min-width: 0;
+  padding: 0.5rem 0.65rem;
+  border: 1px solid var(--nq-line-strong);
+  border-radius: var(--nq-radius);
+  background: var(--nq-surface);
+  color: var(--nq-ink);
+  font-size: 0.86rem;
+  min-height: 44px;
+}
+
+.nq-qvcmd__input:focus-visible {
+  outline: 2px solid var(--nq-accent);
+  outline-offset: 1px;
+}
+
+.nq-qvcmd__btn {
+  padding: 0.5rem 0.9rem;
+  border: 1px solid var(--nq-accent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--nq-accent) 14%, transparent);
+  color: var(--nq-accent-ink-text);
+  font-size: 0.8rem;
+  font-weight: 700;
+  cursor: pointer;
+  min-height: 44px;
+}
+
+.nq-qvcmd__btn:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+.nq-qvcmd__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+}
+
+.nq-qvcmd__chip {
+  padding: 0.24rem 0.6rem;
+  border: 1px solid var(--nq-line);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--nq-dim);
+  font-size: 0.72rem;
+  cursor: pointer;
+  min-height: 32px;
+}
+
+.nq-qvcmd__chip:hover {
+  border-color: var(--nq-accent);
+  color: var(--nq-ink);
+}
+
+.nq-qvcmd__answer {
+  margin: 0;
+  font-size: 0.86rem;
+  line-height: 1.5;
+  color: var(--nq-ink);
+}
+
+.nq-qvcmd__cite {
+  padding: 0.1rem 0.45rem;
+  border: 1px solid var(--nq-line);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--nq-accent-ink-text, var(--nq-dim));
+  font-size: 0.7rem;
+  cursor: pointer;
+}
+
+.nq-qvcap__conf {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.14rem 0.55rem;
+  border-radius: 999px;
+  border: 1px solid var(--nq-line);
+  font-size: 0.68rem;
+  color: var(--nq-dim);
+}
+
+.nq-qvcap__conf--cao {
+  border-color: color-mix(in srgb, var(--nq-st-ok) 50%, var(--nq-line));
+  color: var(--nq-st-ok-ink);
+}
+
+.nq-qvcap__conf--trung_binh {
+  border-color: color-mix(in srgb, var(--nq-st-warn) 50%, var(--nq-line));
+  color: var(--nq-st-warn-ink-strong, var(--nq-ink));
+}
+
+.nq-qvcap__tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+}
+
+.nq-qvcap__tab {
+  padding: 0.28rem 0.7rem;
+  border: 1px solid var(--nq-line);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--nq-dim);
+  font-size: 0.74rem;
+  font-weight: 600;
+  cursor: pointer;
+  min-height: 36px;
+}
+
+.nq-qvcap__tab.is-on {
+  border-color: var(--nq-accent);
+  color: var(--nq-accent-ink-text);
+  background: color-mix(in srgb, var(--nq-accent) 14%, transparent);
+}
+
+.nq-qvcap__area {
+  fill: color-mix(in srgb, var(--nq-accent) 18%, transparent);
+  stroke: none;
+}
+
+.nq-qvwr {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.nq-qvwr__presets {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+}
+
+.nq-qvwr__preset {
+  padding: 0.34rem 0.7rem;
+  border: 1px solid var(--nq-line-strong);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--nq-ink);
+  font-size: 0.76rem;
+  font-weight: 600;
+  cursor: pointer;
+  min-height: 36px;
+}
+
+.nq-qvwr__preset.is-on {
+  border-color: var(--nq-accent);
+  background: color-mix(in srgb, var(--nq-accent) 14%, transparent);
+  color: var(--nq-accent-ink-text);
+}
+
+.nq-qvwr__result {
+  margin: 0;
+  font-size: 0.8rem;
+  line-height: 1.5;
+  color: var(--nq-ink);
+}
+
+.nq-qv__filtered {
+  outline: 2px dashed var(--nq-accent);
+  outline-offset: 2px;
 }

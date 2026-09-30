@@ -38,7 +38,7 @@ export default function DataSourceBadge({
 }) {
   const loi = provenance.filter((p) => !p.ok);
   const laMock = dataSource === "mock";
-  void scenarioOptions;
+  const luaChon = scenarioOptions.length > 0 ? scenarioOptions : QUANVERSE_SCENARIOS;
 
   return (
     <div className="nq-qvsrc" data-testid="quanverse-source" data-nguon={dataSource}>
@@ -69,7 +69,7 @@ export default function DataSourceBadge({
       {canChooseSource ? (
         <div className="nq-qvsrc__choose" role="group" aria-label="Chọn nguồn dữ liệu">
           <span className="nq-qvsrc__choose-label">Nguồn:</span>
-          {QUANVERSE_SCENARIOS.map((s) => (
+          {luaChon.map((s) => (
             <button
               key={s}
               type="button"
