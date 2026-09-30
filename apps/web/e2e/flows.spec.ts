@@ -21,7 +21,7 @@ test.describe("8 luồng vận hành chính (Quản lý - lan)", () => {
     await loginAs(page, "lan");
   });
 
-  test("1 — đăng nhập → hôm nay", async ({ page }) => {
+  test("1 — đăng nhập → hôm nay @smoke", async ({ page }) => {
     await expect(page.getByRole("heading", { name: /Quán hôm nay/i })).toBeVisible();
   });
 

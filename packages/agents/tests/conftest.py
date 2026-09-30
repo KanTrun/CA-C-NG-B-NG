@@ -2,7 +2,27 @@
 
 from __future__ import annotations
 
+import os
+
 import pytest
+
+try:
+    from hypothesis import HealthCheck, Verbosity, settings
+
+    # Profile CI: hypothesis ~5000 examples → ~50. Đủ bắt bất biến, không đốt
+    # 10 phút runner. Local dev giữ nguyên số mẫu đầy đủ.
+    settings.register_profile(
+        "ci",
+        max_examples=50,
+        derandomize=True,
+        deadline=None,
+        verbosity=Verbosity.quiet,
+        suppress_health_check=list(HealthCheck),
+    )
+    if os.environ.get("CI") == "true":
+        settings.load_profile("ci")
+except ImportError:
+    pass
 
 
 @pytest.fixture(autouse=True)
