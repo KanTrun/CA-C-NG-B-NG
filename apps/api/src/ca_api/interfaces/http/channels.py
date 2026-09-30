@@ -1891,13 +1891,33 @@ class StoreProfileBody(BaseModel):
     """
 
     ten_quan: str = Field(default="", max_length=120)
+    slogan: str = Field(default="", max_length=200)
     dia_chi: str = Field(default="", max_length=300)
+    dia_chi_chi_tiet: str = Field(default="", max_length=200)
+    phuong_xa: str = Field(default="", max_length=80)
+    phuong_xa_code: str = Field(default="", max_length=20)
+    quan_huyen: str = Field(default="", max_length=80)
+    quan_huyen_code: str = Field(default="", max_length=20)
     tinh: str = Field(default="", max_length=80)
+    tinh_code: str = Field(default="", max_length=20)
     thanh_pho: str = Field(default="", max_length=80)
+    toa_do_lat: str = Field(default="", max_length=30)
+    toa_do_lon: str = Field(default="", max_length=30)
+    google_maps_url: str = Field(default="", max_length=500)
     hotline: str = Field(default="", max_length=40)
+    hotline_phu: str = Field(default="", max_length=40)
+    email: str = Field(default="", max_length=120)
+    website: str = Field(default="", max_length=200)
+    fanpage_url: str = Field(default="", max_length=250)
     gio_mo_cua: str = Field(default="", max_length=120)
+    gio_mo_cua_chi_tiet: str = Field(default="", max_length=300)
+    khoang_gia: str = Field(default="", max_length=100)
+    tien_ich: str = Field(default="", max_length=500)
     wifi_ssid: str = Field(default="", max_length=60)
     wifi_pass: str = Field(default="", max_length=60)
+    ngan_hang: str = Field(default="", max_length=100)
+    stk_ngan_hang: str = Field(default="", max_length=60)
+    chu_tai_khoan: str = Field(default="", max_length=120)
     mo_ta: str = Field(default="", max_length=1000)
     chinh_sach_dat_ban: str = Field(default="", max_length=1000)
     huong_dan_agent: str = Field(default="", max_length=4000)
@@ -1938,9 +1958,15 @@ def update_profile(
     sach = {k: _text_sach(v) for k, v in data.model_dump().items()}
     # Hotline: chỉ nhận chữ số và các ký tự ngăn cách thông dụng. Bỏ trống vẫn hợp lệ
     # (quán chưa cấu hình → bot trả "chưa cập nhật", xem ADR-008).
-    hotline = sach["hotline"]
+    hotline = sach.get("hotline", "")
     if hotline and not re.fullmatch(r"[0-9+()\-.\s]{6,40}", hotline):
         raise HTTPException(status_code=422, detail="hotline_khong_hop_le")
+    hotline_phu = sach.get("hotline_phu", "")
+    if hotline_phu and not re.fullmatch(r"[0-9+()\-.\s]{6,40}", hotline_phu):
+        raise HTTPException(status_code=422, detail="hotline_phu_khong_hop_le")
+    email = sach.get("email", "")
+    if email and ("@" not in email or len(email) < 5):
+        raise HTTPException(status_code=422, detail="email_khong_hop_le")
     set_store_profile(sach)
     _audit(role, "store_profile_update", sach)
     return {"ok": True, "profile": get_store_profile()}

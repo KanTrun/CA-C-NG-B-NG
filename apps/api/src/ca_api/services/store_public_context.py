@@ -15,18 +15,43 @@ from ca_api.persist import _conn, init_db, kv_get, kv_set
 # Quản lý/chủ quán nhập thông tin thật tại trang /cau-hinh-quan.
 DEFAULT_STORE_PROFILE: dict[str, Any] = {
     "ten_quan": "",
+    "slogan": "",
     "dia_chi": "",
-    # Tỉnh / thành phố — dùng cho AI FORECAST thời tiết (ưu tiên hơn geocode dia_chi).
+    "dia_chi_chi_tiet": "",
+    # Phường / Xã, Quận / Huyện, Tỉnh / Thành phố chuẩn hóa từ API địa chỉ
+    "phuong_xa": "",
+    "phuong_xa_code": "",
+    "quan_huyen": "",
+    "quan_huyen_code": "",
     "tinh": "",
+    "tinh_code": "",
     "thanh_pho": "",
+    "toa_do_lat": "",
+    "toa_do_lon": "",
+    "google_maps_url": "",
+    # Liên hệ & Kênh truyền thông
     "hotline": "",
+    "hotline_phu": "",
+    "email": "",
+    "website": "",
+    "fanpage_url": "",
+    # Vận hành & Dịch vụ
     "gio_mo_cua": "",
+    "gio_mo_cua_chi_tiet": "",
+    "khoang_gia": "",
+    "tien_ich": "",
+    # Mạng Wifi
     "wifi_ssid": "",
     "wifi_pass": "",
+    # Tài khoản thanh toán / cọc bàn
+    "ngan_hang": "",
+    "stk_ngan_hang": "",
+    "chu_tai_khoan": "",
+    # Giới thiệu & Chính sách
     "mo_ta": "",
     "chinh_sach_dat_ban": "",
     # Hướng dẫn riêng của chủ quán cho AI agent (giọng văn, quy tắc trả lời,
-    # thông tin đặc biụt...) — tự do, không convert, đi thẳng vào prompt.
+    # thông tin đặc biệt...) — tự do, không convert, đi thẳng vào prompt.
     "huong_dan_agent": "",
 }
 
@@ -108,13 +133,36 @@ def format_public_context_for_prompt() -> str:
         else ""
     )
 
+    extra_parts: list[str] = []
+    if profile.get("slogan"):
+        extra_parts.append(f"Slogan: {profile['slogan']}")
+    if profile.get("email"):
+        extra_parts.append(f"Email: {profile['email']}")
+    if profile.get("hotline_phu"):
+        extra_parts.append(f"Hotline phụ: {profile['hotline_phu']}")
+    if profile.get("khoang_gia"):
+        extra_parts.append(f"Khoảng giá: {profile['khoang_gia']}")
+    if profile.get("tien_ich"):
+        extra_parts.append(f"Tiện ích quán: {profile['tien_ich']}")
+    if profile.get("ngan_hang") and profile.get("stk_ngan_hang"):
+        stk_str = f"Thông tin chuyển khoản: Ngân hàng {profile['ngan_hang']} - STK: {profile['stk_ngan_hang']}"
+        if profile.get("chu_tai_khoan"):
+            stk_str += f" (Chủ TK: {profile['chu_tai_khoan']})"
+        extra_parts.append(stk_str)
+    if profile.get("fanpage_url"):
+        extra_parts.append(f"Fanpage/Mạng xã hội: {profile['fanpage_url']}")
+    if profile.get("website"):
+        extra_parts.append(f"Website: {profile['website']}")
+
+    extra_block = ("\n" + "\n".join(extra_parts)) if extra_parts else ""
+
     return f"""=== THÔNG TIN QUÁN (CÔNG KHAI) ===
 {_f("Tên quán", profile.get("ten_quan"))}
 {_f("Địa chỉ", profile.get("dia_chi"))}
 {_f("Hotline", profile.get("hotline"))}
 {_f("Giờ mở cửa", profile.get("gio_mo_cua"))}
 {_f("Wifi", profile.get("wifi_ssid"))}
-{_f("Chính sách đặt bàn", profile.get("chinh_sach_dat_ban"))}
+{_f("Chính sách đặt bàn", profile.get("chinh_sach_dat_ban"))}{extra_block}
 
 === MENU ĐỒ UỐNG HIỆN HÀNH ===
 {chr(10).join(menu_lines) if menu_lines else "Đang cập nhật"}
