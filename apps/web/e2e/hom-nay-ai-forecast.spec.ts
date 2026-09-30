@@ -63,6 +63,10 @@ test.describe("/hom-nay AI FORECAST", () => {
   });
 
   test("empty: GPS + một ô địa chỉ, không bắt điền tỉnh/thành", async ({ page }) => {
+    // Tour onboarding (`.nq-tour-mask`) chặn pointer — tắt trước khi vào trang.
+    await page.addInitScript(() => {
+      localStorage.setItem("nq_onboarding_v1", "1");
+    });
     await page.route("**/api/v1/thoi-tiet/hom-nay**", (route) =>
       route.fulfill({
         status: 200,
