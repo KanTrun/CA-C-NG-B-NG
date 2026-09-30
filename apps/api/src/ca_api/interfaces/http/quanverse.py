@@ -56,6 +56,16 @@ _WINDOW_S = 60.0
 _MAX_REQ = 20
 
 _PREF_KEY = "experience_preferences"
+_MODE_EVENTS_KEY = "experience_mode_events"
+
+_MODE_LABEL_VI: dict[str, str] = {
+    "troi_mua": "Trời mưa",
+    "gio_cao_diem": "Giờ cao điểm",
+    "khach_doan": "Khách đoàn",
+    "thieu_nhan_su": "Thiếu nhân sự",
+    "quan_yen_tinh": "Quán yên tĩnh",
+    "dem_nhac": "Đêm nhạc",
+}
 
 
 def clear_quanverse_state() -> None:
@@ -66,8 +76,51 @@ def clear_quanverse_state() -> None:
         for mode in ExperienceMode:
             kv_set(f"experience_mode_{mode.value}", None)
         kv_set(_PREF_KEY, [])
+        kv_set(_MODE_EVENTS_KEY, [])
     except Exception:
         pass
+
+
+def _append_mode_event(*, mode: str, action: str) -> dict[str, Any]:
+    """Ghi sự kiện chế độ vào kv để snapshot/events list hiện 'vừa làm gì'."""
+    label = _MODE_LABEL_VI.get(mode, mode)
+    if action == "proposed":
+        summary = f"Đã đề xuất bật chế độ {label} — chờ quản lý duyệt."
+    elif action == "confirmed":
+        effect = mode_effect(ExperienceMode(mode)) if mode in {m.value for m in ExperienceMode} else ""
+        summary = f"Đã bật chế độ {label}." + (f" {effect}" if effect else "")
+    elif action == "deactivated":
+        summary = f"Đã tắt chế độ {label}."
+    else:
+        summary = f"Chế độ {label}: {action}."
+    now = datetime.now(UTC)
+    ev: dict[str, Any] = {
+        "event_id": f"mode_{mode}_{action}_{int(now.timestamp() * 1000)}",
+        "event_type": "mode_change",
+        "status": action,
+        "occurred_at": now.isoformat().replace("+00:00", "Z"),
+        "source": "user",
+        "summary": summary,
+        "zone_id": None,
+    }
+    raw = kv_get(_MODE_EVENTS_KEY, [])
+    events = [e for e in (raw if isinstance(raw, list) else []) if isinstance(e, dict)]
+    events.insert(0, ev)
+    kv_set(_MODE_EVENTS_KEY, events[:40])
+    return ev
+
+
+def _mode_events_projections() -> list[PublicEventProjection]:
+    raw = kv_get(_MODE_EVENTS_KEY, [])
+    out: list[PublicEventProjection] = []
+    for e in raw if isinstance(raw, list) else []:
+        if not isinstance(e, dict):
+            continue
+        try:
+            out.append(PublicEventProjection.model_validate(e))
+        except Exception:
+            continue
+    return out
 
 
 @router.post("/api/v1/experience/quanverse/reset")
@@ -164,6 +217,10 @@ def _project_role(role: ExperienceRole) -> dict[str, Any]:
         PublicEventProjection.model_validate({**e, "occurred_at": _event_time(e)})
         for e in data.get("events", [])
     ]
+    # Sự kiện chế độ do người dùng vừa làm (propose/confirm/deactivate) — đầu danh sách.
+    mode_evs = _mode_events_projections()
+    if mode_evs:
+        events = [*mode_evs, *events]
     modes = [ModeProjection.model_validate(m) for m in data.get("modes", [])]
     # Ghi đè trạng thái mode bằng kv (trạng thái thật do người dùng tạo khi replay).
     #
@@ -397,6 +454,7 @@ def quanverse_mode_propose(
             "at": time.time(),
         },
     )
+    ev = _append_mode_event(mode=mode_enum.value, action="proposed")
     return {
         "mode": mode_enum.value,
         "proposal_status": "draft",
@@ -404,6 +462,7 @@ def quanverse_mode_propose(
         "effect": mode_effect(mode_enum),
         "confirmed": False,
         "replayable": True,
+        "events": [ev],
     }
 
 
@@ -424,12 +483,14 @@ def quanverse_mode_confirm(
     # Lưu trạng thái mode qua kv (audit lý tưởng), không đổi lifecycle khác.
     key = f"experience_mode_{mode_enum.value}"
     kv_set(key, {"active": True, "confirmed_by": str(user), "at": time.time()})
+    ev = _append_mode_event(mode=mode_enum.value, action="confirmed")
     return {
         "mode": mode_enum.value,
         "active": True,
         "affected_projections": impacts,
+        "effect": mode_effect(mode_enum),
         "audited": True,
-        "events": [{"event_type": "mode_change", "mode": mode_enum.value, "source": "replay"}],
+        "events": [ev],
     }
 
 
@@ -453,13 +514,15 @@ def quanverse_mode_deactivate(
     key = f"experience_mode_{mode_enum.value}"
     was_active = bool((kv_get(key, None) or {}).get("active"))
     kv_set(key, {"active": False, "deactivated_by": str(user), "at": time.time()})
+    ev = _append_mode_event(mode=mode_enum.value, action="deactivated")
     return {
         "mode": mode_enum.value,
         "active": False,
         "was_active": was_active,
         "affected_projections": mode_affects(mode_enum),
+        "effect": mode_effect(mode_enum),
         "audited": True,
-        "events": [{"event_type": "mode_change", "mode": mode_enum.value, "source": "replay"}],
+        "events": [ev],
     }
 
 

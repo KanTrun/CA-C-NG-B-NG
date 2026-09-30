@@ -79,6 +79,8 @@ interface ForecastTho {
 
 interface ThoiTietTho {
   co_du_lieu?: unknown;
+  can_cau_hinh?: unknown;
+  ly_do?: unknown;
   anh_huong_quan?: {
     tom_tat?: unknown;
     de_xuat_mode?: unknown;
@@ -603,13 +605,31 @@ export class RealQuanverseRepository implements QuanverseRepository {
       forecastBody?.so_ngay_du_lieu,
       mangTho(forecastBody?.giao_dich_nhat),
     );
-    // AI FORECAST — gắn nhãn ảnh hưởng thời tiết (không đổi số nhu cầu).
+    // AI FORECAST — gắn nhãn ảnh hưởng thời tiết + CTA đề xuất chế độ (không đổi số nhu cầu).
     const tt = thoiTiet.data;
     if (tt?.co_du_lieu === true) {
       const tomTat =
         typeof tt.anh_huong_quan?.tom_tat === "string" ? tt.anh_huong_quan.tom_tat.trim() : "";
       const moTa = typeof tt.hien_tai?.mo_ta === "string" ? tt.hien_tai.mo_ta.trim() : "";
       capacity.weatherHint = tomTat || (moTa ? `Điều chỉnh theo thời tiết: ${moTa}` : null);
+      const mode =
+        typeof tt.anh_huong_quan?.de_xuat_mode === "string"
+          ? tt.anh_huong_quan.de_xuat_mode.trim()
+          : "";
+      if (mode) {
+        capacity.weatherSuggestMode = mode;
+        capacity.weatherSuggestModeLabel =
+          typeof tt.anh_huong_quan?.de_xuat_mode_label === "string" &&
+          tt.anh_huong_quan.de_xuat_mode_label.trim()
+            ? tt.anh_huong_quan.de_xuat_mode_label.trim()
+            : mode;
+      }
+    } else if (tt?.can_cau_hinh === true) {
+      capacity.weatherNeedsLocation = true;
+      capacity.weatherHint =
+        typeof tt.ly_do === "string" && tt.ly_do.trim()
+          ? tt.ly_do.trim()
+          : "Chưa có vị trí quán — lấy GPS hoặc nhập địa chỉ để có tín hiệu thời tiết.";
     }
 
     // ── Sự kiện ────────────────────────────────────────────────────────────

@@ -73,9 +73,50 @@ test.describe("QUÁNVERSE cockpit", () => {
       await expect(page.getByTestId("mode-confirm-troi_mua")).toBeVisible({
         timeout: 10_000,
       });
+      await expect(page.getByTestId("mode-checklist-troi_mua")).toBeVisible();
       await page.getByTestId("mode-confirm-troi_mua").click();
       await expect(mode).toHaveAttribute("data-status", "active", { timeout: 10_000 });
+      await expect(page.getByTestId("mode-checklist-troi_mua")).toContainText(
+        /trong nhà|món nóng/i,
+      );
     }
+  });
+
+  test("weather CTA đề xuất Trời mưa khi có de_xuat_mode", async ({ page }) => {
+    await page.route("**/api/v1/thoi-tiet/hom-nay**", (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          co_du_lieu: true,
+          vi_tri: { lat: 10.78, lon: 106.7, nguon: "gps" },
+          hien_tai: { nhiet_do: 28, nhom: "mua", mo_ta: "Mưa vừa" },
+          anh_huong_quan: {
+            tom_tat: "Mưa: cân nhắc chế độ Trời mưa.",
+            de_xuat_mode: "troi_mua",
+            de_xuat_mode_label: "Trời mưa",
+          },
+        }),
+      }),
+    );
+    await page.goto("/quanverse");
+    await expect(page.getByTestId("quanverse-capacity")).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId("capacity-weather-hint")).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId("capacity-weather-propose")).toContainText(/Trời mưa/i);
+
+    // Fixture có thể đã bật troi_mua — tắt trước để CTA đề xuất có chỗ chạy.
+    const offBtn = page.getByTestId("mode-off-troi_mua");
+    if (await offBtn.count()) {
+      await offBtn.click();
+      await expect(page.getByTestId("mode-troi_mua")).toHaveAttribute("data-status", "off", {
+        timeout: 10_000,
+      });
+    }
+    await page.getByTestId("capacity-weather-propose").click();
+    await expect(page.getByTestId("mode-troi_mua")).toHaveAttribute("data-status", "draft", {
+      timeout: 10_000,
+    });
+    await expect(page.getByTestId("mode-checklist-troi_mua")).toBeVisible();
   });
 
   test("capacity peak chọn được giờ", async ({ page }) => {

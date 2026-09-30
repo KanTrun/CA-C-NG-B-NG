@@ -45,6 +45,15 @@ const MOCK_MODE_EFFECT: Record<string, string> = {
   dem_nhac: "Bật lịch nhạc, giữ khu vực sân khấu.",
 };
 
+const MOCK_MODE_AFFECTS: Record<string, string[]> = {
+  troi_mua: ["khu_ngoai_troi", "khach_vao", "den_bao_mua"],
+  gio_cao_diem: ["quay_pha_che", "thu_ngan", "nhan_su"],
+  khach_doan: ["ban_lon", "kho", "dich_vu"],
+  thieu_nhan_su: ["nhan_su", "nang_luc", "crisis"],
+  quan_yen_tinh: ["khong_gian", "den", "nhac"],
+  dem_nhac: ["am_nhac", "khong_gian", "bar"],
+};
+
 /** State modes trong phiên — tách theo instance scenario để demo không lẫn. */
 const mockModeState = new Map<string, { active: boolean; proposalStatus: string }>();
 
@@ -71,7 +80,7 @@ function buildModes(
       proposalStatus: st.proposalStatus,
       status,
       effect: MOCK_MODE_EFFECT[code] ?? "",
-      affectedProjections: [],
+      affectedProjections: MOCK_MODE_AFFECTS[code] ?? [],
     };
   });
   return { modes, canActivate, role };

@@ -1888,12 +1888,16 @@ class StoreProfileBody(BaseModel):
     nhận cả `<script>` trong tên quán, hotline không phải số, và địa chỉ dài
     5.000 ký tự. Ba trường này đều được nhúng vào prompt của bot chăm sóc khách,
     nên rác ở đây thành rác trả lời khách thật.
+
+    `lat`/`lon`: toạ độ GPS quán cho AI FORECAST (không bắt buộc; None = chưa lấy).
     """
 
     ten_quan: str = Field(default="", max_length=120)
     dia_chi: str = Field(default="", max_length=300)
     tinh: str = Field(default="", max_length=80)
     thanh_pho: str = Field(default="", max_length=80)
+    lat: float | None = Field(default=None, ge=-90, le=90)
+    lon: float | None = Field(default=None, ge=-180, le=180)
     hotline: str = Field(default="", max_length=40)
     gio_mo_cua: str = Field(default="", max_length=120)
     wifi_ssid: str = Field(default="", max_length=60)
@@ -1935,14 +1939,20 @@ def update_profile(
     authorization: Annotated[str | None, Header()] = None,
 ) -> dict[str, Any]:
     role = _require_manager(authorization)
-    sach = {k: _text_sach(v) for k, v in data.model_dump().items()}
+    dumped = data.model_dump()
+    sach: dict[str, Any] = {}
+    for k, v in dumped.items():
+        if k in {"lat", "lon"}:
+            sach[k] = float(v) if v is not None else None
+        else:
+            sach[k] = _text_sach(v) if isinstance(v, str) else v
     # Hotline: chỉ nhận chữ số và các ký tự ngăn cách thông dụng. Bỏ trống vẫn hợp lệ
     # (quán chưa cấu hình → bot trả "chưa cập nhật", xem ADR-008).
-    hotline = sach["hotline"]
+    hotline = str(sach.get("hotline") or "")
     if hotline and not re.fullmatch(r"[0-9+()\-.\s]{6,40}", hotline):
         raise HTTPException(status_code=422, detail="hotline_khong_hop_le")
     set_store_profile(sach)
-    _audit(role, "store_profile_update", sach)
+    _audit(role, "store_profile_update", {**sach, "lat": sach.get("lat"), "lon": sach.get("lon")})
     return {"ok": True, "profile": get_store_profile()}
 
 

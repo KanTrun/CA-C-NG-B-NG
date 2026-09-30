@@ -1,10 +1,11 @@
-"""AI FORECAST — thời tiết hôm nay theo địa chỉ quán (Open-Meteo).
+"""AI FORECAST — thời tiết hôm nay theo vị trí quán (Open-Meteo).
 
 Lớp này cung cấp tín hiệu thời tiết THẬT (không bịa) cho `/hom-nay` và
 Quánverse. Số liệu khí tượng lấy từ Open-Meteo (không cần API key — khớp mục
 10.3 hồ sơ tổng thể). Ảnh hưởng quán là quy tắc TẤT ĐỊNH, không gọi LLM.
 
-Khi quán chưa cấu hình địa chỉ / tỉnh / thành phố → `co_du_lieu: false`.
+Vị trí: ưu tiên lat/lon GPS đã lưu trên hồ sơ quán; nếu không có thì geocode
+từ địa chỉ / tỉnh / thành. Khi chưa có GPS lẫn địa chỉ → `co_du_lieu: false`.
 Không fallback sang thành phố giả (ADR-008).
 """
 
@@ -82,28 +83,57 @@ def _http_get_json(url: str) -> dict[str, Any] | None:
         return None
 
 
+def _parse_coord(value: Any, *, lo: float, hi: float) -> float | None:
+    """Đọc lat/lon từ profile; None nếu thiếu hoặc ngoài khoảng."""
+    if value is None or value == "":
+        return None
+    try:
+        n = float(value)
+    except (TypeError, ValueError):
+        return None
+    if n < lo or n > hi:
+        return None
+    return n
+
+
 def resolve_vi_tri(profile: dict[str, Any] | None = None) -> dict[str, Any] | None:
-    """Geocode vị trí quán từ tinh/thanh_pho hoặc dia_chi.
+    """Xác định vị trí quán: GPS (lat/lon) ưu tiên, rồi geocode địa chỉ/tỉnh.
 
     Trả dict `{thanh_pho, tinh, lat, lon, nguon}` hoặc `None` khi thiếu dữ liệu.
-    Thử nhiều query (tỉnh → thành+tỉnh → địa chỉ) vì Open-Meteo có thể không
-    nhận "Quận 1, Hồ Chí Minh" trong khi nhận "Hồ Chí Minh".
+    Không fallback thành phố giả (ADR-008).
     """
     p = profile if isinstance(profile, dict) else get_store_profile()
     thanh_pho = str(p.get("thanh_pho") or "").strip()
     tinh = str(p.get("tinh") or "").strip()
     dia_chi = str(p.get("dia_chi") or "").strip()
 
+    gps_lat = _parse_coord(p.get("lat"), lo=-90.0, hi=90.0)
+    gps_lon = _parse_coord(p.get("lon"), lo=-180.0, hi=180.0)
+    if gps_lat is not None and gps_lon is not None:
+        return {
+            "thanh_pho": thanh_pho,
+            "tinh": tinh,
+            "lat": round(gps_lat, 4),
+            "lon": round(gps_lon, 4),
+            "nguon": "gps",
+            "query": f"{gps_lat},{gps_lon}",
+        }
+
+    # Geocode: địa chỉ một dòng trước, rồi tỉnh/thành (tương thích profile cũ).
     candidates: list[tuple[str, str]] = []
+    if dia_chi:
+        q = (
+            f"{dia_chi}, Việt Nam"
+            if "việt" not in dia_chi.lower() and "vietnam" not in dia_chi.lower()
+            else dia_chi
+        )
+        candidates.append((q, "dia_chi"))
     if tinh:
         candidates.append((f"{tinh}, Việt Nam", "tinh_thanh"))
     if thanh_pho and tinh:
         candidates.append((f"{thanh_pho}, {tinh}, Việt Nam", "tinh_thanh"))
     if thanh_pho and not tinh:
         candidates.append((f"{thanh_pho}, Việt Nam", "tinh_thanh"))
-    if dia_chi:
-        q = f"{dia_chi}, Việt Nam" if "việt" not in dia_chi.lower() and "vietnam" not in dia_chi.lower() else dia_chi
-        candidates.append((q, "dia_chi"))
     if not candidates:
         return None
 
@@ -392,16 +422,20 @@ def get_thoi_tiet_hom_nay(*, store_id: str = "quan_01", force_refresh: bool = Fa
     thanh_pho = str(profile.get("thanh_pho") or "").strip()
     tinh = str(profile.get("tinh") or "").strip()
     dia_chi = str(profile.get("dia_chi") or "").strip()
-    if not (thanh_pho or tinh or dia_chi):
+    has_gps = (
+        _parse_coord(profile.get("lat"), lo=-90.0, hi=90.0) is not None
+        and _parse_coord(profile.get("lon"), lo=-180.0, hi=180.0) is not None
+    )
+    if not (has_gps or thanh_pho or tinh or dia_chi):
         return _empty(
-            ly_do="Chưa cấu hình địa chỉ quán. Vào Cấu hình quán để điền tỉnh/thành hoặc địa chỉ.",
+            ly_do="Chưa có vị trí quán. Lấy vị trí GPS hoặc nhập một địa chỉ.",
             can_cau_hinh=True,
         )
 
     vi_tri = resolve_vi_tri(profile)
     if not vi_tri:
         return _empty(
-            ly_do="Không xác định được vị trí từ địa chỉ quán. Kiểm tra lại tỉnh/thành hoặc địa chỉ.",
+            ly_do="Không xác định được vị trí từ GPS hoặc địa chỉ. Thử lấy lại vị trí hoặc sửa địa chỉ.",
             can_cau_hinh=True,
         )
 
