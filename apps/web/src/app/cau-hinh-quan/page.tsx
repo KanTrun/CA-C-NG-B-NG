@@ -398,6 +398,9 @@ export default function CauHinhQuanPage() {
           lon,
           toa_do_lat: String(lat),
           toa_do_lon: String(lon),
+          // Xoá nhãn tỉnh/thành cũ — thời tiết reverse-geocode từ GPS.
+          tinh: "",
+          thanh_pho: "",
         }));
         setGpsMsg("Đã lấy vị trí GPS. Bấm Lưu thông tin quán để áp dụng cho thời tiết.");
         setGpsBusy(false);

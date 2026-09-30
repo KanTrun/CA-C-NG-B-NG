@@ -25,8 +25,9 @@ log = logging.getLogger("ca_api.thoi_tiet")
 
 _VN_TZ = timezone(timedelta(hours=7))
 _CACHE_TTL_S = 20 * 60  # 20 phút
-_CACHE_KEY = "thoi_tiet_hom_nay_cache"
+_CACHE_KEY = "thoi_tiet_hom_nay_cache_v2"  # v2: GPS reverse-geocode nhãn theo toạ độ
 _GEOCODE_URL = "https://geocoding-api.open-meteo.com/v1/search"
+_REVERSE_URL = "https://nominatim.openstreetmap.org/reverse"
 _FORECAST_URL = "https://api.open-meteo.com/v1/forecast"
 _HTTP_TIMEOUT_S = 8
 
@@ -73,7 +74,10 @@ def weather_group(code: int | None) -> tuple[str, str]:
 
 def _http_get_json(url: str) -> dict[str, Any] | None:
     try:
-        req = urllib.request.Request(url, headers={"User-Agent": "NhipQuan/1.0 (thoi-tiet)"})
+        req = urllib.request.Request(
+            url,
+            headers={"User-Agent": "NhipQuan/1.0 (thoi-tiet; contact=ops@nhipquan.local)"},
+        )
         with urllib.request.urlopen(req, timeout=_HTTP_TIMEOUT_S) as resp:  # noqa: S310
             raw = resp.read().decode("utf-8")
         data = json.loads(raw)
@@ -96,11 +100,68 @@ def _parse_coord(value: Any, *, lo: float, hi: float) -> float | None:
     return n
 
 
+def _reverse_geocode(lat: float, lon: float) -> dict[str, str] | None:
+    """Nominatim reverse → tên địa phương theo toạ độ GPS thật.
+
+    Không dùng tỉnh/thành đã lưu trên hồ sơ (có thể lệch / cũ / placeholder).
+    """
+    qs = urllib.parse.urlencode(
+        {
+            "lat": f"{lat:.6f}",
+            "lon": f"{lon:.6f}",
+            "format": "jsonv2",
+            "accept-language": "vi",
+            "zoom": 12,
+            "addressdetails": 1,
+        }
+    )
+    data = _http_get_json(f"{_REVERSE_URL}?{qs}")
+    if not data:
+        return None
+    addr_raw = data.get("address")
+    addr: dict[str, Any] = addr_raw if isinstance(addr_raw, dict) else {}
+
+    def _pick(*keys: str) -> str:
+        for k in keys:
+            v = str(addr.get(k) or "").strip()
+            if v:
+                return v
+        return ""
+
+    # VN: city/state thường là tỉnh-TP; suburb/city_district/quarter là quận/huyện.
+    tinh = _pick("state", "province", "city", "region")
+    thanh_pho = _pick(
+        "city_district",
+        "suburb",
+        "quarter",
+        "municipality",
+        "town",
+        "village",
+        "county",
+        "city",
+    )
+    # Tránh lặp "Hồ Chí Minh, Hồ Chí Minh".
+    if thanh_pho and tinh and thanh_pho.casefold() == tinh.casefold():
+        thanh_pho = ""
+    if not thanh_pho and not tinh:
+        display = str(data.get("display_name") or "").strip()
+        if display:
+            # Lấy 2 phần đầu của display_name làm nhãn thô.
+            parts = [p.strip() for p in display.split(",") if p.strip()]
+            thanh_pho = parts[0] if parts else ""
+            tinh = parts[1] if len(parts) > 1 else ""
+    if not thanh_pho and not tinh:
+        return None
+    return {"thanh_pho": thanh_pho, "tinh": tinh}
+
+
 def resolve_vi_tri(profile: dict[str, Any] | None = None) -> dict[str, Any] | None:
     """Xác định vị trí quán: GPS (lat/lon) ưu tiên, rồi geocode địa chỉ/tỉnh.
 
     Trả dict `{thanh_pho, tinh, lat, lon, nguon}` hoặc `None` khi thiếu dữ liệu.
     Không fallback thành phố giả (ADR-008).
+    Khi có GPS: reverse-geocode để lấy tên đúng theo toạ độ — KHÔNG lấy nhãn
+    tỉnh/thành cũ trên hồ sơ (tránh hiện "Hà Nội" trong khi GPS ở chỗ khác).
     """
     p = profile if isinstance(profile, dict) else get_store_profile()
     thanh_pho = str(p.get("thanh_pho") or "").strip()
@@ -110,9 +171,10 @@ def resolve_vi_tri(profile: dict[str, Any] | None = None) -> dict[str, Any] | No
     gps_lat = _parse_coord(p.get("lat"), lo=-90.0, hi=90.0)
     gps_lon = _parse_coord(p.get("lon"), lo=-180.0, hi=180.0)
     if gps_lat is not None and gps_lon is not None:
+        rev = _reverse_geocode(gps_lat, gps_lon)
         return {
-            "thanh_pho": thanh_pho,
-            "tinh": tinh,
+            "thanh_pho": (rev or {}).get("thanh_pho") or "",
+            "tinh": (rev or {}).get("tinh") or "",
             "lat": round(gps_lat, 4),
             "lon": round(gps_lon, 4),
             "nguon": "gps",
