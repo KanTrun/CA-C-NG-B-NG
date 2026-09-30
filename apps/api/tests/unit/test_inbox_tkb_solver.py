@@ -133,11 +133,17 @@ def test_duyet_xin_nghi_co_ca_chi_chan_dung_ca_do(monkeypatch: pytest.MonkeyPatc
         if m.get("thu") == "T5" and m.get("bat_dau") != "07:00"
     ]
     assert ca_sang_t5, "fixture phải có ca sáng T5 để kiểm tra"
+    assert ca_khac_t5, "fixture phải có ca khác T5 để kiểm tra"
     for ca_id in ca_sang_t5:
         assert "nv_01" not in phan.get(ca_id, []), f"nv_01 vẫn bị xếp ca sáng T5 {ca_id} dù đã bận!"
-    # Điểm mấu chốt: nv_01 VẪN còn khả dụng cho ca khác trong ngày T5 —
-    # không bị xoá cả ngày như trước.
-    assert any("nv_01" in phan.get(ca_id, []) for ca_id in ca_khac_t5), (
+    # Điểm mấu chốt: nv_01 VẪN còn khả dụng cho ca khác trong ngày T5.
+    # Không kỳ vọng CP-SAT "tình cờ" chọn nv_01 (pool fixture đủ người →
+    # hay bỏ qua) — pin tường minh một ca khác T5; nếu nghỉ cả ngày thì pin fail.
+    target = ca_khac_t5[0]
+    sol_pin = _run_solver("2026-W01", extra_pin=(target, "nv_01"))
+    assert sol_pin["ok"] is True
+    phan_pin = kv_get("phan_cong", {})
+    assert "nv_01" in phan_pin.get(target, []), (
         "nv_01 bị xoá khỏi MỌI ca T5 — bận 1 ca không được thành nghỉ cả ngày"
     )
 
