@@ -110,6 +110,13 @@ export default function CapacityForecast({
               {capacity.peaks.map((h) => `${String(h).padStart(2, "0")}:00`).join(", ")}
             </p>
           ) : null}
+
+          {capacity.weatherHint ? (
+            <p className="nq-qvcap__weather" data-testid="capacity-weather-hint">
+              <NguonChip>AI Forecast</NguonChip>
+              <span>{capacity.weatherHint}</span>
+            </p>
+          ) : null}
         </>
       )}
     </Card>

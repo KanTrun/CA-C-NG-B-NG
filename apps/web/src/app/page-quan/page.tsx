@@ -76,6 +76,8 @@ type Draft = {
 type StoreProfile = {
   ten_quan: string;
   dia_chi: string;
+  tinh?: string;
+  thanh_pho?: string;
   hotline: string;
   gio_mo_cua: string;
   wifi_ssid?: string;

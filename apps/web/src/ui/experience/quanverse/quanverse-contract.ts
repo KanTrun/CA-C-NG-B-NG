@@ -161,6 +161,11 @@ export interface QuanverseCapacity {
   daysOfData: number | null;
   /** Các giờ cao điểm theo dữ liệu. */
   peaks: number[];
+  /**
+   * Gợi ý điều chỉnh theo thời tiết (AI FORECAST). Không đổi số nhu cầu —
+   * chỉ nhãn để người đọc biết tín hiệu môi trường. `null` khi chưa có thời tiết.
+   */
+  weatherHint: string | null;
 }
 
 // ── G. AI COPILOT ──────────────────────────────────────────────────────────

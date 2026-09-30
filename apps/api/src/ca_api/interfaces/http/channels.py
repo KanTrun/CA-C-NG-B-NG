@@ -1878,6 +1878,8 @@ class StoreProfileBody(BaseModel):
 
     ten_quan: str = Field(default="", max_length=120)
     dia_chi: str = Field(default="", max_length=300)
+    tinh: str = Field(default="", max_length=80)
+    thanh_pho: str = Field(default="", max_length=80)
     hotline: str = Field(default="", max_length=40)
     gio_mo_cua: str = Field(default="", max_length=120)
     wifi_ssid: str = Field(default="", max_length=60)

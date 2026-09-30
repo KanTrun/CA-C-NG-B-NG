@@ -163,6 +163,8 @@ EXCLUDED_ROUTES: dict[str, str] = {
     "/api/v1/lich/ics": "R0: xuất ICS qua UI /roster",
     "/api/v1/lich/xlsx": "R0: xuất Excel qua UI /lich-tuan",
     "/api/v1/lich/pdf": "R0: xuất PDF qua UI /lich-tuan",
+    "/api/v1/hom-nay": "R0: bảng hôm nay qua UI /hom-nay",
+    "/api/v1/thoi-tiet/hom-nay": "AI FORECAST thời tiết hôm nay qua UI /hom-nay + brief Quánverse",
     "/api/v1/audit": "R0: audit qua UI /vet",
     # ── Mail / profile — deep-link /toi ──
     "/api/v1/mail/send": "R2: gửi mail qua UI (Copilot SEND_MAIL đã phủ chat)",

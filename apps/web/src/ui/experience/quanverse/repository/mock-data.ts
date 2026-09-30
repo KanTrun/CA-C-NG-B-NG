@@ -107,6 +107,7 @@ function capacity(points: Array<[number, number]>, daysOfData: number | null): Q
     hasHistory: true,
     daysOfData,
     peaks: mapped.filter((p) => p.demand === dinh).map((p) => p.hour),
+    weatherHint: null,
   };
 }
 

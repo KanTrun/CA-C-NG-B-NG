@@ -734,6 +734,19 @@
   color: var(--nq-dim);
 }
 
+.nq-qvcap__weather {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 0.5rem;
+  margin: var(--nq-s3) 0 0;
+  padding-top: var(--nq-s3);
+  border-top: 1px solid var(--nq-line);
+  font-size: 0.85rem;
+  color: var(--nq-ink);
+  line-height: 1.4;
+}
+
 /* ── G. AI Copilot ────────────────────────────────────────────────────────── */
 
 .nq-qvai {
