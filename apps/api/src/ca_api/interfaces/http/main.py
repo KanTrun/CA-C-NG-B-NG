@@ -95,6 +95,7 @@ from ca_api.interfaces.http.spatial_memory import router as spatial_memory_route
 from ca_api.interfaces.http.sprint3 import router as sprint3_router
 from ca_api.interfaces.http.sprint45 import _SHARED_ALLOWED
 from ca_api.interfaces.http.sprint45 import router as sprint45_router
+from ca_api.interfaces.http.thoi_tiet import router as thoi_tiet_router
 from ca_api.interfaces.http.trends import router as trends_router
 from ca_api.interfaces.http.war_room import router as war_room_router
 from ca_api.nhan_vien import list_nhan_vien_ops
@@ -320,6 +321,7 @@ async def broadcast_successful_mutation(request: Request, call_next: Any) -> Any
 
 app.include_router(sprint3_router)
 app.include_router(sprint45_router)
+app.include_router(thoi_tiet_router)
 app.include_router(hao_hut_router)
 app.include_router(channels_router)
 app.include_router(copilot_router)

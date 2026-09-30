@@ -78,7 +78,12 @@ export type IconName =
   | "external-link"
   | "star"
   | "mail-open"
-  | "paperclip";
+  | "paperclip"
+  | "sun"
+  | "cloud"
+  | "cloud-sun"
+  | "storm"
+  | "fog";
 
 const PATHS: Record<IconName, ReactNode> = {
   attachment: <path d="m20.5 11.5-8.9 8.9a6 6 0 0 1-8.5-8.5l9.4-9.4a4 4 0 0 1 5.7 5.7l-9.4 9.4a2 2 0 0 1-2.8-2.8l8.8-8.8" />,
@@ -296,6 +301,35 @@ const PATHS: Record<IconName, ReactNode> = {
       <path d="M4 17a8 8 0 1 1 16 0" />
       <path d="m12 14.5 4-3.5" />
       <circle cx="12" cy="15.5" r="1.4" />
+    </>
+  ),
+  // AI FORECAST — thời tiết
+  sun: (
+    <>
+      <circle cx="12" cy="12" r="4" />
+      <path d="M12 2.5v2.2M12 19.3v2.2M2.5 12h2.2M19.3 12h2.2M5.1 5.1l1.6 1.6M17.3 17.3l1.6 1.6M5.1 18.9l1.6-1.6M17.3 6.7l1.6-1.6" />
+    </>
+  ),
+  cloud: (
+    <path d="M17.5 9.5a4 4 0 0 0-7.6-1.6A3.2 3.2 0 0 0 6 14.8h11a2.8 2.8 0 0 0 .5-5.3Z" />
+  ),
+  "cloud-sun": (
+    <>
+      <path d="M12 4.5v1.4M5.8 6.3l1 1M4.5 12.5H5.9" />
+      <circle cx="9.2" cy="9.8" r="2.6" />
+      <path d="M17.6 11.2a3.4 3.4 0 0 0-6.4-1.2A2.8 2.8 0 0 0 8 14.8h9.2a2.4 2.4 0 0 0 .4-3.6Z" />
+    </>
+  ),
+  storm: (
+    <>
+      <path d="M17.5 9.5a4 4 0 0 0-7.6-1.6A3.2 3.2 0 0 0 6 14.8h11a2.8 2.8 0 0 0 .5-5.3Z" />
+      <path d="m11 15 2 2.5h-2.5L13 21" />
+    </>
+  ),
+  fog: (
+    <>
+      <path d="M5 10h14M4 13.5h16M6 17h12" />
+      <path d="M8 7.5a3 3 0 0 1 5.5-1.2A2.6 2.6 0 0 1 17.5 9" />
     </>
   ),
 };

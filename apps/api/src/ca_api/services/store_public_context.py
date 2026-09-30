@@ -16,6 +16,9 @@ from ca_api.persist import _conn, init_db, kv_get, kv_set
 DEFAULT_STORE_PROFILE: dict[str, Any] = {
     "ten_quan": "",
     "dia_chi": "",
+    # Tỉnh / thành phố — dùng cho AI FORECAST thời tiết (ưu tiên hơn geocode dia_chi).
+    "tinh": "",
+    "thanh_pho": "",
     "hotline": "",
     "gio_mo_cua": "",
     "wifi_ssid": "",
