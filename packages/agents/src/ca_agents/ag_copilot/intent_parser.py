@@ -548,19 +548,17 @@ def _add_week(d: Any, n: int = 1) -> Any:
 
 
 def _ngay_hom_nay_vn(active_date: Any | None = None) -> str:
-    """Ngày hôm nay theo giờ VN (UTC+7) — hoặc active_date nếu context gắn sẵn."""
+    """Ngày hôm nay theo giờ VN (UTC+7) — hoặc active_date nếu context gắn sẵn.
+
+    Tự tính UTC+7 tại chỗ: không import `ag_waste` (kiến trúc agent không gọi agent).
+    """
     from datetime import date, datetime, timedelta, timezone
 
     if isinstance(active_date, date) and not isinstance(active_date, datetime):
         # Context test gắn active_date tường minh → tôn trọng, không lệch TZ.
         return active_date.isoformat()
-    try:
-        from ca_agents.ag_waste import ngay_hom_nay
-
-        return ngay_hom_nay()
-    except Exception:
-        vn = timezone(timedelta(hours=7))
-        return datetime.now(vn).date().isoformat()
+    vn = timezone(timedelta(hours=7))
+    return datetime.now(vn).date().isoformat()
 
 
 def _tuan_tuong_doi(lower: str, active_date: Any) -> dict[str, Any] | None:

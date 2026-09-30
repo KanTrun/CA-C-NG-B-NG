@@ -199,9 +199,9 @@ def staff_on_shift(store_id: str = "quan_01") -> dict[str, Any]:
             nguoi = []
         count += len(nguoi)
         for nv_id in nguoi:
-            ten = ten_theo_id.get(str(nv_id))
-            if ten:
-                names.add(ten)
+            ten_nv = ten_theo_id.get(str(nv_id))
+            if ten_nv:
+                names.add(ten_nv)
         shift_label = f"{meta.get('bat_dau') or ''}–{meta.get('ket_thuc') or ''}"
 
     co_ca = shift_label is not None
