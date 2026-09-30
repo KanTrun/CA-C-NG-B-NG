@@ -3,9 +3,8 @@
 /**
  * QUÁNVERSE — B. EXECUTIVE SNAPSHOT: sáu KPI đọc trong một lần liếc.
  *
- * QUY ƯỚC SỐ: `value === null` ⇒ "—" + "Chưa có dữ liệu". KHÔNG bao giờ hiện
- * "0" cho dữ liệu vắng mặt — đó là điểm khác biệt giữa "quán rảnh" và "chưa
- * biết gì". Mọi con số đi qua `formatSo` nên không chỗ nào tự nối chuỗi số.
+ * KPI alerts/queue/upcoming bấm được → focus zone nóng hoặc panel tương ứng.
+ * `value === null` ⇒ "—" — không bao giờ hiện "0" giả.
  */
 
 import {
@@ -13,44 +12,58 @@ import {
   type QuanverseKpi,
   formatSo,
 } from "../quanverse-contract";
-import { Card } from "./kit";
 
 export default function ExecutiveSnapshot({
   kpis,
+  onKpiClick,
 }: {
   kpis: readonly QuanverseKpi[];
+  onKpiClick?: (key: QuanverseKpi["key"]) => void;
 }) {
   return (
     <ul className="nq-qvk" data-testid="quanverse-kpis">
-      {kpis.map((k) => (
-        <li
-          key={k.key}
-          className={`nq-qvk__item nq-qvk__item--${k.tone}`}
-          data-kpi={k.key}
-          data-co-du-lieu={k.value === null ? "0" : "1"}
-        >
-          <span className="nq-qvk__num" data-testid={`kpi-${k.key}`}>
-            {formatSo(k.value, { unit: k.unit })}
-          </span>
-          <span className="nq-qvk__label">{k.label}</span>
-          <span className="nq-qvk__source">
-            {k.value === null ? CHUA_CO_DU_LIEU : k.source}
-          </span>
-        </li>
-      ))}
+      {kpis.map((k) => {
+        const clickable =
+          !!onKpiClick &&
+          (k.key === "alerts" || k.key === "queue" || k.key === "upcoming");
+        return (
+          <li
+            key={k.key}
+            className={`nq-qvk__item nq-qvk__item--${k.tone}${
+              clickable ? " is-clickable" : ""
+            }`}
+            data-kpi={k.key}
+            data-co-du-lieu={k.value === null ? "0" : "1"}
+          >
+            {clickable ? (
+              <button
+                type="button"
+                className="nq-qvk__btn"
+                data-testid={`kpi-btn-${k.key}`}
+                onClick={() => onKpiClick?.(k.key)}
+              >
+                <span className="nq-qvk__num" data-testid={`kpi-${k.key}`}>
+                  {formatSo(k.value, { unit: k.unit })}
+                </span>
+                <span className="nq-qvk__label">{k.label}</span>
+                <span className="nq-qvk__source">
+                  {k.value === null ? CHUA_CO_DU_LIEU : k.source}
+                </span>
+              </button>
+            ) : (
+              <div className="nq-qvk__btn">
+                <span className="nq-qvk__num" data-testid={`kpi-${k.key}`}>
+                  {formatSo(k.value, { unit: k.unit })}
+                </span>
+                <span className="nq-qvk__label">{k.label}</span>
+                <span className="nq-qvk__source">
+                  {k.value === null ? CHUA_CO_DU_LIEU : k.source}
+                </span>
+              </div>
+            )}
+          </li>
+        );
+      })}
     </ul>
-  );
-}
-
-/** Bọc KPI trong một thẻ có tiêu đề — dùng khi cần nhấn KPI là khối riêng. */
-export function ExecutiveSnapshotCard({
-  kpis,
-}: {
-  kpis: readonly QuanverseKpi[];
-}) {
-  return (
-    <Card label="Tình hình chung">
-      <ExecutiveSnapshot kpis={kpis} />
-    </Card>
   );
 }
