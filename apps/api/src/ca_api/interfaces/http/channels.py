@@ -73,6 +73,7 @@ from ca_api.ai_learning.operations import circuit_breaker_open
 from ca_api.ai_learning.repository import AILearningRepository
 from ca_api.ai_learning.rollout import select_active_rules
 from ca_api.interfaces.http.sprint3 import (
+    _current_iso_week,
     _known_nv,
     _nv_from_token,
     _phan_cong,
@@ -360,7 +361,17 @@ def process_inbound(msg: InboundMessage, *, reply_backend: str | None = None) ->
     except Exception:
         pass
 
-    r = classify(text, mode=agent_mode(), staff=staff_list if staff_list else None)
+    # `base_iso_week` BẮT BUỘC: thiếu nó, "tuần sau" được tính từ mốc mặc định
+    # cứng "2026-W01" trong `ag_msg.extract` → mọi tin nhắn kênh (Zalo/Telegram/
+    # Facebook) báo bận cho tuần tới đều bị ghi vào tuần SAI (vd 2026-W02), nên
+    # lượt xếp lịch thật của tuần tới không hề thấy ràng buộc. Đường web
+    # (`/api/v1/msg/classify`) đã truyền mốc này từ trước; kênh tin thì chưa.
+    r = classify(
+        text,
+        mode=agent_mode(),
+        staff=staff_list if staff_list else None,
+        base_iso_week=_current_iso_week(),
+    )
     if not should_enqueue_constraint(text, r.intent, r.do_tin_cay):
         sent = port.send(
             msg.external_user_id,

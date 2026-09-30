@@ -81,6 +81,14 @@ def clear_spatial_state() -> None:
 
 
 def _rate_limit(user_id: str) -> None:
+    import os
+
+    if os.environ.get("NHIPQUAN_DISABLE_RATE_LIMIT", "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+    }:
+        return
     now = time.time()
     with _LOCK:
         recent = [t for t in _USER_TS.get(user_id, []) if now - t < _WINDOW_S]
@@ -283,7 +291,19 @@ def voice_turn(
     body: VoiceTurnRequest,
     authorization: Annotated[str | None, Header()] = None,
 ) -> dict[str, Any]:
-    """Một lượt voice — grounded answer hoặc proposal. Không bao giờ mutate."""
+    """Một lượt voice — grounded answer hoặc proposal (draft, chờ consent).
+
+    "Không mutate" nghĩa là KHÔNG ghi thẳng confirmed memory và không đổi trạng
+    thái ký ức có sẵn — điều đó vẫn đúng. Nhưng bản trước trả proposal xong rồi
+    bỏ đó: draft KHÔNG được lưu vào kho, nên nó không bao giờ xuất hiện ở "Chờ
+    quyết định" của neo, quản lý không có gì để duyệt, reload là mất. Người dùng
+    được hứa "chờ quản lý xác nhận" trong khi không tồn tại bản ghi nào để xác
+    nhận — hợp đồng UI/API gãy giữa chừng.
+
+    Nay lưu draft y hệt `memory_propose` (status=draft, consent=required) —
+    vẫn fail-closed: draft không được retrieve cho answer, chỉ hiện trong
+    danh sách chờ duyệt, và chỉ thành confirmed khi qua `/memories/{id}/consent`.
+    """
     role = _role_of(authorization)
     _rate_limit(str(role))
     repo = _get_repo()
@@ -295,18 +315,33 @@ def voice_turn(
     )
     mems = retrieve_filtered(repo, q)
     ctx = GroundingContext(memories=mems)
-    # "Nhớ điều này..." → đề xuất memory
+    # "Nhớ điều này..." → đề xuất memory (draft chờ duyệt)
     proposal: MemoryProposal | None = None
     is_remember = body.transcript.lower().startswith(("nhớ điều này", "nhớ")) and len(body.transcript) > 15
     if is_remember and body.anchor_id:
-        proposal = MemoryProposal(
-            proposal_id=f"vp_{int(time.time()*1000)}",
-            anchor_id=body.anchor_id,
-            content=body.transcript.replace("nhớ điều này", "").strip(),
-            owner_scope=f"staff_{body.requester_id}",
-            proposed_by=body.requester_id,
-            snapshot_hash="snap_20260918_spatial_001",
-        )
+        content = body.transcript.replace("nhớ điều này", "").strip(" :")
+        if content:
+            proposal = MemoryProposal(
+                proposal_id=f"vp_{int(time.time()*1000)}",
+                anchor_id=body.anchor_id,
+                content=content,
+                owner_scope=f"staff_{body.requester_id}",
+                proposed_by=body.requester_id,
+                snapshot_hash="snap_20260918_spatial_001",
+            )
+            repo.add_memory(
+                ExperienceMemory(
+                    memory_id=f"mem_prop_{proposal.proposal_id}",
+                    anchor_id=proposal.anchor_id,
+                    owner_scope=proposal.owner_scope,
+                    content=proposal.content,
+                    source_event_ids=proposal.source_event_ids,
+                    consent_status=MemoryConsentStatus.REQUIRED,
+                    visibility=MemoryVisibility(proposal.visibility),
+                    status=MemoryStatus.DRAFT,
+                    created_by=proposal.proposed_by,
+                )
+            )
 
     # Query mặc định nếu không phải "nhớ"
     answer = build_grounded_answer(body.transcript, ctx, proposal=proposal)

@@ -4,17 +4,17 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ApiError } from "../../../lib/api";
-import { getToken } from "../../../lib/session";
 import { viError } from "../../../lib/present";
-import { AuthGate } from "../../../ui/kit";
+import { getToken } from "../../../lib/session";
 import { ExpEmpty, ExpSkeleton } from "../../../ui/experience/exp-kit";
-import { Icon } from "../../../ui/icons";
-import SpatialMap from "../../../ui/experience/spatial/SpatialMap";
-import SpatialAnchorDetails from "../../../ui/experience/spatial/SpatialAnchorDetails";
-import VoiceDock from "../../../ui/experience/spatial/VoiceDock";
-import TourGuide from "../../../ui/experience/spatial/TourGuide";
 import PageAssistant from "../../../ui/experience/quanverse/PageAssistant";
+import SpatialAnchorDetails from "../../../ui/experience/spatial/SpatialAnchorDetails";
+import SpatialMap from "../../../ui/experience/spatial/SpatialMap";
 import type { Anchor2D } from "../../../ui/experience/spatial/SpatialMap2dFallback";
+import TourGuide from "../../../ui/experience/spatial/TourGuide";
+import VoiceDock from "../../../ui/experience/spatial/VoiceDock";
+import { Icon } from "../../../ui/icons";
+import { AuthGate } from "../../../ui/kit";
 
 const COPY = { read: { doing: "tải được bản đồ không gian quán" } } as const;
 
@@ -117,6 +117,17 @@ export default function SpatialMemoryPage() {
     [anchors, selectedId],
   );
 
+  /**
+   * Một hành động ở KHU VỰC KHÁC trên trang đổi kho ký ức (vd VoiceDock tạo
+   * draft mới) → tăng tín hiệu này. Khung chi tiết neo và số đếm ký ức cùng
+   * nạp lại, nên "Chờ quyết định" luôn phản ánh đúng kho hiện tại.
+   */
+  const [detailRev, setDetailRev] = useState(0);
+  const refreshAfterRemember = useCallback(() => {
+    setDetailRev((r) => r + 1);
+    setRev((r) => r + 1);
+  }, []);
+
   if (!ready) return <ExpSkeleton rows={6} />;
   if (!token) return <AuthGate />;
   // Chờ đọc xong danh sách neo trước khi vẽ. Nếu không, nhánh `anchors.length === 0`
@@ -169,6 +180,7 @@ export default function SpatialMemoryPage() {
                 anchorId={selectedId}
                 anchorLabel={selectedLabel}
                 onChanged={() => setRev((r) => r + 1)}
+                refreshSignal={detailRev}
               />
             ) : null}
             <TourGuide anchorLabels={anchors} onFocusAnchor={setSelectedId} />
@@ -179,7 +191,7 @@ export default function SpatialMemoryPage() {
       {/* Trợ lý Quánverse: neo nào còn trống ký ức, ghi nhớ gì tiếp theo. */}
       <PageAssistant page="spatial_memory" />
 
-      <VoiceDock anchorId={selectedId} />
+      <VoiceDock anchorId={selectedId} onRemembered={refreshAfterRemember} />
     </div>
   );
 }

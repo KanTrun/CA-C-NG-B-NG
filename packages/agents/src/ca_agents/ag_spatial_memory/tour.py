@@ -30,7 +30,7 @@ _TOURS: dict[str, list[tuple[str, str]]] = {
         ("entrance", "Cửa vào — tắt biển và khoá cửa"),
     ],
     "tour_kho": [
-        ("storage", "Kho nguyên liệu — kiểm tồn theo mã hàng"),
+        ("stockroom", "Kho nguyên liệu — kiểm tồn theo mã hàng"),
         ("bar", "Quầy pha chế — đối chiếu tiêu thụ với tồn"),
         ("espresso-machine-01", "Máy pha cà phê — chuẩn lượng hạt mỗi ly"),
     ],

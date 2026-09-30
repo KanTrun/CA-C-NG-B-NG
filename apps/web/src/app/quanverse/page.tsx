@@ -11,7 +11,7 @@
  * không tự lọc lại; mọi mã nội bộ đi qua bảng nhãn `exp-present`.
  */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ApiError } from "../../lib/api";
 import { getRole, getToken } from "../../lib/session";
 import { formatLuc, viError } from "../../lib/present";
@@ -64,8 +64,60 @@ export default function QuanversePage() {
   const [selectedZone, setSelectedZone] = useState<string | null>(null);
   const [busyMode, setBusyMode] = useState(false);
   const [canActivateMode, setCanActivateMode] = useState(false);
+  /**
+   * Máy chủ có thật sự cho đổi vai trò xem không (`null` = chưa biết).
+   *
+   * `replay_role` chỉ được tôn trọng khi bật chế độ demo/replay; production
+   * luôn dùng vai từ token. Không có cờ này thì thanh chọn vai trò vẫn sáng ở
+   * production: người dùng bấm "Khách", nút sáng lên, nhưng dữ liệu vẫn là bản
+   * chiếu quản lý — UI nói dối đúng chỗ người dùng dùng để KIỂM TRA quyền.
+   */
+  const [replayAllowed, setReplayAllowed] = useState<boolean | null>(null);
+  /**
+   * Chốt "máy chủ đã bỏ qua `replay_role`" — MỘT CHIỀU, không bao giờ mở lại.
+   *
+   * Vì sao cần chốt riêng: khi phát hiện lệch vai, ta đồng bộ `setRole(body.role)`
+   * để nút đang sáng khớp dữ liệu. Lần gọi kế tiếp sẽ có `body.role === forRole`
+   * (vì đã đồng bộ) và nhánh "khớp" tưởng nhầm là replay hoạt động → bật lại nút
+   * → người dùng bấm tiếp → lệch lại. Cờ nhấp nháy giữa hai trạng thái. Chốt
+   * một chiều cắt vòng đó: đã biết máy chủ bỏ qua thì giữ nguyên kết luận.
+   */
+  const replayLockedRef = useRef(false);
 
   const base = process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8000";
+
+  /**
+   * Dò xem máy chủ có tôn trọng `replay_role` không — chạy NGAY khi tải trang.
+   *
+   * Vì sao không đợi người dùng bấm mới biết: nếu chỉ suy từ phản hồi của lần
+   * bấm đầu, người dùng đã thấy một thanh nút bấm được (lời hứa sai) rồi mới
+   * thấy nó biến mất. Dò trước bằng cách hỏi một vai KHÁC vai phiên: lệch nghĩa
+   * là chế độ replay đang tắt. Chỉ so vai, không dùng dữ liệu trả về — nên không
+   * tốn gì thêm và không đổi bản chiếu đang hiển thị.
+   */
+  const probeReplay = useCallback(
+    async (sessionRole: string) => {
+      const other = ALL_ROLES.find((r) => r !== sessionRole);
+      if (!other) return;
+      try {
+        const res = await fetch(
+          `${base}/api/v1/experience/quanverse/snapshot?replay_role=${other}`,
+          { headers: token ? { Authorization: `Bearer ${token}` } : {} },
+        );
+        if (!res.ok) return;
+        const body = (await res.json()) as { role?: string };
+        if (body.role && body.role !== other) {
+          replayLockedRef.current = true;
+          setReplayAllowed(false);
+        } else {
+          setReplayAllowed(true);
+        }
+      } catch {
+        // Không dò được thì để `null` — thanh vai trò giữ nguyên, không kết luận.
+      }
+    },
+    [base, token],
+  );
 
   useEffect(() => {
     setToken(getToken());
@@ -82,7 +134,17 @@ export default function QuanversePage() {
         headers: token ? { Authorization: `Bearer ${token}` } : {},
       });
       if (!res.ok) throw new ApiError(res.status);
-      setSnap((await res.json()) as LiveSnapshotUI);
+      const body = (await res.json()) as LiveSnapshotUI;
+      setSnap(body);
+      // Máy chủ là nguồn sự thật về vai trò. Lệch nghĩa là `replay_role` đã bị
+      // bỏ qua (production) → chốt lại và đồng bộ nút đang sáng.
+      if (body.role !== forRole) {
+        replayLockedRef.current = true;
+        setReplayAllowed(false);
+        setRole(body.role);
+      } else if (!replayLockedRef.current) {
+        setReplayAllowed(true);
+      }
     } catch (e) {
       setError(viError(e, COPY.snapshot));
     }
@@ -101,12 +163,15 @@ export default function QuanversePage() {
         headers: token ? { Authorization: `Bearer ${token}` } : {},
       });
       if (!res.ok) return;
-      const body = (await res.json()) as { can_activate?: boolean };
+      const body = (await res.json()) as { can_activate?: boolean; role?: string };
       setCanActivateMode(Boolean(body.can_activate));
+      // Vai PHIÊN do máy chủ trả — dùng để dò xem `replay_role` có được tôn
+      // trọng không (xem `probeReplay`).
+      if (body.role) void probeReplay(body.role);
     } catch {
       setCanActivateMode(false);
     }
-  }, [base, token]);
+  }, [base, token, probeReplay]);
 
   useEffect(() => {
     if (token && ready) {
@@ -202,25 +267,46 @@ export default function QuanversePage() {
         </div>
       ) : null}
 
-      {/* Chuyển bản chiếu theo vai trò — vai trò đang xem được đánh dấu rõ */}
+      {/* Chuyển bản chiếu theo vai trò — vai trò đang xem được đánh dấu rõ.
+          Ở production máy chủ bỏ qua `replay_role` (vai lấy từ token), nên
+          thanh này phải NÓI THẬT: hoặc là công cụ xem thử hoạt động, hoặc là
+          chỉ báo "đang xem bản chiếu của bạn". Nút bấm được mà không đổi gì là
+          lời hứa sai — người dùng dùng đúng chỗ này để kiểm tra phân quyền. */}
       <div className="nq-rolebar" role="group" aria-label="Chọn vai trò xem">
-        {ALL_ROLES.map((r) => (
-          <button
-            key={r}
-            type="button"
-            className={`nq-rolebtn${role === r ? " is-on" : ""}`}
-            data-testid={`role-${r}`}
-            aria-pressed={role === r}
-            onClick={() => setRole(r)}
-          >
-            {ROLE_NAME[r]}
-          </button>
-        ))}
+        {replayAllowed === false ? (
+          <span className="nq-rolechip nq-rolechip--locked" data-testid="role-locked">
+            <Icon name="user" size={13} />
+            Đang xem bản chiếu theo quyền của bạn
+          </span>
+        ) : (
+          <>
+            {ALL_ROLES.map((r) => (
+              <button
+                key={r}
+                type="button"
+                className={`nq-rolebtn${role === r ? " is-on" : ""}`}
+                data-testid={`role-${r}`}
+                aria-pressed={role === r}
+                onClick={() => setRole(r)}
+              >
+                {ROLE_NAME[r]}
+              </button>
+            ))}
+          </>
+        )}
         <span className="nq-rolechip">
           <Icon name="refresh" size={13} />
           Bản chiếu trực tiếp
         </span>
       </div>
+
+      {replayAllowed === false ? (
+        <p className="nq-quanverse__hint" data-testid="role-locked-note">
+          <Icon name="info" size={14} />
+          Môi trường này dùng vai trò từ phiên đăng nhập nên không đổi bản chiếu
+          được. Muốn xem bốn bản chiếu, chạy ở chế độ diễn tập.
+        </p>
+      ) : null}
 
       {!snap ? (
         <ExpSkeleton rows={6} grid />
@@ -254,7 +340,14 @@ export default function QuanversePage() {
             <ul className="nq-quality" aria-label="Chất lượng dữ liệu">
               {quality.map((q) => (
                 <li key={q.code} className={`nq-quality__item nq-quality__item--${q.level}`}>
-                  <Icon name={q.level === "info" ? "info" : "warn"} size={14} />
+                  {/* Icon theo MỨC, không phải nhị phân info/còn-lại: mức "warning"
+                      trước đây rơi vào nhánh `warn` nên hiện đúng, nhưng nếu thêm
+                      mức mới (vd "danger") thì lại thành cảnh báo — nay chỉ `info`
+                      và `ok` mới là icon thông tin. */}
+                  <Icon
+                    name={q.level === "info" || q.level === "ok" ? "info" : "warn"}
+                    size={14}
+                  />
                   <strong>{dataQualityLevelLabel(q.level)}</strong>
                   <span>{dataQualityLabel(q.code)}</span>
                   {/* Câu giải thích đầy đủ của máy chủ. Trước đây chỉ hiện nhãn

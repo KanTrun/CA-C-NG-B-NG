@@ -7,10 +7,16 @@
  * đồng thuận và đường xoá nhưng không UI nào gọi. Bản này nối đủ ba hành động
  * nghiệp vụ — đồng ý, từ chối, xoá — và làm mới số đếm ở trang cha sau mỗi lần
  * đổi, để cột 3D và danh sách không lệch nhau.
+ *
+ * Kèm form đề xuất ký ức mới cho neo đang mở: endpoint `/memories/propose`
+ * đã có sẵn từ Phase 05 nhưng trước giờ không UI nào gọi — người dùng muốn ghi
+ * nhớ điều gì đó thì phải gõ đúng câu "nhớ điều này…" vào hộp voice. Nay bấm
+ * được luôn tại neo, kết quả là draft chờ duyệt (không ghi thẳng confirmed).
  */
 
-import { useCallback, useEffect, useState } from "react";
+import { FormEvent, useCallback, useEffect, useState } from "react";
 import { ApiError, apiSend } from "../../../lib/api";
+import { getNvId } from "../../../lib/session";
 import { viError } from "../../../lib/present";
 import { Icon } from "../../icons";
 import { ExpEmpty } from "../exp-kit";
@@ -36,6 +42,17 @@ interface Props {
   /** Nhãn đọc được của neo — dùng khi bản đồ chưa kịp nạp chi tiết. */
   anchorLabel?: string;
   onChanged?: () => void;
+  /**
+   * Tín hiệu tăng dần từ trang cha — đổi giá trị là effect tải nạp lại.
+   *
+   * Vì sao cần: trang cha không có cách nào bảo chi tiết neo "nạp lại đi" —
+   * `onChanged` chỉ là cha→con callback lúc con tự đổi. Khi VoiceDock ở cuối
+   * trang tạo draft mới, số đếm ở khối 3D đổi nhưng khung chi tiết neo vẫn
+   * giữ snapshot cũ → draft "chờ quyết định" không hiện, quản lý tưởng đề
+   * xuất bị mất. Truyền tín hiệu xuống là cách đơn giản nhất không đổi kiến
+   * trúc data-flow một chiều.
+   */
+  refreshSignal?: number;
 }
 
 const KIND_LABEL: Record<string, string> = {
@@ -49,9 +66,18 @@ const COPY = {
   read: { doing: "đọc được ký ức của khu vực này" },
   decide: { doing: "đổi đồng thuận cho ký ức này" },
   remove: { doing: "xoá ký ức này" },
+  propose: { doing: "đề xuất ghi nhớ cho khu vực này" },
 } as const;
 
-export default function SpatialAnchorDetails({ anchorId, anchorLabel, onChanged }: Props) {
+/** Đề xuất phải có nội dung thật — không cho nội dung rỗng tạo draft rác. */
+const MIN_CONTENT_LEN = 3;
+
+export default function SpatialAnchorDetails({
+  anchorId,
+  anchorLabel,
+  onChanged,
+  refreshSignal,
+}: Props) {
   const [data, setData] = useState<AnchorDetail | null>(null);
   /** Lỗi tải giữ nguyên đối tượng để `viError` đọc được mã HTTP. */
   const [loadError, setLoadError] = useState<unknown>(null);
@@ -60,6 +86,9 @@ export default function SpatialAnchorDetails({ anchorId, anchorLabel, onChanged 
   const [notice, setNotice] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [rev, setRev] = useState(0);
+  /** Nội dung form đề xuất ký ức mới cho neo đang mở. */
+  const [draftContent, setDraftContent] = useState("");
+  const [proposing, setProposing] = useState(false);
 
   const base = process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8000";
   const token =
@@ -88,7 +117,7 @@ export default function SpatialAnchorDetails({ anchorId, anchorLabel, onChanged 
     return () => {
       cancelled = true;
     };
-  }, [base, anchorId, tokenStr, rev]);
+  }, [base, anchorId, tokenStr, rev, refreshSignal]);
 
   /** Cấp hoặc thu hồi đồng thuận — quyết định của người có quyền, có ghi vết. */
   const decide = useCallback(
@@ -131,6 +160,49 @@ export default function SpatialAnchorDetails({ anchorId, anchorLabel, onChanged 
       }
     },
     [onChanged],
+  );
+
+  /**
+   * Đề xuất ký ức mới cho neo đang mở — tạo draft chờ duyệt.
+   *
+   * `proposal_id` sinh ở client để mỗi lần bấm là một bản ghi riêng; API dùng
+   * nó ghép thành `memory_id` nên trùng nhau thì ghi đè lên draft cũ.
+   */
+  const propose = useCallback(
+    async (event: FormEvent) => {
+      event.preventDefault();
+      const content = draftContent.trim();
+      if (content.length < MIN_CONTENT_LEN) return;
+      if (proposing) return;
+      setProposing(true);
+      setNotice(null);
+      setActionError(null);
+      try {
+        await apiSend(
+          `/api/v1/experience/memories/propose`,
+          {
+            proposal_id: `dash_${anchorId}_${Date.now()}`,
+            anchor_id: anchorId,
+            content,
+            owner_scope: "staff_quan",
+            visibility: "staff",
+            proposed_by: getNvId() || "dashboard",
+            source_event_ids: [],
+            snapshot_hash: "snap_20260918_spatial_001",
+          },
+          "POST",
+        );
+        setNotice("Đã ghi đề xuất — chờ quyết định duyệt ở phần trên.");
+        setDraftContent("");
+        setRev((r) => r + 1);
+        onChanged?.();
+      } catch (e) {
+        setActionError(viError(e, COPY.propose));
+      } finally {
+        setProposing(false);
+      }
+    },
+    [anchorId, draftContent, proposing, onChanged],
   );
 
   if (loadError && !data) {
@@ -228,6 +300,30 @@ export default function SpatialAnchorDetails({ anchorId, anchorLabel, onChanged 
           ))}
         </ul>
       )}
+
+      {/* Đề xuất ký ức mới ngay tại neo — endpoint `/memories/propose` đã có
+          từ Phase 05 nhưng không UI nào gọi; trước giờ muốn ghi nhớ chỉ có
+          đường gõ câu "nhớ điều này…" vào hộp voice. */}
+      <form className="nq-mempropose" data-testid="memory-propose-form" onSubmit={(e) => void propose(e)}>
+        <input
+          type="text"
+          value={draftContent}
+          data-testid="memory-propose-input"
+          onChange={(e) => setDraftContent(e.target.value)}
+          maxLength={200}
+          placeholder="Điều đáng nhớ ở khu vực này — ví dụ: khách quen hay gọi ít ngọt"
+          aria-label={`Đề xuất ký ức cho ${data.anchor.label}`}
+        />
+        <button
+          type="submit"
+          className="nq-btn-compact nq-modebtn"
+          data-testid="memory-propose-send"
+          disabled={proposing || draftContent.trim().length < MIN_CONTENT_LEN}
+        >
+          <Icon name="pin" size={14} />
+          {proposing ? "Đang gửi…" : "Đề xuất ghi nhớ"}
+        </button>
+      </form>
 
       <h4 className="nq-anchor__subhead">
         Ký ức đã xác nhận

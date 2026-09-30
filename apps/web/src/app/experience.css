@@ -547,11 +547,16 @@
   font-size: 0.82rem; color: var(--nq-dim);
 }
 .nq-quality__item strong { color: var(--nq-fg); font-weight: 600; }
-.nq-quality__item--warn, .nq-quality__item--error {
+/* `warning` là giá trị hợp lệ của hợp đồng `DataQualityNotice.level` — thiếu
+   selector này thì cảnh báo mức "warning" hiện y hệt mức "info" (viền xanh,
+   nền accent) và người dùng không phân biệt được cảnh báo với ghi chú. */
+.nq-quality__item--warn, .nq-quality__item--warning, .nq-quality__item--error {
   border-left-color: var(--nq-warn);
   background: color-mix(in srgb, var(--nq-warn) 12%, transparent);
 }
-.nq-quality__item--warn .nq-icon, .nq-quality__item--error .nq-icon { color: var(--nq-warn); }
+.nq-quality__item--warn .nq-icon,
+.nq-quality__item--warning .nq-icon,
+.nq-quality__item--error .nq-icon { color: var(--nq-warn); }
 
 /* Thanh chọn vai trò */
 .nq-rolebar {
@@ -583,6 +588,14 @@
   box-shadow: 0 4px 16px var(--nq-accent-glow);
 }
 .nq-rolebar .nq-rolechip { display: inline-flex; align-items: center; gap: 0.3rem; }
+/* Nhãn "đang xem bản chiếu theo quyền của bạn": vai trò bị KHOÁ bởi phiên đăng
+   nhập, không phải một lựa chọn đang bật. Dùng kiểu chữ thường + viền nét đứt
+   để không giống nút bấm được (nút đang bật có nền accent đặc). */
+.nq-rolechip--locked {
+  border-style: dashed;
+  color: var(--nq-fg);
+  font-weight: 600;
+}
 @media (max-width: 560px) {
   .nq-rolebar { width: 100%; }
   .nq-rolebtn { flex: 1 1 auto; }
@@ -1274,6 +1287,24 @@
 }
 .nq-memlist__content { margin: 0; line-height: 1.5; font-size: 0.92rem; }
 .nq-memlist__actions { display: flex; gap: var(--nq-s2); flex-wrap: wrap; align-items: center; }
+
+/* Form đề xuất ký ức ngay tại neo — cùng nhịp thị giác với memlist. */
+.nq-mempropose {
+  display: flex; gap: var(--nq-s2); align-items: center;
+  margin: 0; padding: var(--nq-s2) 0;
+}
+.nq-mempropose input {
+  flex: 1; min-width: 0;
+  background: var(--nq-bg-elevated);
+  border: 1px solid var(--nq-line);
+  border-radius: var(--nq-radius);
+  color: var(--nq-text);
+  padding: 0.45rem 0.7rem; font-size: 0.9rem;
+}
+.nq-mempropose input::placeholder { color: var(--nq-dim); }
+.nq-mempropose input:focus-visible {
+  outline: 2px solid var(--nq-accent); outline-offset: 1px;
+}
 
 .nq-timeline__remove {
   margin-left: auto; display: inline-flex; align-items: center;

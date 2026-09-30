@@ -349,10 +349,21 @@ def _life(tuan_iso: str | None = None, *, store_id: str = "quan_01") -> dict[str
     return {"tuan_iso": _tuan_hien_tai_iso(), "trang_thai": "may_sinh", "nguon": "quan"}
 
 
-def _save_life(doc: dict[str, Any], *, store_id: str = "quan_01") -> None:
+def _save_life(
+    doc: dict[str, Any],
+    *,
+    store_id: str = "quan_01",
+    dong_bo_toan_cuc: bool = True,
+) -> None:
     # Ghi CẢ HAI khóa: mới là nguồn sự thật, cũ giữ đồng bộ cho tiến trình
     # còn đọc chưa nâng cấp (đọc soft ở trên tự bỏ qua khi mới tồn tại).
-    if store_id == "quan_01":
+    #
+    # `dong_bo_toan_cuc=False` khi ghi trạng thái cho một tuần KHÁC tuần đang
+    # làm việc: khoá toàn cục là con trỏ "tuần hiện tại" mà nhiều màn hình đọc
+    # ngầm định, gán nó sang tuần khác sẽ khiến luồng nhận/nhả ca và công bố
+    # lịch nhảy tuần. Bản theo tuần (`lich_tuan_lifecycle_by_week`) mới là chỗ
+    # đúng để lưu trạng thái của tuần đích.
+    if store_id == "quan_01" and dong_bo_toan_cuc:
         kv_set("lich_tuan_lifecycle", doc)
         kv_set("lifecycle", doc)
     week = str(doc.get("tuan_iso") or _tuan_hien_tai_iso())
@@ -1178,7 +1189,25 @@ def _decide_inbox_item(
         and found.get("hieu_luc", {}).get("loai") == "rang_buoc_cho_solver"
     ):
         life = _life(store_id=store_id)
-        current_state = str(life.get("trang_thai") or "may_sinh")
+        rb = found.get("rang_buoc") or {}
+        # Cổng khoá phải xét trạng thái của TUẦN ĐÍCH, không phải tuần đang làm
+        # việc. Trường hợp thật: lịch tuần này đã công bố, nhân viên nhắn báo bận
+        # cho TUẦN SAU (còn nháp) — xét tuần hiện tại sẽ trả LIFECYCLE_LOCKED và
+        # AI không bao giờ xếp lại tuần đích, dù tuần đó hoàn toàn được phép.
+        tuan_hien_tai = str(life.get("tuan_iso") or "")
+        week = str(rb.get("tuan_id") or tuan_hien_tai or "2026-W01")
+        if week == tuan_hien_tai:
+            life_tuan_dich = life
+            dong_bo_toan_cuc = True
+        else:
+            life_tuan_dich = _life(week, store_id=store_id)
+            dong_bo_toan_cuc = False
+        # Neo khoá tuần trước khi lưu: `_save_life` suy ra khoá ghi
+        # `lich_tuan_lifecycle_by_week` từ `doc["tuan_iso"]`; thiếu nó thì bản
+        # ghi rơi vào tuần hiện tại của đồng hồ, tức trạng thái `cho_duyet` của
+        # tuần đích bị ghi nhầm chỗ.
+        life_tuan_dich["tuan_iso"] = week
+        current_state = str(life_tuan_dich.get("trang_thai") or "may_sinh")
         if current_state in {"da_duyet", "da_cong_bo", "da_dong"}:
             solver_result = {
                 "ok": False,
@@ -1189,8 +1218,6 @@ def _decide_inbox_item(
         else:
             # Đi qua application service authoritative để mọi trigger dùng chung
             # một đường CP-SAT (schedule_run/fingerprint/audit/open_shift).
-            rb = found.get("rang_buoc") or {}
-            week = str(rb.get("tuan_id") or life.get("tuan_iso") or "2026-W01")
             try:
                 authoritative = run_authoritative_schedule(
                     store_id=store_id,
@@ -1210,12 +1237,16 @@ def _decide_inbox_item(
                     "detail": "khong_the_chay_solver",
                 }
             if solver_result.get("ok"):
-                life["trang_thai"] = "cho_duyet"
-                life["solver"] = solver_result
-                life["schedule_run_id"] = solver_result.get("schedule_run_id")
-                life["cap_nhat_luc"] = _clock.now_iso()
-                life["cap_nhat_boi"] = role
-                _save_life(life, store_id=store_id)
+                life_tuan_dich["trang_thai"] = "cho_duyet"
+                life_tuan_dich["solver"] = solver_result
+                life_tuan_dich["schedule_run_id"] = solver_result.get("schedule_run_id")
+                life_tuan_dich["cap_nhat_luc"] = _clock.now_iso()
+                life_tuan_dich["cap_nhat_boi"] = role
+                _save_life(
+                    life_tuan_dich,
+                    store_id=store_id,
+                    dong_bo_toan_cuc=dong_bo_toan_cuc,
+                )
         response["tu_dong_xep_lich"] = solver_result
         _audit(
             "inbox_auto_schedule",

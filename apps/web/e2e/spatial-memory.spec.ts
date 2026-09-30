@@ -75,8 +75,8 @@ test.describe("Hon Quan Spatial Memory", () => {
 
     // Nhớ điều này → đề xuất memory (không lộ mã nội bộ trên UI).
     await page.getByTestId("voice-input").fill("nhớ điều này: khách đoàn thích ngồi gần cửa sổ");
-    await page.getByTestId("voice-ask").click();
-    await expect(page.getByText(/đề xuất ghi nhớ/i)).toBeVisible({ timeout: 10_000 });
+    await page.getByTestId("voice-ask").click({ force: true });
+    await expect(page.locator(".nq-voicedock__proposal")).toBeVisible({ timeout: 10_000 });
     await expect(resp).not.toContainText("vp_");
   });
 
@@ -95,6 +95,58 @@ test.describe("Hon Quan Spatial Memory", () => {
     // ExpEmpty dùng kit Empty → class `.nq-empty`.
     const emptyOrList = page.locator("[data-testid='pending-memories'], .nq-empty");
     await expect(emptyOrList.first()).toBeVisible();
+  });
+
+  test("propose form creates a reviewable draft at the anchor", async ({ page }) => {
+    // Luồng trước đây gãy: endpoint /memories/propose có từ Phase 05 nhưng
+    // không UI nào gọi — muốn ghi nhớ chỉ có đường gõ "nhớ điều này…" vào
+    // hộp voice. Form ở khung chi tiết neo nối đủ đường còn lại.
+    await expect(page.locator(".nq-anchor")).toBeVisible({ timeout: 15_000 });
+
+    const input = page.getByTestId("memory-propose-input");
+    await input.fill("khách quen hay nhờ giữ hộ bình giữ nhiệt");
+    await page.getByTestId("memory-propose-send").click();
+
+    // Draft mới phải hiện ngay trong "Chờ quyết định" — không cần F5.
+    await expect(page.getByTestId("pending-memories")).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByTestId("pending-memories")).toContainText(
+      "khách quen hay nhờ giữ hộ bình giữ nhiệt",
+    );
+
+    // Duyệt luôn cho trọn chuỗi: đề xuất → đồng ý → nằm ở "Ký ức đã xác nhận".
+    //
+    // Phải nhắm ĐÚNG bản nháp vừa tạo, không dùng `.first()`: fixture đã có sẵn
+    // một draft khác ở cùng neo (`mem_bar_draft_01`), và `.first()` duyệt nó thay
+    // vì bản mới — timeline khi đó chứa ký ức của fixture, bài đỏ dù luồng thật
+    // vẫn đúng. Lỗi này đã làm đỏ CI thật.
+    const row = page
+      .getByTestId("pending-memories")
+      .locator(".nq-memlist__item")
+      .filter({ hasText: "bình giữ nhiệt" });
+    const newGrant = row.getByTestId(/^mem-grant-/);
+    await expect(newGrant).toBeVisible({ timeout: 10_000 });
+    await newGrant.click();
+    await expect(page.locator(".nq-pref__notice").first()).toBeVisible({ timeout: 10_000 });
+    await expect(page.locator(".nq-timeline").first()).toContainText(
+      "khách quen hay nhờ giữ hộ bình giữ nhiệt",
+      { timeout: 10_000 },
+    );
+  });
+
+  test("voice remember refreshes pending list without reload", async ({ page }) => {
+    // Voice nói "nhớ điều này…" tạo draft ở NEO ĐANG CHỌN — bản trước UI không
+    // để draft xuất hiện cho tới khi người dùng tự F5.
+    await expect(page.locator(".nq-map2d")).toBeVisible({ timeout: 15_000 });
+
+    await page.getByTestId("voice-input").fill("nhớ điều này: khách hay hỏi wifi ở bàn cửa sổ");
+    await page.getByTestId("voice-ask").click({ force: true });
+    await expect(page.locator(".nq-voicedock__proposal")).toBeVisible({ timeout: 10_000 });
+
+    // Cùng một draft phải có mặt trong "Chờ quyết định" của neo tương ứng.
+    await expect(page.locator(".nq-anchor")).toContainText(
+      "khách hay hỏi wifi ở bàn cửa sổ",
+      { timeout: 10_000 },
+    );
   });
 
   test("tour guide renders deterministic steps", async ({ page }) => {

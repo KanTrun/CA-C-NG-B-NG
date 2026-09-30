@@ -48,6 +48,40 @@ test.describe("QUANVERSE", () => {
     await expect(page.getByText(/Không có sự kiện vận hành cho bản chiếu này/)).toBeVisible({ timeout: 10_000 });
   });
 
+  test("bỏ đề xuất thì không hiện lại nút Duyệt", async ({ page }) => {
+    // Lỗi thật đã vấp: fixture khai `khach_doan` là `draft`. Sau khi bỏ đề xuất,
+    // kv không còn `proposal_status`, và bản cũ rơi về giá trị của FIXTURE nên
+    // UI vẫn hiện "Chờ duyệt" kèm nút Duyệt cho đề xuất vừa bị bỏ.
+    await expect(page.locator(".nq-moderail")).toBeVisible({ timeout: 15_000 });
+    const mode = "khach_doan";
+    const item = page.getByTestId(`mode-item-${mode}`);
+    await expect(item).toBeVisible();
+
+    // Fixture khai sẵn draft → nút Duyệt phải đang hiện.
+    await expect(page.getByTestId(`mode-confirm-${mode}`)).toBeVisible();
+
+    await page.getByTestId(`mode-drop-${mode}`).click();
+
+    // Bỏ rồi: KHÔNG còn nút Duyệt, và trạng thái phải là "Đang tắt".
+    await expect(page.getByTestId(`mode-confirm-${mode}`)).toHaveCount(0, { timeout: 10_000 });
+    await expect(item).not.toHaveClass(/is-waiting/);
+    await expect(page.getByTestId(`mode-propose-${mode}`)).toBeVisible();
+  });
+
+  test("mode removed from kv does not reset to fixture state", async ({ page }) => {
+    // Trạng thái mode đọc từ kv khi CÓ bản ghi, kể cả khi `proposal_status` rỗng
+    // (rỗng = đã bỏ, khác hẳn chưa từng đề xuất). Đây là bất biến chống hồi sinh.
+    await expect(page.locator(".nq-moderail")).toBeVisible({ timeout: 15_000 });
+    const mode = "khach_doan";
+    await page.getByTestId(`mode-drop-${mode}`).click();
+    await expect(page.getByTestId(`mode-confirm-${mode}`)).toHaveCount(0, { timeout: 10_000 });
+
+    // Tải lại trang: máy chủ phải trả CÙNG trạng thái (đã bỏ), không phải fixture.
+    await page.reload();
+    await expect(page.locator(".nq-moderail")).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId(`mode-confirm-${mode}`)).toHaveCount(0, { timeout: 10_000 });
+  });
+
   test("chọn khu vực mở bảng chi tiết", async ({ page }) => {
     await expect(page.locator(".nq-living-map")).toBeVisible({ timeout: 15_000 });
     await page.getByTestId("zone-bar").click();

@@ -214,11 +214,11 @@ jobs:
         env:
           NEXT_PUBLIC_API_URL: "http://127.0.0.1:8000"
         run: npm run build
-      - name: Prepare standalone static files
-        working-directory: apps/web
-        run: |
-          cp -r public .next/standalone/apps/web/public || cp -r public .next/standalone/public || true
-          cp -r .next/static .next/standalone/.next/static
+      # Bước copy `static`/`public` vào `.next/standalone` nằm trong
+      # `apps/web/scripts/prepare-standalone.mjs` và được playwright.config gọi
+      # tự động trước khi start server. Gom về một nguồn để CI và máy dev chạy
+      # CÙNG một đường — trước đây chỉ CI copy, nên lỗi thiếu asset không bao giờ
+      # tái hiện được ở local (mà hậu quả là toàn bộ e2e đỏ ở bước login).
       - name: Playwright e2e tests
         working-directory: apps/web
         env:

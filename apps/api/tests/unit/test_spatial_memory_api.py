@@ -203,6 +203,71 @@ def test_voice_turn_remember_proposes_memory() -> None:
     assert body["proposal"]["anchor_id"] == "window_table"
 
 
+def test_voice_turn_remember_persists_draft_and_flows_to_consent() -> None:
+    """Voice "nhớ điều này…" phải để lại draft DUYỆT ĐƯỢC — không bay màu.
+
+    Bản trước `voice/turn` trả proposal trong response rồi thôi: không lưu vào
+    kho nên draft không hiện ở "Chờ quyết định" của neo, quản lý không có gì để
+    duyệt, và UI khẳng định "chờ quản lý xác nhận" là lời hứa suông. Luồng ghi
+    ký ức gãy giữa chừng ngay tại bước này.
+
+    Bài này chặn hồi quy cho toàn chuỗi: nói → có draft → duyệt → thành
+    confirmed → answer có citations từ ký ức vừa duyệt.
+    """
+    # (1) Nói "nhớ điều này…" ở neo cửa vào.
+    r = client.post(
+        "/api/v1/experience/voice/turn",
+        json={
+            "conversation_id": "c_remember_persist",
+            "transcript": "nhớ điều này: khách hay để xe ở hàng ghế trước cửa vào",
+            "anchor_id": "entrance",
+            "requester_id": "lan",
+        },
+        headers=headers(client, "lan"),
+    )
+    assert r.status_code == 200, r.text
+    proposal = r.json()["proposal"]
+    assert proposal is not None
+    proposal_id = proposal["proposal_id"]
+
+    # (2) Draft phải THẬT sự nằm trong kho — hiện ở pending của neo.
+    details = client.get(
+        "/api/v1/experience/anchors/entrance",
+        headers=headers(client, "lan"),
+    )
+    assert details.status_code == 200, details.text
+    pending = details.json()["pending_memories"]
+    assert any(
+        m["memory_id"] == f"mem_prop_{proposal_id}" and m["status"] == "draft"
+        for m in pending
+    ), "draft từ voice phải nằm trong danh sách chờ duyệt của neo"
+
+    # (3) Quản lý duyệt → thành confirmed.
+    r = client.post(
+        f"/api/v1/experience/memories/mem_prop_{proposal_id}/consent",
+        json={"grant": True},
+        headers=headers(client, "lan"),
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["status"] == "confirmed"
+
+    # (4) Lượt hỏi sau đó PHẢI trả lời được từ ký ức vừa duyệt.
+    r = client.post(
+        "/api/v1/experience/voice/turn",
+        json={
+            "conversation_id": "c_remember_persist_2",
+            "transcript": "ở cửa vào có gì đáng nhớ?",
+            "anchor_id": "entrance",
+            "requester_id": "lan",
+        },
+        headers=headers(client, "lan"),
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["grounded"] is True
+    assert f"mem_prop_{proposal_id}" in body["citations"]
+
+
 def test_voice_turn_no_confirmed_no_hallucination() -> None:
     r = client.post(
         "/api/v1/experience/voice/turn",

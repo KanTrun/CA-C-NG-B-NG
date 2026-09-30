@@ -55,8 +55,8 @@
     <td align="center" width="120"><h2>21</h2><sub>AI agent</sub></td>
     <td align="center" width="120"><h2>35</h2><sub>agent tool (whitelist)</sub></td>
     <td align="center" width="120"><h2>14</h2><sub>kỹ năng đã kiểm định</sub></td>
-    <td align="center" width="120"><h2>18</h2><sub>router API</sub></td>
-    <td align="center" width="120"><h2>39</h2><sub>route web PWA</sub></td>
+    <td align="center" width="120"><h2>25</h2><sub>router API</sub></td>
+    <td align="center" width="120"><h2>46</h2><sub>route web PWA</sub></td>
     <td align="center" width="120"><h2>5</h2><sub>dịch vụ Docker</sub></td>
   </tr>
 </table>
@@ -189,6 +189,7 @@ Các năng lực dưới đây **đã có trong mã nguồn** (không phải ý 
 | Bàn giao ca | AG-HANDOVER trích bàn giao + VF-NUM kiểm số liệu + phát hiện mâu thuẫn |
 | Quầy POS & menu | Menu + BOM, tạo đơn quầy, luồng `cho_pha → dang_pha → xong/huy`, báo cáo quầy |
 | Sổ tiêu thụ & hao phí | Ghi tiêu thụ nguyên liệu; AG-WASTE cụm hoá ghi chú hao phí |
+| Hao hụt nguyên liệu | Đối chiếu **lý thuyết ↔ thực tế** theo mặt hàng, xếp hạng nguyên nhân, ngưỡng cấu hình (`config/nguong-hao-hut.yaml`) |
 
 ### Khách hàng & kênh
 
@@ -210,6 +211,9 @@ Các năng lực dưới đây **đã có trong mã nguồn** (không phải ý 
 | Khảo sát giá đối thủ | AG-PRICING quét giá quanh quán (SerpApi + Vision); giá không chắc chắn chờ người xác nhận |
 | Học từ phản hồi | Ghi phản hồi người dùng, đánh giá, đề xuất luật AI, circuit breaker, retention |
 | Xu hướng & reflection | Radar xu hướng TikTok/Threads (AG-TREND), reflection trên mail đã gửi và phản hồi Page |
+| Khảo sát giá giao hàng | Đối chiếu giá món trên ShopeeFood và menu Google Maps, chuẩn hoá tên món trước khi so sánh |
+| Ảnh thẻ sản phẩm | Sinh **tại máy** bằng Pillow (ADR-019), tất định theo `id` (SHA-256) — demo chạy trọn khi rút mạng. Ba bậc: ảnh tự tải lên → ảnh đã sinh → sinh tại chỗ |
+| Ảnh quảng cáo AI | AG-MENU-IMAGE tạo ảnh quảng cáo với **prompt tất định**; chuỗi provider Cloudflare Workers AI → Gemini → Pollinations (không bắt buộc, có fallback) |
 
 ### AI Agent
 
@@ -262,7 +266,7 @@ Khi LLM lỗi hoặc không chắc chắn, hệ thống **từ chối** thay vì
 | Lớp | Thành phần | Vai trò |
 |:----|:-----------|:--------|
 | **1. Người dùng** | Web PWA (`apps/web`) · Telegram · Zalo OA · Facebook Page | Nhập yêu cầu, duyệt đề xuất |
-| **2. Kênh & API** | `apps/api` (FastAPI) — 18 router module | Xác thực, phân quyền, chuẩn hoá request |
+| **2. Kênh & API** | `apps/api` (FastAPI) — 25 router module | Xác thực, phân quyền, chuẩn hoá request |
 | **3. Agent** | `packages/agents` (`ca_agents`) | AG-COPILOT + các agent chuyên trách |
 | **4. LLM Router** | `FreeTierRouter` | `groq → openrouter → bai → ollama`; vision: `gemini → openrouter → groq` |
 | **5. Cổng kiểm duyệt** | `packages/gates` | VF-SCHEMA · VF-TRACE · VF-CONF · VF-RULE · VF-SCOPE · VF-STALE · VF-NUM |
@@ -274,7 +278,7 @@ Khi LLM lỗi hoặc không chắc chắn, hệ thống **từ chối** thay vì
 ```mermaid
 flowchart TB
     U["Người dùng<br/>PWA · Telegram · Zalo · FB Page"]
-    U --> API["API / Kênh<br/>FastAPI · 18 router"]
+    U --> API["API / Kênh<br/>FastAPI · 25 router"]
     API --> AG["AI Agent<br/>AG-COPILOT"]
     AG --> LLM["LLM Router<br/>groq→openrouter→bai→ollama"]
     AG --> GATE["Cổng VF<br/>SCHEMA·TRACE·CONF·SCOPE·STALE"]
@@ -318,12 +322,15 @@ flowchart TB
 | Nhóm | Agent | Vai trò |
 |:-----|:------|:--------|
 | **Điều phối** | **AG-COPILOT** | Trợ lý đầu não: parse intent, đề xuất 2 pha, audit, có kênh voice |
-| **Hội thoại & kênh** | AG-MSG · AG-FBPAGE · AG-CONCIERGE · AG-MAIL / AG-MAILWRITER | Phân loại tin nhắn, trực Page, soạn & gửi mail |
+| **Hội thoại & kênh** | AG-MSG · AG-FBPAGE · AG-CONCIERGE · AG-GMAIL · AG-MAIL / AG-MAILWRITER | Phân loại tin nhắn, trực Page, đọc/gửi Gmail, soạn & gửi mail |
 | **Nhân sự** | AG-TKB · AG-BRIEF | Trích thời khoá biểu từ ảnh, sinh bản tin giao ban |
 | **Vận hành** | AG-HANDOVER · AG-WASTE · AG-BARISTA · AG-SUPERVISOR | Bàn giao ca, cụm hao phí, định mức pha, giám sát đầu ra |
 | **Tri thức** | AG-RULE · AG-SOP | Đề xuất luật cẩm nang, hỏi đáp quy trình có trích dẫn |
 | **Khách hàng & thị trường** | AG-VOC · AG-TREND · AG-MEETING | Ghi nhớ khách quen, radar xu hướng, trích biên bản họp |
 | **Dự đoán & mô phỏng** | AG-PREDICT · AG-EXPLAIN · AG-TWIN · AG-PRICING | Phát hiện mẫu thành công, tự giải thích, digital twin, khảo sát giá |
+| **Trải nghiệm & nội dung** | AG-WAR-ROOM · AG-SHIFT-RESCUE · AG-RULE-LEARNING · AG-SPATIAL-MEMORY · AG-QUANVERSE · AG-MENU-IMAGE | War Room twin, cứu ca đột xuất, quán tự viết luật, ký ức không gian, Living Cafe OS, sinh/sửa ảnh quảng cáo menu |
+
+> 21 gói agent trong `ag_*/` (khớp badge đầu trang) cùng các mô-đun agent mở rộng dạng file đơn (`ag_barista.py`, `ag_concierge.py`, `ag_fbpage.py`, `ag_mail.py`, `ag_menu_image.py`, `ag_supervisor.py`, `ag_trend.py`). Quánverse (War Room · Shift Rescue · Rules · Spatial Memory) dùng chung nền **ADR-021** — LLM không bao giờ là nguồn số.
 
 ---
 
@@ -613,12 +620,27 @@ flowchart LR
 ### SerpApi — khảo sát giá đối thủ (AG-PRICING)
 
 - Dùng Google Maps / Trends / Reviews trong bán kính quán; Vision OCR đọc bảng giá từ ảnh.
+- Đối chiếu chéo giá giao hàng (ShopeeFood) và menu Google Maps; `dish_name_normalizer` chuẩn hoá tên món trước khi so sánh.
 - Có quota manager + circuit breaker + cache TTL; giá không chắc chắn chuyển `NEEDS_REVIEW`.
 - Runbook: [`docs/runbooks/serpapi-integration.md`](./docs/runbooks/serpapi-integration.md)
 
 ### Xu hướng (AG-TREND)
 
-- Tier 0: Threads Official API (`THREADS_ACCESS_TOKEN`).
+Chuỗi tầng **fail-closed** — tầng trên hỏng thì rớt xuống tầng dưới, không crash:
+
+```mermaid
+flowchart LR
+    A["Google Trends<br/>Trending Now VN"] --> B["SerpApi<br/>từ khoá theo chủ đề"]
+    B --> C["RSS / TikTok / Threads<br/>theo từ khoá đã biết"]
+```
+
+| Tầng | Nguồn | Đặc điểm |
+|:-----|:------|:---------|
+| 1 | Google Trends **Trending Now** | Bảng xếp hạng quốc gia thật, có `search_volume` / `increase_percentage` |
+| 2 | SerpApi `RELATED_QUERIES` | Từ khoá bứt phá theo chủ đề biết trước |
+| 3 | TikTok / Threads / RSS | Cào chi tiết theo từ khoá; Camoufox là tier tuỳ chọn |
+
+- Tier 0 Threads: Official API (`THREADS_ACCESS_TOKEN`).
 - Tier tùy chọn: Camoufox (browser thật chống-detect) — thiếu thì tier tự rớt, không crash.
 - Runbook: [`tiktok-scraping.md`](./docs/runbooks/tiktok-scraping.md) · [`camoufox-scraping.md`](./docs/runbooks/camoufox-scraping.md)
 
@@ -650,6 +672,9 @@ $env:CA_AGENT_MODE='replay'; python scripts/demo_grand_experience.py
 Xem thêm: `docs/architecture-grand-ai-experience.md`,
 `docs/adr/ADR-016|017|018-*.md`, plan `plans/260920-1442-*`.
 
+> [!IMPORTANT]
+> Nền tảng số của toàn bộ Quánverse là [ADR-021](./docs/adr/ADR-021-llm-khong-la-nguon-so.md): **LLM không bao giờ là nguồn số**. Mọi con số, điểm số, xếp hạng đều do lõi tất định tính; LLM chỉ diễn đạt lại.
+
 ---
 
 <a id="cau-truc"></a>
@@ -660,12 +685,15 @@ Crew-Operations/
 ├── apps/
 │   ├── api/                        # FastAPI service (package ca_api)
 │   │   ├── src/ca_api/
-│   │   │   ├── interfaces/http/     # 18 router module — mọi endpoint REST/WS
-│   │   │   │                        #   main.py, sprint3, sprint45, channels, copilot,
-│   │   │   │                        #   copilot_voice, pos, meeting, ops_explain,
-│   │   │   │                        #   ops_predict, trends, pricing_radar,
-│   │   │   │                        #   serpapi_system, mail, gmail, ai_learning,
-│   │   │   │                        #   chat, reservations, skills
+│   │   │   ├── interfaces/http/     # 25 router module — mọi endpoint REST/WS
+│   │   │   │                        #   main.py (app), sprint3, sprint45, hao_hut,
+│   │   │   │                        #   channels, copilot, copilot_voice, pos,
+│   │   │   │                        #   quanverse, meeting, ops_explain,
+│   │   │   │                        #   ops_predict, experience, experience_rules,
+│   │   │   │                        #   war_room, trends, pricing_radar,
+│   │   │   │                        #   mail, gmail, ai_learning, ai_insight,
+│   │   │   │                        #   chat, reservations, shift_rescue,
+│   │   │   │                        #   spatial_memory, skills
 │   │   │   ├── services/            # chat_ws (Redis), fb_moderation, gmail_sync,
 │   │   │   │                        #   scheduling_service, table_reservation_service…
 │   │   │   ├── orchestration/       # Clock, StateMachine, IdempotencyStore
@@ -675,13 +703,17 @@ Crew-Operations/
 │   │   │   ├── audit_trace.py       # vết audit hệ thống
 │   │   │   └── worker.py            # job nền: brief sáng, solver tuần, tổng kết ngày
 │   │   ├── alembic/                 # migration Postgres
-│   │   └── tests/                   # 53 file test
+│   │   └── tests/                   # 77 file test
 │   └── web/                        # Next.js 15 PWA (ca-web)
-│       ├── src/app/                 # 39 route: roster, inbox, copilot, chat, page-quan,
-│       │                            #   gmail, cam-nang, lich-tuan, quay, phieu, tkb…
+│       ├── src/app/                 # 46 route: roster, inbox, copilot, chat, page-quan,
+│       │                            #   gmail, cam-nang, lich-tuan, quay, phieu, pos, tkb,
+│       │                            #   hao-phi, tieu-thu, doi-ca, cong-bang, nguoi, menu,
+│       │                            #   sop, treo, handover, giai-thich, cuoc-hop, vet,
+│       │                            #   de-xuat-thong-minh, khao-sat-gia, cau-hinh-quan,
+│       │                            #   thu-nghiem-an-toan, huong-dan, quanverse/*…
 │       ├── src/lib/                 # api client, session, realtime, roster, present…
 │       ├── src/ui/ · src/shared/    # component UI & dùng chung
-│       └── e2e/                     # 10 spec Playwright
+│       └── e2e/                     # 23 spec Playwright
 ├── packages/
 │   ├── contracts/              # ca_contracts — Pydantic schema chia sẻ (ADR-003/013)
 │   ├── solver/                 # ca_solver — CP-SAT + C01–C06 + fairness 4 trục
@@ -689,7 +721,7 @@ Crew-Operations/
 │   ├── opsengine/              # ca_ops — phiếu YAML, việc treo, escalate
 │   ├── playbook/               # ca_playbook — cẩm nang 8 bước, distiller SOP→Skill
 │   └── agents/                 # ca_agents — 21 agent, router LLM, messaging ports
-├── config/                     # tham số lao động, quy trình phiếu, taxonomy
+├── config/                     # tham số lao động · quy trình phiếu · taxonomy · ngưỡng hao hụt
 ├── data/
 │   ├── seed/                   # sample.json — dữ liệu mẫu xếp lịch
 │   ├── fixtures/ · golden/      # dữ liệu kiểm thử tất định
@@ -700,9 +732,9 @@ Crew-Operations/
 │   ├── templates/               # phiếu YAML: mo_quan, dong_quan, ban_giao_ca
 │   ├── aws/ · oracle/           # runbook triển khai cloud
 ├── skills/                      # 13 skill + 1 router + skills_index.jsonl (SHA256)
-├── scripts/                     # 93 script: demo, eval, seed, docker_stack.py, metrics…
+├── scripts/                     # 143 script Python: demo, eval, seed, docker_stack.py, metrics…
 ├── plans/                       # kế hoạch & nhật ký triển khai theo phiên
-└── docs/                        # 15 ADR · 16 runbook · hướng dẫn · hồ sơ
+└── docs/                        # 21 ADR · 16 runbook · hướng dẫn · hồ sơ
 ```
 
 | Thành phần | Đường dẫn | Vai trò |
@@ -890,7 +922,7 @@ curl -X POST http://localhost:8000/api/v1/auth/login \
 <a id="bien-moi-truong"></a>
 ## Biến môi trường
 
-> Danh sách đầy đủ nằm ở [`.env.example`](./.env.example) (~118 dòng, có chú thích). Copy sang `.env` rồi điền. **Không** commit file `.env`.
+> Danh sách đầy đủ nằm ở [`.env.example`](./.env.example) (~161 dòng, có chú thích). Copy sang `.env` rồi điền. **Không** commit file `.env`.
 
 <details open>
 <summary><b>Lõi hệ thống & LLM</b></summary>
@@ -905,6 +937,11 @@ curl -X POST http://localhost:8000/api/v1/auth/login \
 | `GEMINI_TRANSCRIBE_MODEL` | Model Gemini cho STT (biên bản họp) |
 | `BAI_BASE_URL` | Base URL B.ai (mặc định `https://api.b.ai/v1`) |
 | `OLLAMA_BASE_URL` / `OLLAMA_MODEL` | Fallback local (tuỳ chọn) |
+| `CLOUDFLARE_ACCOUNT_ID` / `CLOUDFLARE_API_TOKEN` | Cloudflare Workers AI — provider **chính** sinh/sửa ảnh quảng cáo menu; free 10.000 neurons/ngày (cần **cả hai** biến) |
+| `CLOUDFLARE_IMAGE_MODEL` | Model sinh ảnh Cloudflare (trống = `@cf/black-forest-labs/flux-2-klein-4b`) |
+| `GEMINI_IMAGE_MODEL` | Model ảnh Gemini (dự phòng khi thiếu Cloudflare) |
+| `POLLINATIONS_API_KEY` / `POLLINATIONS_IMAGE_MODEL` | Pollinations — phương án hai cho chế độ sửa ảnh thật (`edit_photo`, image-to-image) |
+| `POLLINATIONS_MODEL` | Model text-to-image Pollinations (mặc định `flux`; ghim để tắt fallback `turbo`) |
 | `DATABASE_URL` | Postgres (mặc định SQLite `data/quan.db`) |
 | `REDIS_URL` | Redis Pub/Sub realtime |
 | `NEXT_PUBLIC_API_URL` | Base URL API cho web |
@@ -955,6 +992,7 @@ curl -X POST http://localhost:8000/api/v1/auth/login \
 | `SERPAPI_MONTHLY_LIMIT` | Giới hạn request SerpApi mỗi tháng (ví dụ `250`) |
 | `SERPAPI_SAFETY_MARGIN` / `SERPAPI_WARN_THRESHOLD` / `SERPAPI_INFO_THRESHOLD` | Ngưỡng cảnh báo quota |
 | `SERPAPI_CIRCUIT_BREAKER_FAILURE_THRESHOLD` / `_OPEN_SECONDS` | Circuit breaker |
+| `SERPAPI_CACHE_TTL_MAPS_HOURS` / `_PHOTOS_DAYS` / `_TRENDS_HOURS` / `_TRENDING_NOW_HOURS` | TTL cache theo từng loại truy vấn |
 | `THREADS_ACCESS_TOKEN` | Threads Official API — tier 0 tìm kiếm xu hướng |
 | `CA_CAMOUFOX_ENABLED` / `_HEADLESS` / `_TIMEOUT_S` / `_MAX_CONCURRENT` / `_CACHE_TTL_S` | Tier cào browser-thật (tuỳ chọn) |
 | `JEV_API_KEY` / `JEV_ENABLED` | Sensor xác suất JEV (**mặc định tắt**, fail-closed) |
@@ -984,16 +1022,24 @@ VOICE_SESSION_MAX_SECONDS=300
 | Lệnh | Mô tả |
 |:-----|:------|
 | `make setup` | Cài Python editable + npm web |
+| `make dev` | Chạy API dev (reload) |
 | `make test` / `test-unit` | Pytest toàn monorepo (`CA_AGENT_MODE=replay`) |
 | `make lint` | Ruff + `tsc --noEmit` web |
 | `make bench` | Solver tuần + `verify_hard` |
 | `make eval` | AG-TKB, AG-MSG, nhóm A §18.2 |
 | `make ab` / `make replay PHIEN=<key>` | Báo cáo A/B / replay orchestration |
 | `make metrics` | 7 con số §18.2 trên fixture ADR-012 |
-| `make seed` / `seed-ops` / `seed-demo` | Sinh fixture / 6 bề mặt / toàn bộ demo |
-| `make docker-up/down/ps/logs/smoke/reset` | Stack Docker qua `scripts/docker_stack.py` |
-| `make demo` / `demo-reset` | Demo API / reset Docker |
+| `make seed` / `seed-ops` / `seed-demo` / `seed-danh-muc` | Sinh fixture / 6 bề mặt / toàn bộ demo / danh mục món |
+| `make docker-up/down/ps/logs/smoke/reset/seed-ops` | Stack Docker qua `scripts/docker_stack.py` |
+| `make demo` / `demo-local` / `demo-reset` | Demo API / demo local / reset Docker |
 | `make test-fb` / `test-fb-post` | Kiểm tra / đăng Facebook Page |
+| `make canary` | Canary tier scraping bên thứ ba (không chặn merge, luôn exit 0) |
+| `make budget` | Nhắc ngân sách request/quota dịch vụ ngoài (stub — xem [`docs/THIRD_PARTY.md`](./docs/THIRD_PARTY.md)) |
+| `make review` / `review-fast` | Bộ cổng kiểm tra trước khi merge |
+| `make contracts` | Sinh hợp đồng dữ liệu (Pydantic → JSON Schema + TS types) |
+| `make install-hooks` | Cài git hook (commitlint + secret scan) |
+| `make migrate-neon` | Migration lên Postgres (Neon) |
+| `make sinh-anh` | Sinh ảnh sản phẩm tại máy (ADR-019) |
 
 > [!CAUTION]
 > Gọi Docker qua `scripts/docker_stack.py` (wrapper tắt BuildKit, ghim tên project ASCII) — **không** gọi `docker compose` trực tiếp.
@@ -1125,10 +1171,8 @@ VOICE_SESSION_MAX_SECONDS=300
 | POST | `/api/v1/tieu-thu` | 🟡 | Ghi tiêu thụ. Body: `hang`, `so_luong`, `don_vi` |
 | POST | `/api/v1/waste` | 🔵 | Ghi chú hao phí. Body: `thu`, `ghi_chu` |
 | GET | `/api/v1/waste` | 🔵 | Cụm hao phí (AG-WASTE) + ghi chú gốc |
-| GET | `/api/v1/hao-hut` | 🔵 | Hao hụt theo nguyên liệu: lý thuyết ↔ thực tế, mức độ, xếp hạng nguyên nhân. `?ky=hom_nay\|tuan\|thang\|all` |
-| POST | `/api/v1/hao-hut` | 🔵 | Ghi hao hụt có mặt hàng + nguyên nhân (có vết audit). Body: `mat_hang`, `so_luong`, `don_vi`, `nguyen_nhan`, `thu` |
-| GET | `/api/v1/hao-hut/nguong` | 🔵 | Ngưỡng hao hụt đang áp dụng (đọc `config/nguong-hao-hut.yaml`) |
-| GET | `/api/v1/hao-hut/danh-muc` | 🟡 | Mã mặt hàng gợi ý, gộp từ kiểm kê + ghi chú + công thức món |
+
+> Hao hụt nguyên liệu (lý thuyết ↔ thực tế): xem mục **Hao hụt nguyên liệu** bên dưới.
 
 </details>
 
@@ -1199,7 +1243,25 @@ Prefix: `/api/v1/market`. Agent: **AG-PRICING** (SerpApi + Vision). Job chạy b
 | POST | `/catchment-survey/{job_id}/review` | 🟡 | Xác nhận giá OCR (`NEEDS_REVIEW`) |
 | GET | `/catchment-survey-metrics` | 🔵 | Chi phí Vision & nguồn dữ liệu |
 | GET | `/catchment-survey-dashboard` | 🔵 | Dashboard tổng hợp |
-| GET | `/api/v1/market/serpapi/quota` | 🔵 | Hạn ngạch SerpApi còn lại |
+| GET | `/serpapi/quota` | 🔵 | Hạn ngạch SerpApi còn lại (đầy đủ: `/api/v1/market/serpapi/quota`) |
+
+</details>
+
+<details>
+<summary><b>Hao hụt nguyên liệu (lý thuyết ↔ thực tế)</b></summary>
+
+<br/>
+
+Đối chiếu định mức tiêu hao với thực tế ghi nhận, xếp hạng nguyên nhân. Ngưỡng đọc từ `config/nguong-hao-hut.yaml`.
+
+| Method | Endpoint | Quyền | Mô tả |
+|:-------|:---------|:-----:|:------|
+| GET | `/api/v1/hao-hut` | 🔵 | Hao hụt theo nguyên liệu: lý thuyết ↔ thực tế, mức độ, xếp hạng nguyên nhân. `?ky=hom_nay\|tuan\|thang\|all` |
+| POST | `/api/v1/hao-hut` | 🔵 | Ghi hao hụt có mặt hàng + nguyên nhân (có vết audit). Body: `mat_hang`, `so_luong`, `don_vi`, `nguyen_nhan`, `thu` |
+| GET | `/api/v1/hao-hut/nguong` | 🔵 | Ngưỡng hao hụt đang áp dụng |
+| GET | `/api/v1/hao-hut/danh-muc` | 🟡 | Mã mặt hàng gợi ý, gộp từ kiểm kê + ghi chú + công thức món |
+
+UI: `/hao-phi` · e2e: `apps/web/e2e/hao-hut.spec.ts`
 
 </details>
 
@@ -1622,6 +1684,9 @@ Các agent chuyên trách chính và nơi triển khai:
 | AG-EXPLAIN · AG-TWIN | `ag_explain/` · `ag_twin/` |
 | AG-FBPAGE · AG-GMAIL | `ag_fbpage.py` · `ag_gmail/` |
 | AG-VOC · AG-BARISTA · AG-TREND · AG-SUPERVISOR · AG-CONCIERGE | `ag_voc/` · `ag_barista.py` · `ag_trend.py` · `ag_supervisor.py` · `ag_concierge.py` |
+| AG-WAR-ROOM · AG-SHIFT-RESCUE · AG-RULE-LEARNING | `ag_war_room/` · `ag_shift_rescue/` · `ag_rule_learning/` |
+| AG-SPATIAL-MEMORY · AG-QUANVERSE | `ag_spatial_memory/` · `ag_quanverse/` |
+| AG-MENU-IMAGE | `ag_menu_image.py` |
 
 ---
 
@@ -1731,8 +1796,8 @@ uv run alembic -c alembic/alembic.ini upgrade head
 - **Agent:** AG-COPILOT + 35 tool whitelist, thực thi 2 pha, audit, voice (Gemini Live); 20+ agent chuyên trách khác.
 - **Vòng đời lịch:** state machine đầy đủ, version + fingerprint + idempotency, open shifts, đổi ca 3 người, xuất ICS/XLSX/PDF.
 - **Kênh:** Telegram (webhook + long-poll), Zalo OA, Facebook Page (moderation + đặt bàn + bài đăng), chat nội bộ realtime qua WebSocket + Redis.
-- **Tích hợp:** Gmail OAuth 2.0 (đọc/gửi/nhãn/bộ lọc), SMTP, SerpApi (AG-PRICING), Threads API, Camoufox (tùy chọn).
-- **Web PWA:** 39 route (roster, inbox, copilot, chat, page-quán, gmail, cam-nang, lich-tuan, quay, phieu, tkb, khao-sat-gia, ai-learning, skills…).
+- **Tích hợp:** Gmail OAuth 2.0 (đọc/gửi/nhãn/bộ lọc), SMTP, SerpApi (AG-PRICING + giá giao hàng ShopeeFood + menu Google Maps), Threads API, Camoufox (tùy chọn).
+- **Web PWA:** 46 route (roster, inbox, copilot, chat, page-quán, gmail, cam-nang, lich-tuan, quay, phieu, tkb, khao-sat-gia, ai-learning, skills, hao-phi, tieu-thu, doi-ca, cong-bang, menu, sop, treo, handover, giai-thich, cuoc-hop, vet, cau-hinh-quan, thu-nghiem-an-toan, quanverse/*…).
 - **Thư viện Skills:** 14 kỹ năng đã kiểm định, có SHA256 + smoke test.
 - **AI Learning:** vòng phản hồi, đề xuất luật, circuit breaker, retention.
 - **Hạ tầng:** Docker Compose 5 service, migration Alembic, CI/CD GitHub Actions.
@@ -1746,6 +1811,15 @@ uv run alembic -c alembic/alembic.ini upgrade head
 
 Các hướng được nêu trong tài liệu kế hoạch, **chưa** phải tính năng hiện có — xem [Roadmap](#roadmap).
 
+<a id="adr-quan-trong"></a>
+### ADR gần đây cần biết
+
+| ADR | Nguyên tắc |
+|:----|:-----------|
+| [ADR-019](./docs/adr/ADR-019-anh-san-pham-sinh-tai-may.md) | Ảnh sản phẩm sinh tại máy, **không** gọi API ảnh đám mây |
+| [ADR-020](./docs/adr/ADR-020-doi-ca-dong-thuan-va-cong-cong-bo.md) | Đổi ca phải có **đồng thuận** của các bên + qua cổng công bố |
+| [ADR-021](./docs/adr/ADR-021-llm-khong-la-nguon-so.md) | **LLM không bao giờ là nguồn số** — mọi con số đến từ lõi tất định |
+
 ---
 
 <a id="han-che"></a>
@@ -1756,7 +1830,7 @@ Các hướng được nêu trong tài liệu kế hoạch, **chưa** phải tí
 - **Không tự trị:** agent không tự thực thi thay đổi — mọi hành động ghi đều chờ người duyệt (2 pha). Đây là **thiết kế có chủ đích (fail-closed)**, đồng thời là giới hạn về mức độ tự động hoá.
 - **Phạm vi một quán:** hiện giới hạn theo một `store_id`; chưa có multi-quán / franchise.
 - **Kênh thật cần credential:** thiếu token thì kênh ở trạng thái `disconnected`/`replay` và hệ thống **không** giả lập đã kết nối.
-- **Scraping phụ thuộc bên thứ ba:** tier cào dữ liệu (Camoufox / Threads) có thể hỏng khi nền tảng đổi UI — vì vậy `make canary` tách khỏi luồng chặn merge.
+- **Scraping phụ thuộc bên thứ ba:** tier cào dữ liệu (Camoufox / Threads / TikTok / ShopeeFood / Google Maps) có thể hỏng khi nền tảng đổi UI — vì vậy `make canary` tách khỏi luồng chặn merge, chỉ báo cáo.
 - **Chưa có monitoring production đầy đủ:** chưa tích hợp APM/observability chuyên sâu; quan sát chủ yếu qua log, `/health` và audit trail.
 
 ---
@@ -1780,6 +1854,10 @@ Phase 3 — Đa kênh                     ✅ (đã có)
 Phase 4 — Phân tích & tự động hoá     🔄 (đang làm)
   Digital Twin / Predictive Playbook · rollout có kiểm soát · sensor JEV
 
+Phase 4b — Trải nghiệm & vận hành      ✅ (đã có)
+  Quánverse (War Room · Shift Rescue · Rules · Spatial Memory)
+  Hao hụt nguyên liệu lý thuyết ↔ thực tế · ảnh thẻ sản phẩm sinh tại máy
+
 Phase 5 — Quy mô sản xuất             ⬜ (dự kiến)
   Multi-quán / franchise · quan sát & cảnh báo production · mở rộng tự động hoá có người duyệt
 ```
@@ -1802,9 +1880,9 @@ cd apps/web && npm run test:e2e   # Playwright e2e
 
 | Loại | Số lượng / vị trí |
 |:-----|:------------------|
-| Test API (pytest) | 53 file trong `apps/api/tests/` |
-| Test packages (pytest) | 102 file khớp `*test*.py` trong `packages/` |
-| Test e2e (Playwright) | 10 spec trong `apps/web/e2e/` (`flows`, `lich-tuan`, `phieu-timing`, `vet`, `predict-twin`, `khao-sat-gia-review`…) |
+| Test API (pytest) | 77 file trong `apps/api/tests/` |
+| Test packages (pytest) | 131 file khớp `*test*.py` trong `packages/` |
+| Test e2e (Playwright) | 23 spec trong `apps/web/e2e/` (`flows`, `lich-tuan`, `phieu-timing`, `vet`, `predict-twin`, `khao-sat-gia-review`, `hao-hut`, `war-room`, `shift-rescue`, `spatial-memory`, `quanverse`…) |
 | Kiến trúc | `test_architecture.py` cưỡng chế ranh giới import của Tool Registry |
 
 > Pytest lấy `testpaths = ["apps", "packages"]` từ `pyproject.toml` gốc.
@@ -1819,6 +1897,9 @@ cd apps/web && npm run test:e2e   # Playwright e2e
 | [![CI](https://github.com/KanTrun/Crew-Operations/actions/workflows/ci.yml/badge.svg)](https://github.com/KanTrun/Crew-Operations/actions/workflows/ci.yml) | `ci.yml` — lint + test |
 | [![Skills Verify](https://github.com/KanTrun/Crew-Operations/actions/workflows/skills-verify.yml/badge.svg)](https://github.com/KanTrun/Crew-Operations/actions/workflows/skills-verify.yml) | `skills-verify.yml` — kiểm định kỹ năng |
 | [![Docker GHCR](https://github.com/KanTrun/Crew-Operations/actions/workflows/docker-ghcr.yml/badge.svg)](https://github.com/KanTrun/Crew-Operations/actions/workflows/docker-ghcr.yml) | `docker-ghcr.yml` — build & đẩy image lên GHCR |
+| `ai-code-review.yml` | GitHub Copilot code review tự động theo `.github/copilot-instructions.md` |
+| `canary-nguon.yml` | Canary tier scraping nguồn ngoài (theo lịch, không chặn merge) |
+| `deploy-aws.yml` | Triển khai lên AWS ([`docs/runbook-aws.md`](./docs/runbook-aws.md)) |
 
 ---
 
@@ -1882,7 +1963,7 @@ gitGraph
 | [`docs/github-operating-model.md`](./docs/github-operating-model.md) | PR, CI gates, commits |
 | [`docs/ket-qua-tong-hop.md`](./docs/ket-qua-tong-hop.md) | Kết quả đo hồ sơ |
 | [`docs/runbooks/`](./docs/runbooks/) | 16 runbook: Telegram · Zalo · Facebook · Gmail · SerpApi · Camoufox · AI incident… |
-| [`docs/adr/`](./docs/adr/) | 15 Architecture Decision Records |
+| [`docs/adr/`](./docs/adr/) | 21 Architecture Decision Records (ADR-001 → ADR-021) |
 | [`docs/THIRD_PARTY.md`](./docs/THIRD_PARTY.md) | Phụ thuộc & license (kèm free-tier) |
 | [`docs/deployment.md`](./docs/deployment.md) | Triển khai |
 | [`docs/design-guidelines.md`](./docs/design-guidelines.md) | Quy ước thiết kế UI |

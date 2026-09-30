@@ -12,21 +12,26 @@
  */
 
 import { useState } from "react";
+import { ApiError } from "../../../lib/api";
+import { viError } from "../../../lib/present";
 import { Icon } from "../../icons";
 import { arFallbackLabel } from "../exp-present";
 
 /** Neo mẫu theo thiết bị thật trong quán — bấm là điền, khỏi gõ. */
-const SAMPLE_ANCHORS = ["blender-02", "may-pha-01", "ban-cua-so-05"];
+const SAMPLE_ANCHORS = ["blender-02", "espresso-machine-01", "window_table"];
 
 interface ArResult {
   anchor_target: string;
   fallback: string;
 }
 
+const COPY = { start: { doing: "mở lớp phủ AR cho neo này" } } as const;
+
 export default function ArLiteOverlay() {
   const [qr, setQr] = useState("");
   const [result, setResult] = useState<ArResult | null>(null);
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const base = process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8000";
   const token =
@@ -38,6 +43,7 @@ export default function ArLiteOverlay() {
   async function start() {
     if (!qr.trim()) return;
     setBusy(true);
+    setError(null);
     try {
       const res = await fetch(`${base}/api/v1/experience/quanverse/ar-session`, {
         method: "POST",
@@ -47,11 +53,14 @@ export default function ArLiteOverlay() {
         },
         body: JSON.stringify({ qr: qr.trim() }),
       });
-      if (!res.ok) throw new Error(`api_${res.status}`);
+      if (!res.ok) throw new ApiError(res.status);
       setResult((await res.json()) as ArResult);
-    } catch {
-      // camera/WebXR không mở được → hạ cấp về bản đồ hoặc mã QR kèm chữ
-      setResult({ anchor_target: qr, fallback: "map_or_qr_text" });
+    } catch (e) {
+      // Máy chủ từ chối (mã sai, mất mạng) → nói thẳng, KHÔNG hiện lớp phủ
+      // giả. Bản trước bắt mọi lỗi rồi vẫn vẽ "Đã gắn neo X" — người dùng
+      // tưởng neo hợp lệ trong khi máy chủ chưa hề xác nhận.
+      setResult(null);
+      setError(viError(e, COPY.start));
     } finally {
       setBusy(false);
     }
@@ -109,6 +118,12 @@ export default function ArLiteOverlay() {
           {busy ? "Đang mở…" : "Mở lớp phủ"}
         </button>
       </div>
+
+      {error ? (
+        <div className="nq-alert nq-alert--error" role="alert">
+          {error}
+        </div>
+      ) : null}
 
       {result ? (
         <div

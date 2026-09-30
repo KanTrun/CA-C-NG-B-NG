@@ -38,6 +38,8 @@ export default function PreferenceConsent() {
   const [stage, setStage] = useState<Stage>("idle");
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  /** Lỗi ĐỌC danh sách — khác `error` (lỗi thao tác), và phải hiện riêng. */
+  const [listError, setListError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [stored, setStored] = useState<StoredPreference[]>([]);
 
@@ -57,6 +59,7 @@ export default function PreferenceConsent() {
   );
 
   const loadStored = useCallback(async () => {
+    setListError(null);
     try {
       const res = await fetch(`${base}/api/v1/experience/quanverse/preferences`, {
         headers: authHeaders(),
@@ -67,9 +70,14 @@ export default function PreferenceConsent() {
       setStored(
         (body.preferences ?? []).filter((p) => p.consent_status === "granted"),
       );
-    } catch {
-      // Không chặn luồng gửi mới vì lỗi đọc danh sách — nhưng không bịa là rỗng.
+    } catch (e) {
+      // Không chặn luồng gửi mới vì lỗi đọc danh sách — NHƯNG phải nói rõ là
+      // chưa đọc được. Bản trước `setStored([])` rồi hiện "Chưa lưu sở thích
+      // nào": người dùng tưởng hệ thống không giữ gì về mình, trong khi thật ra
+      // máy chủ không trả lời được. Với dữ liệu cá nhân, im lặng thành "sạch"
+      // là câu trả lời sai có hại — họ có thể thôi quan tâm tới việc thu hồi.
       setStored([]);
+      setListError(viError(e, COPY.list));
     }
   }, [authHeaders, base]);
 
@@ -232,7 +240,18 @@ export default function PreferenceConsent() {
 
       {/* Danh sách đã lưu: khách thấy đúng thứ hệ thống đang giữ về mình. */}
       <h4 className="nq-pref__subhead">Đang lưu về bạn</h4>
-      {stored.length === 0 ? (
+      {listError ? (
+        // Chưa đọc được ≠ không có gì. Với dữ liệu cá nhân, hiện "Chưa lưu sở
+        // thích nào" khi máy chủ không trả lời là nói sai — người dùng có thể
+        // tưởng hệ thống không giữ gì và thôi quan tâm việc thu hồi.
+        <div className="nq-alert nq-alert--warn" role="alert" data-testid="pref-list-error">
+          {listError}
+          <button type="button" className="nq-linkbtn" onClick={() => void loadStored()}>
+            <Icon name="refresh" size={14} />
+            Đọc lại
+          </button>
+        </div>
+      ) : stored.length === 0 ? (
         <ExpEmpty
           icon="pin"
           title="Chưa lưu sở thích nào"

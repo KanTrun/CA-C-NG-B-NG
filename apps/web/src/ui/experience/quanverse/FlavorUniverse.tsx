@@ -14,6 +14,8 @@
  */
 
 import { useState } from "react";
+import { ApiError } from "../../../lib/api";
+import { viError } from "../../../lib/present";
 import { Icon } from "../../icons";
 import { ExpEmpty } from "../exp-kit";
 
@@ -23,6 +25,8 @@ interface Rec {
   score: number;
   reasons: string[];
 }
+
+const COPY = { recommend: { doing: "gợi ý món theo khẩu vị" } } as const;
 
 const SWEETNESS = [
   { value: "it", label: "Ít ngọt", hint: "Nhẹ, hợp buổi sáng" },
@@ -63,11 +67,13 @@ export default function FlavorUniverse() {
           dietary_allergy: allergy.trim() ? [allergy.trim()] : [],
         }),
       });
-      if (!res.ok) throw new Error(`api_${res.status}`);
+      if (!res.ok) throw new ApiError(res.status);
       const body = (await res.json()) as { recommendations: Rec[] };
       setResult(body.recommendations);
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Lỗi recommend");
+      // Lỗi kỹ thuật KHÔNG được in ra UI: `api_500` không nói gì với người
+      // dùng. `viError` dịch mã HTTP thành câu tiếng Việt + việc cần làm.
+      setError(viError(e, COPY.recommend));
     } finally {
       setBusy(false);
     }

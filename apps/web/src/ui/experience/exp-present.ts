@@ -363,6 +363,10 @@ export function zoneKindLabel(code: unknown): string {
 /** Mức chất lượng dữ liệu của snapshot. */
 const DATA_LEVEL_LABELS: Record<string, string> = {
   info: "Thông tin",
+  // Hợp đồng `DataQualityNotice.level` dùng `warning`, KHÔNG phải `warn`.
+  // Thiếu khoá này thì UI in thẳng chữ "warning" ra màn hình (vi phạm quy tắc
+  // mã nội bộ phải qua bảng nhãn) — đúng lỗi đã có ở đây.
+  warning: "Cần lưu ý",
   warn: "Cần lưu ý",
   error: "Thiếu dữ liệu",
   debug: "Kỹ thuật",

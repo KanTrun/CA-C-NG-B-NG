@@ -10,6 +10,7 @@
 import { useEffect, useRef, useState } from "react";
 import { ApiError } from "../../../lib/api";
 import { viError } from "../../../lib/present";
+import { getNvId } from "../../../lib/session";
 import { Icon } from "../../icons";
 
 interface VoiceResponse {
@@ -23,6 +24,15 @@ interface VoiceResponse {
 
 interface Props {
   anchorId: string | null;
+  /**
+   * Báo cho trang cha khi một đề xuất ghi nhớ đã được tạo — để khung chi
+   * tiết neo nạp lại và draft mới hiện ngay trong "Chờ quyết định".
+   *
+   * Bản trước không có chữ ký này, nên sau khi người dùng nói "nhớ điều này…"
+   * UI khẳng định "chờ quản lý xác nhận" nhưng KHÔNG có gì xảy ra tiếp: quản
+   * lý phải tự F5 mới thấy draft (nếu API có lưu). Luồng gãy ngay tại chỗ.
+   */
+  onRemembered?: () => void;
 }
 
 const COPY = {
@@ -32,7 +42,7 @@ const COPY = {
   },
 } as const;
 
-export default function VoiceDock({ anchorId }: Props) {
+export default function VoiceDock({ anchorId, onRemembered }: Props) {
   const [transcript, setTranscript] = useState("");
   const [response, setResponse] = useState<VoiceResponse | null>(null);
   const [busy, setBusy] = useState(false);
@@ -62,11 +72,15 @@ export default function VoiceDock({ anchorId }: Props) {
           conversation_id: `conv_${Date.now()}`,
           transcript: text,
           anchor_id: anchorId,
-          requester_id: "quan_ly_demo",
+          requester_id: getNvId() || "quan_ly_demo",
         }),
       });
       if (!res.ok) throw new ApiError(res.status);
-      setResponse((await res.json()) as VoiceResponse);
+      const body = (await res.json()) as VoiceResponse;
+      setResponse(body);
+      // Đề xuất mới sinh ra → báo trang cha nạp lại chi tiết neo + số đếm,
+      // để draft hiện ngay trong "Chờ quyết định" và cột 3D cập nhật số ký ức.
+      if (body.proposal) onRemembered?.();
     } catch (e) {
       setError(viError(e, COPY.ask));
     } finally {

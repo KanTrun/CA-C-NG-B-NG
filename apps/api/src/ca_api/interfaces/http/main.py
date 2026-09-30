@@ -148,14 +148,24 @@ app = FastAPI(
     else None,
 )
 
-# CORS: mặc định 3 origin dev local. Khi deploy (Postgres, domain thật) đặt
-# NHIPQUAN_CORS_ORIGINS — danh sách origin cách nhau bởi dấu phẩy — để thay
-# toàn bộ danh sách này; bỏ trống thì giữ mặc định bên dưới.
-_cors_origins = [
-    origin.strip()
-    for origin in os.environ.get("NHIPQUAN_CORS_ORIGINS", "").split(",")
-    if origin.strip()
-] or [
+# CORS: origin dev local LUÔN được phép; `NHIPQUAN_CORS_ORIGINS` chỉ THÊM origin
+# triển khai (ngăn cách bởi dấu phẩy).
+#
+# Vì sao không thay thế như trước: `.env` của máy dev — và của chính máy này —
+# có dòng `NHIPQUAN_CORS_ORIGINS=https://nhipquan.duckdns.org`. Bản cũ hiểu biến
+# đó là "thay toàn bộ danh sách", nên ngay khi `.env` tồn tại thì
+# `http://localhost:3000` bị chặn. Hậu quả: mở web ở máy, bấm Đăng nhập, trình
+# duyệt chặn preflight và UI báo "Chưa nối được máy chủ quán" — trông như API
+# chết, trong khi API vẫn 200 nếu gọi bằng curl (curl không kiểm CORS). Toàn bộ
+# e2e cũng đỏ ở `loginAs` vì lý do này.
+#
+# Thêm thay vì thay thế cũng đúng về bảo mật ở hệ này: xác thực dùng Bearer
+# token trong header (KHÔNG dùng cookie phiên), nên CORS không phải ranh giới
+# xác thực — trình duyệt không tự gửi token của origin khác, và một client ngoài
+# trình duyệt (curl) vốn đã bỏ qua CORS từ trước. Origin triển khai vẫn được
+# khai tường minh trong `NHIPQUAN_CORS_ORIGINS`.
+# Muốn chặt hơn ở production: đặt `NHIPQUAN_CORS_DISABLE_DEV=1`.
+_DEV_CORS_ORIGINS = [
     "http://localhost:3000",
     "http://localhost:3001",
     "http://localhost:3002",
@@ -166,6 +176,17 @@ _cors_origins = [
     "http://[::1]:3001",
     "http://[::1]:3002",
 ]
+_configured_cors = [
+    origin.strip()
+    for origin in os.environ.get("NHIPQUAN_CORS_ORIGINS", "").split(",")
+    if origin.strip()
+]
+_dev_cors = (
+    []
+    if os.environ.get("NHIPQUAN_CORS_DISABLE_DEV", "").strip().lower() in {"1", "true", "yes"}
+    else _DEV_CORS_ORIGINS
+)
+_cors_origins = list(dict.fromkeys([*_configured_cors, *_dev_cors]))
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_cors_origins,
