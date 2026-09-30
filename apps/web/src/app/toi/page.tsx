@@ -81,6 +81,7 @@ const TRANG_THAI_BUOC: Record<string, string> = {
   dang_giai: "đang xếp lịch",
   cho_duyet: "chờ quản lý duyệt",
   da_duyet: "đã duyệt",
+  da_cong_bo: "đã công bố",
   da_dong: "đã đóng",
 };
 
@@ -281,6 +282,12 @@ export default function ToiPage() {
           count={caCuaToi.length}
           countLabel="ca"
         >
+          {!daCongBo ? (
+            <Alert kind="info">
+              Tuần này {tomTat ? `đang «${tomTat.trang_thai_label}»` : "chưa công bố"} — nút
+              Nhả ca tạm khóa. Chờ quản lý công bố lịch rồi mới nhả/đổi được.
+            </Alert>
+          ) : null}
           <div className="space-y-4">
             {days.map((ngay) => (
               <section key={ngay} className="min-w-0">
