@@ -34,6 +34,9 @@ test.describe("QUÁNVERSE — trung tâm điều hành", () => {
     await expect(page.getByTestId("quanverse-capacity")).toBeVisible();
     await expect(page.getByTestId("quanverse-copilot")).toBeVisible();
     await expect(page.getByTestId("quanverse-events")).toBeVisible();
+    await expect(page.getByTestId("quanverse-zone-focus")).toBeVisible();
+    await expect(page.getByTestId("quanverse-capability")).toBeVisible();
+    await expect(page.getByTestId("quanverse-modes")).toBeVisible();
   });
 
   test("tiêu đề nói đây là trung tâm điều hành quán", async ({ page }) => {
