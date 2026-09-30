@@ -589,6 +589,9 @@ export type Lich409Code =
   | "thieu_golden_sop"
   | "qr_da_dung"
   | "swap_da_tu_choi"
+  | "nguoi_nhuong_khong_trong_ca"
+  | "tuan_khong_hop_le"
+  | "doi_ca_khong_hop_le"
   | "idempotency_conflict"
   | "action_retry_not_safe"
   | "action_decision_conflict"
@@ -678,6 +681,12 @@ const LICH_409: Record<string, string> = {
   // Swap ca
   swap_da_tu_choi:
     "Yêu cầu đổi ca đã bị từ chối.",
+  nguoi_nhuong_khong_trong_ca:
+    "Bạn không giữ ca này trong tuần đã chọn — kiểm tra lại ca và tuần rồi mở lại phiếu.",
+  tuan_khong_hop_le:
+    "Tuần không hợp lệ (đúng dạng 2026-W40). Chọn lại tuần rồi thử lại.",
+  doi_ca_khong_hop_le:
+    "Phiếu đổi ca không hợp lệ (tự đổi cho mình hoặc ca không tồn tại).",
 
   // Copilot / actions
   idempotency_conflict:

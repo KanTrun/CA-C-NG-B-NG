@@ -131,6 +131,19 @@ export default function DoiCaPage() {
   const [msg, setMsg] = useState<string | null>(null);
   const [b, setB] = useState("");
   const [ca, setCa] = useState("");
+  // Ca TÔI đang giữ trong tuần đang xem — để dropdown "Ca cần đổi" chỉ hiện
+  // ca của chính mình, không phải toàn bộ 70 ca của quán.
+  const [myShiftIds, setMyShiftIds] = useState<string[] | null>(null);
+
+  useEffect(() => {
+    if (!token) return;
+    setMyShiftIds(null);
+    apiGet<{ ca_ids?: string[] }>(`/api/v1/toi/lich?tuan=${encodeURIComponent(openShiftWeek)}`)
+      .then((d) => setMyShiftIds(Array.isArray(d.ca_ids) ? d.ca_ids : []))
+      // Lỗi tải thì KHÔNG lọc (tránh kẹt form); backend vẫn chặn phiếu sai.
+      .catch(() => setMyShiftIds(null));
+  }, [token, openShiftWeek]);
+
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
@@ -142,6 +155,19 @@ export default function DoiCaPage() {
   const { data: pickers } = useOpsPickers(!!token);
   const meNv = pickers?.me_nv_id ?? null;
   const employeeMode = getRole() === "nhan_vien";
+
+  // Người nhận: loại chính mình (tự đổi cho mình là vô nghĩa — backend cũng 422).
+  // Giữ "Mọi người" = phiếu mở, ai nhanh tay nhận trước thì giữ chỗ.
+  const recipientOptions = useMemo(
+    () => (pickers?.nhan_vien ?? []).filter((n) => n.id !== meNv),
+    [pickers, meNv],
+  );
+  const myShifts = useMemo(() => {
+    const all = pickers?.ca ?? [];
+    if (myShiftIds === null) return all;
+    const mine = new Set(myShiftIds);
+    return all.filter((c) => mine.has(c.id));
+  }, [pickers, myShiftIds]);
 
   useEffect(() => {
     setToken(getToken());
@@ -232,7 +258,7 @@ export default function DoiCaPage() {
     }
     setBusy(true);
     try {
-      await apiSend("/api/v1/cho-doi-ca", { a: meNv, b: b.trim(), ca_id: ca.trim() });
+      await apiSend("/api/v1/cho-doi-ca", { a: meNv, b: b.trim(), ca_id: ca.trim(), tuan: openShiftWeek });
       setB("");
       setMsg("Đã mở phiếu đổi ca.");
       load();
@@ -351,7 +377,7 @@ export default function DoiCaPage() {
           <input
             type="week"
             value={openShiftWeek}
-            onChange={(event) => setOpenShiftWeek(event.target.value)}
+            onChange={(event) => { setOpenShiftWeek(event.target.value); setCa(""); }}
             className="mt-1 block min-h-10 w-full border border-[var(--nq-line)] bg-[var(--nq-panel)] px-3 text-[var(--nq-text)]"
           />
           </label>
@@ -441,15 +467,25 @@ export default function DoiCaPage() {
 
       <OpsCard eyebrow="Nhân viên đổi với nhau · Khu vực 1" title="Mở phiếu đổi ca">
         <form onSubmit={onSubmit}>
-          <p className="nq-muted mb-3">Người nhả ca: {meNv ? personLabel(meNv) : "Đang tải tài khoản…"}</p>
+          <p className="nq-muted mb-3">Người nhả ca: {meNv ? personLabel(meNv) : "Đang tải tài khoản…"} · Phiếu mở cho tuần {openShiftWeek}</p>
           <select className="nq-select mb-3" value={b} onChange={(e) => setB(e.target.value)} aria-label="Người nhận ca">
             <option value="">Chọn người nhận…</option>
-            <option value="all">Mọi người</option>
-            {(pickers?.nhan_vien ?? []).map((n) => (
+            <option value="all">Mọi người — ai nhanh tay nhận trước</option>
+            {recipientOptions.map((n) => (
               <option key={n.id} value={n.id}>{nvTenHienThi(n.ten, n.id)}</option>
             ))}
           </select>
-          <ShiftSelect value={ca} onChange={setCa} label="Ca cần đổi" shifts={pickers?.ca} />
+          <ShiftSelect
+            value={ca}
+            onChange={setCa}
+            label="Ca cần đổi (ca bạn đang giữ)"
+            shifts={myShifts}
+            hint={
+              myShiftIds !== null && myShiftIds.length === 0
+                ? "Tuần này bạn không giữ ca nào — không mở được phiếu."
+                : "Chỉ hiện ca bạn đang giữ trong tuần trên. Chọn tên cụ thể = chỉ định, chọn Mọi người = ai nhận trước thì giữ chỗ."
+            }
+          />
           <Btn type="submit" variant="primary" disabled={busy}>
             {busy ? "Đang mở lệnh…" : "Mở lệnh đổi ca"}
           </Btn>
@@ -486,7 +522,9 @@ export default function DoiCaPage() {
               const canAgree = meNv && recipient && it.a !== meNv && !agreed.has(meNv) && it.trang_thai !== "da_duyet";
               const rr = it.rui_ro;
               const daDuyet = it.trang_thai === "da_duyet";
-              const du = agreed.size >= 2;
+              // Đủ đồng ý = backend đã chốt pha đồng thuận (`dong_y`). Chỉ đếm
+              // số lượt thì phiếu mở cho mọi người (1 lượt nhận là xong) kẹt mãi.
+              const du = it.trang_thai === "dong_y" || agreed.size >= 2;
               return (
                 <article key={it.id} className="nq-item">
                   <p className="nq-item-title">
