@@ -101,6 +101,8 @@ def brief_living_map(
     modes: list[dict[str, Any]],
     horizon: list[dict[str, Any]],
     data_quality: list[dict[str, Any]] | None = None,
+    stations: dict[str, Any] | None = None,
+    forecast: dict[str, Any] | None = None,
 ) -> PageFacts:
     """Tổng hợp `/quanverse` — khu vực quá tải, việc 15 phút tới, chế độ đang bật."""
     out = PageFacts(page=QuanversePage.LIVING_MAP)
@@ -109,6 +111,61 @@ def brief_living_map(
     hot = [z for z in zone_rows if (z.get("load_signal") or 0) >= 0.7]
     warm = [z for z in zone_rows if 0.4 <= (z.get("load_signal") or 0) < 0.7]
     active_modes = [m for m in modes if m.get("active")]
+
+    # Ưu tiên trạng thái tải từ stations thật (canh_bao) nếu có.
+    if isinstance(stations, dict) and stations.get("co_du_lieu"):
+        station_rows = [
+            s for s in (stations.get("stations") or []) if isinstance(s, dict)
+        ]
+        hot_live = [s for s in station_rows if s.get("canh_bao") == "qua_tai"]
+        warm_live = [s for s in station_rows if s.get("canh_bao") == "chu_y"]
+        if hot_live or warm_live or station_rows:
+            hot = [
+                {
+                    "zone_id": s.get("zone_id"),
+                    "label": s.get("ten") or s.get("zone_id"),
+                    "load_signal": 0.9 if s.get("canh_bao") == "qua_tai" else 0.5,
+                }
+                for s in hot_live
+            ]
+            warm = [
+                {
+                    "zone_id": s.get("zone_id"),
+                    "label": s.get("ten") or s.get("zone_id"),
+                    "load_signal": 0.5,
+                }
+                for s in warm_live
+            ]
+            chi = stations.get("chi_so") or {}
+            if chi.get("don_dang_xu_ly") is not None:
+                out.metrics.append(
+                    _metric(
+                        "orders_live",
+                        "Đơn đang xử lý",
+                        float(chi["don_dang_xu_ly"]),
+                        unit="đơn",
+                        tone="warn" if float(chi["don_dang_xu_ly"]) >= 4 else "default",
+                    )
+                )
+                out.grounded_refs.append("stations.chi_so.don_dang_xu_ly")
+
+    if isinstance(forecast, dict) and forecast.get("co_du_lieu"):
+        peaks = forecast.get("giao_dich_nhat") or []
+        days = forecast.get("so_ngay_du_lieu")
+        if peaks:
+            labels = ", ".join(f"{int(h):02d}:00" for h in peaks[:3])
+            out.facts.append(f"Giờ đông nhất theo lịch sử đơn: {labels}.")
+            out.grounded_refs.append("forecast.giao_dich_nhat")
+        if days is not None:
+            out.metrics.append(
+                _metric(
+                    "forecast_days",
+                    "Ngày dữ liệu dự báo",
+                    float(days),
+                    unit="ngày",
+                )
+            )
+            out.grounded_refs.append("forecast.so_ngay_du_lieu")
 
     out.headline = f"{len(zone_rows)} khu vực đang mở · {len(active_modes)} chế độ bật"
 

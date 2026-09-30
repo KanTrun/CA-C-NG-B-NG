@@ -111,6 +111,30 @@ const HOM_NAY = {
   ],
 };
 
+const STAFF_ON_SHIFT = {
+  co_du_lieu: true,
+  names: ["Lan", "Minh"],
+  count: 2,
+  shift_label: "08:00–12:00",
+  gio: 10,
+  tuan_iso: "2026-W40",
+  nguon: "phan_cong_by_week",
+};
+
+const MODES = {
+  modes: [
+    {
+      mode: "gio_cao_diem",
+      active: false,
+      proposal_status: "",
+      affected_projections: ["quay_pha_che"],
+      effect: "Bật gợi ý san ca.",
+    },
+  ],
+  role: "quan_ly",
+  can_activate: true,
+};
+
 test.describe("QUÁNVERSE — dữ liệu thật", () => {
   test.beforeEach(async ({ page }) => {
     await disableWebgl(page);
@@ -126,6 +150,32 @@ test.describe("QUÁNVERSE — dữ liệu thật", () => {
     );
     await page.route("**/api/v1/experience/quanverse/brief/**", (r) =>
       r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(BRIEF) }),
+    );
+    await page.route("**/api/v1/experience/quanverse/staff-on-shift**", (r) =>
+      r.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(STAFF_ON_SHIFT),
+      }),
+    );
+    await page.route("**/api/v1/experience/quanverse/modes**", (r) =>
+      r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(MODES) }),
+    );
+    await page.route("**/api/v1/experience/quanverse/ask**", (r) =>
+      r.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          page: "living_map",
+          question: "test",
+          answer: "Quầy pha chế đang là điểm nghẽn chính.",
+          brief: BRIEF,
+          citations: ["don_quay"],
+          unsupported_claims: [],
+          grounded: true,
+          provider: "replay",
+        }),
+      }),
     );
     await page.route("**/api/v1/lich-tuan**", (r) =>
       r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(LICH_TUAN) }),
@@ -150,13 +200,12 @@ test.describe("QUÁNVERSE — dữ liệu thật", () => {
     await expect(page.getByTestId("kpi-zones")).toHaveText("4");
   });
 
-  test("suy TÊN nhân sự đang trực từ lịch tuần", async ({ page }) => {
+  test("đọc tên nhân sự đang trực từ staff-on-shift", async ({ page }) => {
     await page.goto("/quanverse");
-    // Ca 08:00–12:00 có 2 người; bài chạy bất kỳ giờ nào nên chỉ chốt được
-    // rằng KHÔNG hiện "—" khi lịch tuần đọc được (khớp ca hay không tuỳ giờ).
     const ons = page.getByTestId("header-onshift");
     await expect(ons).toBeVisible({ timeout: 15_000 });
-    await expect(ons).toContainText(/nhân sự đang trực|Chưa có dữ liệu/);
+    await expect(ons).toContainText("2 nhân sự đang trực");
+    await expect(ons).toContainText("Lan");
   });
 
   test("nhãn khu vực đọc từ `ten`, trạng thái từ `canh_bao`", async ({ page }) => {

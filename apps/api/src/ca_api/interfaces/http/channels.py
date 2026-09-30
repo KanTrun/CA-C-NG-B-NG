@@ -362,16 +362,19 @@ def process_inbound(msg: InboundMessage, *, reply_backend: str | None = None) ->
     except Exception:
         pass
 
-    # `base_iso_week` BẮT BUỘC: thiếu nó, "tuần sau" được tính từ mốc mặc định
-    # cứng "2026-W01" trong `ag_msg.extract` → mọi tin nhắn kênh (Zalo/Telegram/
-    # Facebook) báo bận cho tuần tới đều bị ghi vào tuần SAI (vd 2026-W02), nên
-    # lượt xếp lịch thật của tuần tới không hề thấy ràng buộc. Đường web
-    # (`/api/v1/msg/classify`) đã truyền mốc này từ trước; kênh tin thì chưa.
+    # `base_iso_week` BẮT BUỘC: phải truyền tuần THẬT — giống sprint3 msg_classify.
+    # Thiếu nó, "tuần sau" được tính từ mốc mặc định cứng "2026-W01" trong `ag_msg.extract`
+    # → mọi tin nhắn kênh (Zalo/Telegram/Facebook) báo bận cho tuần tới đều bị ghi vào
+    # tuần SAI (vd 2026-W02), nên lượt xếp lịch thật của tuần tới không hề thấy ràng buộc.
+    try:
+        base_week = _current_iso_week()
+    except Exception:
+        base_week = None
     r = classify(
         text,
         mode=agent_mode(),
         staff=staff_list if staff_list else None,
-        base_iso_week=_current_iso_week(),
+        base_iso_week=base_week,
     )
     if not should_enqueue_constraint(text, r.intent, r.do_tin_cay):
         sent = port.send(

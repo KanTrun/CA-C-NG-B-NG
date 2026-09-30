@@ -12,6 +12,7 @@
 import {
   KHONG_CO_DU_LIEU,
   type QuanverseActionItem,
+  type QuanverseAskResult,
   type QuanverseCapacity,
   type QuanverseCapacityPoint,
   type QuanverseCopilot,
@@ -19,6 +20,10 @@ import {
   type QuanverseEvent,
   type QuanverseKpi,
   type QuanverseKpiTone,
+  type QuanverseMode,
+  type QuanverseModeStatus,
+  type QuanverseModesState,
+  type QuanverseRole,
   type QuanverseStoreHeader,
   type QuanverseTimelineItem,
   type QuanverseTimelineStatus,
@@ -27,6 +32,7 @@ import {
   mangHoacRong,
   soHoacNull,
 } from "../quanverse-contract";
+import { QUANVERSE_MODE_LABEL } from "./types";
 
 // ── Nhãn enum tiếng Việt (một chỗ duy nhất) ────────────────────────────────
 
@@ -186,6 +192,7 @@ interface HorizonTho {
   starts_in_min?: unknown;
   source?: unknown;
   status?: unknown;
+  zone_id?: unknown;
 }
 
 /** `starts_in_min` (fixture) → giờ "HH:MM" so với `gio` vận hành. */
@@ -217,6 +224,7 @@ export function chuanHoaTimeline(
       kind: typeof h.kind === "string" ? h.kind : "",
       source: nhanNguon(h.source),
       status: trangThaiTimeline(h.status),
+      zoneId: typeof h.zone_id === "string" && h.zone_id ? h.zone_id : null,
     };
   });
 }
@@ -317,6 +325,66 @@ export function chuanHoaCopilot(
     grounded: ask?.grounded === true || citations.length > 0,
     provider: typeof ask?.provider === "string" ? ask.provider : "replay",
     suggestedActions: chuoiTuMang(brief?.next_actions),
+  };
+}
+
+/** Chuẩn hoá một lần hỏi AI thành `QuanverseAskResult`. */
+export function chuanHoaAsk(
+  tho: AskTho & { question?: unknown } | null,
+  question: string,
+): QuanverseAskResult {
+  const answer =
+    typeof tho?.answer === "string" && tho.answer.trim()
+      ? tho.answer.trim()
+      : "Chưa có bản ghi hậu thuẫn. (Không suy đoán)";
+  const citations = chuoiTuMang(tho?.citations);
+  return {
+    question,
+    answer,
+    citations,
+    unsupportedClaims: chuoiTuMang(tho?.unsupported_claims),
+    grounded: tho?.grounded === true || citations.length > 0,
+    provider: typeof tho?.provider === "string" ? tho.provider : "replay",
+  };
+}
+
+function trangThaiMode(active: boolean, proposalStatus: string): QuanverseModeStatus {
+  if (active) return "active";
+  if (proposalStatus === "draft") return "draft";
+  return "off";
+}
+
+interface ModeTho {
+  mode?: unknown;
+  active?: unknown;
+  proposal_status?: unknown;
+  effect?: unknown;
+  affected_projections?: unknown;
+}
+
+export function chuanHoaModes(
+  tho: { modes?: unknown; can_activate?: unknown; role?: unknown } | null,
+): QuanverseModesState {
+  const modesRaw = mangHoacRong(tho?.modes as readonly ModeTho[]);
+  const modes: QuanverseMode[] = modesRaw.map((m) => {
+    const code = typeof m.mode === "string" ? m.mode : "";
+    const active = m.active === true;
+    const proposalStatus =
+      typeof m.proposal_status === "string" ? m.proposal_status : "";
+    return {
+      mode: code,
+      label: QUANVERSE_MODE_LABEL[code] ?? code,
+      active,
+      proposalStatus,
+      status: trangThaiMode(active, proposalStatus),
+      effect: typeof m.effect === "string" ? m.effect : "",
+      affectedProjections: chuoiTuMang(m.affected_projections),
+    };
+  });
+  return {
+    modes,
+    canActivate: tho?.can_activate === true,
+    role: (typeof tho?.role === "string" ? tho.role : "nhan_vien") as QuanverseRole,
   };
 }
 

@@ -384,6 +384,21 @@ def quanverse_forecast(
     return forecast()
 
 
+@router.get("/api/v1/experience/quanverse/staff-on-shift")
+def quanverse_staff_on_shift(
+    authorization: Annotated[str | None, Header()] = None,
+) -> dict[str, Any]:
+    """Nhân sự đang trực theo ca phủ giờ hiện tại — tính tại máy chủ.
+
+    Read-only. `count=null` khi chưa khớp ca nào (UI hiện "—"), khác `0`
+    (có ca nhưng chưa phân công).
+    """
+    _require_role(authorization)
+    from ca_api.services.quanverse_live import staff_on_shift
+
+    return staff_on_shift()
+
+
 @router.post("/api/v1/experience/quanverse/modes/{mode}/propose")
 def quanverse_mode_propose(
     mode: str,
@@ -701,12 +716,27 @@ def _payload_for_page(page: QuanversePage, role: ExperienceRole) -> dict[str, An
                     out.append(cast(dict[str, Any], row.model_dump(mode="json")))
             return out
 
+        # Bổ sung stations/forecast thật vào brief living_map — AI nói đúng về tải.
+        stations_payload: dict[str, Any] | None = None
+        forecast_payload: dict[str, Any] | None = None
+        try:
+            from ca_api.services.quanverse_live import forecast as live_forecast
+            from ca_api.services.quanverse_live import stations as live_stations
+
+            stations_payload = live_stations()
+            forecast_payload = live_forecast()
+        except Exception:
+            stations_payload = None
+            forecast_payload = None
+
         return {
             "zones": _as_dicts(proj["zones"]),
             "events": _as_dicts(proj["events"]),
             "modes": _as_dicts(proj["modes"]),
             "horizon": _as_dicts(proj["next_horizon"]),
             "data_quality": _as_dicts(proj["data_quality"]),
+            "stations": stations_payload,
+            "forecast": forecast_payload,
         }
 
     if page == QuanversePage.WAR_ROOM:

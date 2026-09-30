@@ -1214,6 +1214,19 @@ def get_lich_thay_doi(
     }
 
 
+@app.post("/api/v1/lich-tuan/demo-mini-w41")
+def post_demo_mini_w41(
+    _role: Annotated[str, Depends(_require_write_role)],
+) -> dict[str, Any]:
+    """Seed bộ test 4 NV + tuần W41 — tự kiểm xếp → nhật ký → swap trong vài phút.
+
+    Chỉ quản lý/chủ. Không đụng tuần khác. Trả hướng dẫn bước tiếp theo.
+    """
+    from ca_api.services.mini_w41_fixture import seed_mini_w41_roster
+
+    return seed_mini_w41_roster()
+
+
 @app.post("/api/v1/lich-tuan/nv-status")
 async def post_nv_status(
     body: NvStatusBody,
