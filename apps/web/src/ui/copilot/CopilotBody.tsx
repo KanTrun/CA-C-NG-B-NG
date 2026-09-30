@@ -1,11 +1,7 @@
-// UI body chat (header + messages + quick prompts + input) dùng chung cho
-// CopilotPane (floating) và trang /copilot (full-page).
+// UI body chat phong cách Companion Instant Messenger (nhắn tin trực tiếp với Tinh Linh)
+// tích hợp chế độ Gọi Live (Live Video Call) phóng to nhân vật 2D chân thực.
 //
-// Props:
-//  - chat: state từ useCopilotChat
-//  - onClose?: callback cho header nút ✕ (pane)
-//  - onOpenFullPage?: callback mở /copilot trong tab/cửa sổ mới (pane)
-//  - showHeaderAccent: true = pane (có nút expand), false = page (chỉ header)
+// Dùng chung cho CopilotPane (floating companion) và trang /copilot (toàn màn hình).
 
 "use client";
 
@@ -16,15 +12,11 @@ import { ActionProposalCard } from "./ActionProposalCard";
 import { Avatar2D, type AvatarMood } from "./Avatar2D";
 import { ChatText } from "./ChatText";
 import type { ChatMessage, Mode } from "./useCopilotChat";
-import { useCopilotVoice, type VoiceInputMode, type VoiceState } from "./useCopilotVoice";
+import { useCopilotVoice, type VoiceProposalData } from "./useCopilotVoice";
 import { useAvatarLipSync } from "./useAvatarLipSync";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
-const VOICE_ENABLED = process.env.NEXT_PUBLIC_GEMINI_LIVE_VOICE_ENABLED !== "false";
 const VOICE_CONSENT_KEY = "ag_voice_consent_v1";
-const VOICE_MODE_KEY = "ag_voice_input_mode";
-const VOICE_MIC_KEY = "ag_voice_mic_device_id";
-const VOICE_TOGGLE_KEY = "ag_voice_enabled_v1";
 
 function resolveMediaUrl(url: string): string {
   if (!url) return "";
@@ -32,6 +24,12 @@ function resolveMediaUrl(url: string): string {
     return url;
   }
   return `${API_BASE}${url.startsWith("/") ? "" : "/"}${url}`;
+}
+
+function formatDuration(sec: number): string {
+  const m = Math.floor(sec / 60);
+  const s = sec % 60;
+  return `${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`;
 }
 
 interface Props {
@@ -53,7 +51,6 @@ export function CopilotBody({ chat, mode, onClose, onOpenFullPage, onClearHistor
     streamingId,
     send,
     uploadAttachment,
-    updateProposal,
     clearHistory,
   } = chat;
 
@@ -61,52 +58,61 @@ export function CopilotBody({ chat, mode, onClose, onOpenFullPage, onClearHistor
   const inputRef = useRef<HTMLInputElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const activeVoiceTurnRef = useRef<{ id: string; role: "user" | "copilot" } | null>(null);
-  // Khi nhận voice:proposal (reply + ActionProposal từ pipeline), bỏ qua
-  // outputAudioTranscription tiếp theo của Gemini để tránh tin nhắn copilot
-  // trùng lặp (một từ proposal, một từ transcript audio).
   const skipNextCopilotTranscriptRef = useRef(false);
+
+  // Chế độ cuộc gọi Live trực tiếp ("cho nó bự lên rồi nói chuyện")
+  const [isLiveCall, setIsLiveCall] = useState(false);
+  const [callSeconds, setCallSeconds] = useState(0);
+  const [isMuted, setIsMuted] = useState(false);
   const [showConsentModal, setShowConsentModal] = useState(false);
-  const [voiceMode, setVoiceMode] = useState<VoiceInputMode>("open_mic");
-  const [selectedMicId, setSelectedMicId] = useState<string>("");
-  const [voiceEnabled, setVoiceEnabled] = useState<boolean>(VOICE_ENABLED);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [showScrollBottom, setShowScrollBottom] = useState(false);
+  const [isMobile, setIsMobile] = useState(false);
+
+  // Phụ đề theo thời gian thực cho cuộc gọi Live
+  const [latestUserTranscript, setLatestUserTranscript] = useState("");
+  const [latestCopilotTranscript, setLatestCopilotTranscript] = useState("");
+
+  // Quản lý tệp đính kèm
+  const [attachedFile, setAttachedFile] = useState<{
+    file: File;
+    previewUrl: string;
+    isImage: boolean;
+  } | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
 
   useEffect(() => {
-    try {
-      const savedMode = window.localStorage.getItem(VOICE_MODE_KEY);
-      if (savedMode === "open_mic" || savedMode === "push_to_talk") {
-        setVoiceMode(savedMode);
-      }
-      const savedMic = window.localStorage.getItem(VOICE_MIC_KEY);
-      if (savedMic) {
-        setSelectedMicId(savedMic);
-      }
-      const savedToggle = window.localStorage.getItem(VOICE_TOGGLE_KEY);
-      if (savedToggle === "true" || savedToggle === "false") {
-        setVoiceEnabled(savedToggle === "true");
-      }
-    } catch {}
+    const checkMobile = () => setIsMobile(typeof window !== "undefined" && window.innerWidth < 640);
+    checkMobile();
+    window.addEventListener("resize", checkMobile);
+    return () => window.removeEventListener("resize", checkMobile);
   }, []);
 
-  const handleVoiceToggleEnabled = () => {
-    setVoiceEnabled((prev) => {
-      const next = !prev;
-      try {
-        window.localStorage.setItem(VOICE_TOGGLE_KEY, String(next));
-      } catch {}
-      if (!next && isVoiceActive) {
-        voice.stop();
-        activeVoiceTurnRef.current = null;
-      }
-      return next;
-    });
-  };
+  // Bộ đếm thời gian cho cuộc gọi Live
+  useEffect(() => {
+    let interval: NodeJS.Timeout | null = null;
+    if (isLiveCall) {
+      interval = setInterval(() => {
+        setCallSeconds((s) => s + 1);
+      }, 1000);
+    } else {
+      setCallSeconds(0);
+      setLatestUserTranscript("");
+      setLatestCopilotTranscript("");
+    }
+    return () => {
+      if (interval) clearInterval(interval);
+    };
+  }, [isLiveCall]);
 
+  // Xử lý phụ đề và văn bản trả lời từ Voice socket
   const handleTranscript = useCallback(
     (role: "user" | "copilot", chunk: string, isFinal: boolean) => {
       if (!chunk.trim()) return;
-      // Bỏ qua transcript copilot của reply đã hiển thị qua voice:proposal.
+      if (role === "user") setLatestUserTranscript(chunk);
+      if (role === "copilot") setLatestCopilotTranscript(chunk);
+
       if (role === "copilot" && skipNextCopilotTranscriptRef.current) {
         if (isFinal) skipNextCopilotTranscriptRef.current = false;
         return;
@@ -123,26 +129,21 @@ export function CopilotBody({ chat, mode, onClose, onOpenFullPage, onClearHistor
             if (m.id === active.id) {
               const currentText = m.text || "";
               const nextText = currentText
-                ? (chunk.startsWith(" ") || currentText.endsWith(" ") ? currentText + chunk : currentText + " " + chunk)
+                ? chunk.startsWith(" ") || currentText.endsWith(" ")
+                  ? currentText + chunk
+                  : currentText + " " + chunk
                 : chunk;
-              return {
-                ...m,
-                text: nextText,
-              };
+              return { ...m, text: nextText };
             }
             return m;
           });
-          if (isFinal) {
-            activeVoiceTurnRef.current = null;
-          }
+          if (isFinal) activeVoiceTurnRef.current = null;
           return updated;
         } else {
           const newId = `voice_${role}_${Date.now()}`;
-          if (!isFinal) {
-            activeVoiceTurnRef.current = { id: newId, role };
-          } else {
-            activeVoiceTurnRef.current = null;
-          }
+          if (!isFinal) activeVoiceTurnRef.current = { id: newId, role };
+          else activeVoiceTurnRef.current = null;
+
           const newMsg: ChatMessage = {
             id: newId,
             sender: role,
@@ -162,8 +163,9 @@ export function CopilotBody({ chat, mode, onClose, onOpenFullPage, onClearHistor
   }, []);
 
   const handleVoiceProposal = useCallback(
-    (data: import("./useCopilotVoice").VoiceProposalData) => {
+    (data: VoiceProposalData) => {
       if (!data.reply_text.trim()) return;
+      setLatestCopilotTranscript(data.reply_text);
       const now = new Date().toLocaleTimeString([], {
         hour: "2-digit",
         minute: "2-digit",
@@ -178,9 +180,8 @@ export function CopilotBody({ chat, mode, onClose, onOpenFullPage, onClearHistor
         agent_mode: data.agent_mode || "live",
         timestamp: now,
       };
-      setMessages((prev) => [...prev, newMsg]);
-      // Đánh dấu bỏ qua transcript copilot tiếp theo (audio của reply này).
       skipNextCopilotTranscriptRef.current = true;
+      setMessages((prev) => [...prev, newMsg]);
     },
     [setMessages]
   );
@@ -189,44 +190,92 @@ export function CopilotBody({ chat, mode, onClose, onOpenFullPage, onClearHistor
     onTranscript: handleTranscript,
     onInterrupted: handleInterrupted,
     onProposal: handleVoiceProposal,
-    inputMode: voiceMode,
-    deviceId: selectedMicId || undefined,
+    inputMode: "open_mic",
   });
 
-  // Lip-sync avatar: mức mở miệng theo amplitude audio trợ lý đang phát.
-  const isSpeaking = voice.state === "speaking";
+  const isSpeaking = voice.state === "speaking" || Boolean(streamingId);
   const isListening = voice.state === "listening";
   const mouthOpen = useAvatarLipSync(voice.audioLevel, isSpeaking);
 
-  // Phản hồi âm thanh khi trạng thái voice thay đổi:
-  // - Bắt đầu nghe → bíp nhẹ (báo micro đã mở).
-  // - Trả lời xong (speaking → listening) → ting nhẹ (báo đã nghe xong).
-  const prevVoiceStateRef = useRef<VoiceState | null>(null);
-  useEffect(() => {
-    const prev = prevVoiceStateRef.current;
-    prevVoiceStateRef.current = voice.state;
-    if (prev === voice.state) return;
-    if (voice.state === "listening" && prev === "speaking") {
-      chatSounds.playVoiceEnd();
-    } else if (voice.state === "listening" && (prev === "idle" || prev === "connecting")) {
-      chatSounds.playVoiceStart();
+  const isVoiceActive =
+    voice.state === "connecting" ||
+    voice.state === "listening" ||
+    voice.state === "processing" ||
+    voice.state === "speaking";
+
+  // Suy luận mood của Tinh Linh theo thời gian thực
+  const chatMood: AvatarMood = (() => {
+    if (isVoiceActive) {
+      if (voice.state === "speaking") return "speaking";
+      if (voice.state === "listening") return "listening";
+      if (voice.state === "processing") return "processing";
+      if (voice.state === "error") return "error";
     }
-  }, [voice.state]);
+    if (loading && !streamingId) return "processing";
+    if (Boolean(streamingId)) return "speaking";
 
-  const [attachedFile, setAttachedFile] = useState<{
-    file: File;
-    previewUrl?: string;
-    isImage: boolean;
-  } | null>(null);
-  const [uploading, setUploading] = useState(false);
-  const [uploadError, setUploadError] = useState<string | null>(null);
+    const lastMsg = messages[messages.length - 1];
+    if (lastMsg && lastMsg.sender === "copilot") {
+      if (lastMsg.action_proposal?.status === "executed") return "success";
+      const txt = lastMsg.text.toLowerCase();
+      if (txt.includes("lỗi") || txt.includes("thất bại") || txt.includes("không thể")) return "error";
+      if (txt.includes("cảnh báo") || txt.includes("chú ý") || txt.includes("thiếu ca")) return "alert";
+      if (txt.includes("xin chào") || txt.includes("chào ký chủ") || txt.includes("chào bạn") || txt.startsWith("chào"))
+        return "greeting";
+      if (txt.includes("tuyệt vời") || txt.includes("hoàn tất") || txt.includes("chúc mừng") || txt.includes("xuất sắc"))
+        return "happy";
+    }
+    if (messages.length === 0) return "greeting";
+    return "idle";
+  })();
 
+  // Bắt đầu cuộc gọi Live ("cho nó bự lên rồi nói chuyện")
+  const handleStartLiveCall = useCallback(() => {
+    try {
+      const consented = typeof window !== "undefined" && window.localStorage.getItem(VOICE_CONSENT_KEY) === "true";
+      if (consented) {
+        chatSounds.playCallStart();
+        setIsLiveCall(true);
+        void voice.start();
+      } else {
+        setShowConsentModal(true);
+      }
+    } catch {
+      chatSounds.playCallStart();
+      setIsLiveCall(true);
+      void voice.start();
+    }
+  }, [voice]);
+
+  // Kết thúc cuộc gọi Live
+  const handleEndLiveCall = useCallback(() => {
+    chatSounds.playCallEnd();
+    voice.stop();
+    activeVoiceTurnRef.current = null;
+    setIsLiveCall(false);
+    const dur = formatDuration(callSeconds);
+    const now = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    setMessages((prev) => [
+      ...prev,
+      {
+        id: `call_end_${Date.now()}`,
+        sender: "copilot",
+        text: `📞 Cuộc gọi trực tiếp với Tinh Linh đã hoàn tất (Thời lượng: ${dur}).`,
+        timestamp: now,
+      },
+    ]);
+  }, [callSeconds, setMessages, voice]);
+
+  // Xử lý đính kèm tệp
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    setUploadError(null);
+    if (file.size > 10 * 1024 * 1024) {
+      setUploadError("Tệp quá lớn (tối đa 10MB)");
+      return;
+    }
     const isImage = file.type.startsWith("image/");
-    const previewUrl = isImage ? URL.createObjectURL(file) : undefined;
+    const previewUrl = URL.createObjectURL(file);
     setAttachedFile({ file, previewUrl, isImage });
     if (fileInputRef.current) fileInputRef.current.value = "";
   };
@@ -239,6 +288,7 @@ export function CopilotBody({ chat, mode, onClose, onOpenFullPage, onClearHistor
     setUploadError(null);
   };
 
+  // Gửi tin nhắn văn bản
   const handleFormSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (loading || Boolean(streamingId) || uploading) return;
@@ -261,111 +311,32 @@ export function CopilotBody({ chat, mode, onClose, onOpenFullPage, onClearHistor
     }
   };
 
-  // Auto-scroll
+  // Tự động cuộn xuống tin nhắn mới nhất
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
-
-  // Focus input khi mở
-  useEffect(() => {
-    const t = window.setTimeout(() => inputRef.current?.focus(), 200);
-    return () => window.clearTimeout(t);
-  }, []);
-
-  const isVoiceActive =
-    voice.state === "connecting" ||
-    voice.state === "listening" ||
-    voice.state === "processing" ||
-    voice.state === "speaking";
-
-  const isVoiceError =
-    voice.state === "error" ||
-    voice.state === "mic_denied" ||
-    voice.state === "mic_not_found" ||
-    voice.state === "superseded" ||
-    voice.state === "idle_timeout";
-
-  // Suy luận mood tổng hợp cho cả Text Chat và Voice:
-  const chatMood: AvatarMood = (() => {
-    if (isVoiceActive) {
-      if (voice.state === "speaking") return "speaking";
-      if (voice.state === "listening") return "listening";
-      if (voice.state === "processing") return "processing";
-      if (voice.state === "error") return "error";
-    }
-    if (loading && !streamingId) return "processing";
-    if (Boolean(streamingId)) return "speaking";
-
-    const lastMsg = messages[messages.length - 1];
-    if (lastMsg && lastMsg.sender === "copilot") {
-      if (lastMsg.action_proposal?.status === "executed") return "success";
-      const txt = lastMsg.text.toLowerCase();
-      if (txt.includes("lỗi") || txt.includes("thất bại") || txt.includes("không thể")) return "error";
-      if (txt.includes("cảnh báo") || txt.includes("chú ý") || txt.includes("thiếu ca")) return "alert";
-      if (txt.includes("xin chào") || txt.includes("chào Ký chủ") || txt.includes("chào bạn") || txt.includes("hello") || txt.startsWith("chào")) return "greeting";
-      if (txt.includes("tuyệt vời") || txt.includes("hoàn tất") || txt.includes("chúc mừng") || txt.includes("xuất sắc")) return "happy";
-    }
-    if (messages.length === 0) return "greeting";
-    return "idle";
-  })();
-
-  const handleVoiceToggle = () => {
-    if (isVoiceActive) {
-      voice.stop();
-      activeVoiceTurnRef.current = null;
-      return;
-    }
-    try {
-      if (typeof window !== "undefined" && window.localStorage.getItem(VOICE_CONSENT_KEY) === "true") {
-        void voice.start();
-      } else {
-        setShowConsentModal(true);
-      }
-    } catch {
-      void voice.start();
-    }
-  };
-
-  const handleModeChange = (newMode: VoiceInputMode) => {
-    setVoiceMode(newMode);
-    try {
-      window.localStorage.setItem(VOICE_MODE_KEY, newMode);
-    } catch {}
-  };
-
-  const handleMicChange = (newMicId: string) => {
-    setSelectedMicId(newMicId);
-    void voice.changeMic(newMicId);
-    try {
-      window.localStorage.setItem(VOICE_MIC_KEY, newMicId);
-    } catch {}
-  };
+  }, [messages, streamingId]);
 
   return (
-    <div
-      className="relative flex h-full flex-col bg-[var(--nq-bg)] text-[var(--nq-fg)]"
-      style={{ ["--accent" as any]: profile.accent }}
-    >
-      {/* Consent Modal for Decree 13/2023/ND-CP */}
+    <div className="relative flex h-full w-full flex-col bg-slate-950 text-slate-100 overflow-hidden font-sans">
+      {/* ── CONSENT MODAL NGHỊ ĐỊNH 13/2023/NĐ-CP ── */}
       {showConsentModal && (
-        <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm">
-          <div className="w-full max-w-sm nq-surface-block border-[var(--nq-accent)] p-5 shadow-2xl">
-            <div className="flex items-center gap-2 text-[var(--nq-accent)]">
-              <Icon name="microphone" size={18} />
-              <h4 className="text-xs font-bold uppercase tracking-wider text-[var(--nq-fg)]">
-                Bảo vệ quyền riêng tư giọng nói
+        <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-md animate-in fade-in">
+          <div className="w-full max-w-sm rounded-2xl border border-amber-500/50 bg-slate-900 p-5 shadow-2xl">
+            <div className="flex items-center gap-2 text-amber-400">
+              <Icon name="phone" size={18} />
+              <h4 className="text-xs font-bold uppercase tracking-wider text-slate-100">
+                Bảo vệ quyền riêng tư cuộc gọi
               </h4>
             </div>
-            <div className="mt-3 space-y-2.5 text-2xs leading-relaxed text-[var(--nq-dim)]">
+            <div className="mt-3 space-y-2 text-xs leading-relaxed text-slate-300">
               <p>
-                Theo <strong>Nghị định 13/2023/NĐ-CP</strong>, AG-COPILOT cần sự đồng thuận của anh/chị trước khi tiếp nhận âm thanh từ micro để hỗ trợ tra cứu và điều hành qua giọng nói.
+                Theo <strong>Nghị định 13/2023/NĐ-CP</strong>, Tinh Linh cần quyền sử dụng micro để trò chuyện trực tiếp (Live Call) cùng bạn.
               </p>
-              <div className="border border-[var(--nq-dim)]/40 bg-[var(--nq-bg)] p-2.5 text-2xs text-[var(--nq-fg)]">
-                <p className="font-semibold text-[var(--nq-st-ok-ink)]">Cam kết an toàn dữ liệu:</p>
-                <ul className="mt-1 list-disc pl-4 space-y-0.5 text-[var(--nq-dim)]">
-                  <li>Không lưu trữ tệp ghi âm giọng nói thô trên hệ thống.</li>
-                  <li>Chỉ lưu bản ghi văn bản (transcript) trong lịch sử hội thoại.</li>
-                  <li>Có thể dừng phiên voice bất kỳ lúc nào để chuyển sang chat text.</li>
+              <div className="rounded-xl border border-slate-700 bg-slate-950/70 p-2.5 text-[11px] text-slate-300">
+                <p className="font-semibold text-emerald-400">Cam kết an toàn dữ liệu:</p>
+                <ul className="mt-1 list-disc pl-4 space-y-0.5 text-slate-400">
+                  <li>Không lưu trữ tệp ghi âm giọng nói thô trên máy chủ.</li>
+                  <li>Bạn có thể ngắt kết nối cuộc gọi bất cứ lúc nào.</li>
                 </ul>
               </div>
             </div>
@@ -373,7 +344,7 @@ export function CopilotBody({ chat, mode, onClose, onOpenFullPage, onClearHistor
               <button
                 type="button"
                 onClick={() => setShowConsentModal(false)}
-                className="border border-[var(--nq-dim)] px-3 py-1.5 text-2xs font-bold uppercase text-[var(--nq-dim)] transition hover:border-[var(--nq-fg)] hover:text-[var(--nq-fg)]"
+                className="rounded-lg border border-slate-700 px-3 py-1.5 text-xs font-semibold text-slate-400 hover:text-slate-200 transition"
               >
                 Để sau
               </button>
@@ -384,9 +355,11 @@ export function CopilotBody({ chat, mode, onClose, onOpenFullPage, onClearHistor
                     window.localStorage.setItem(VOICE_CONSENT_KEY, "true");
                   } catch {}
                   setShowConsentModal(false);
+                  chatSounds.playCallStart();
+                  setIsLiveCall(true);
                   void voice.start();
                 }}
-                className="border border-[var(--nq-accent)] bg-[var(--nq-accent)] px-3.5 py-1.5 text-2xs font-bold uppercase text-[var(--nq-accent-ink)] transition hover:brightness-110"
+                className="rounded-lg bg-gradient-to-r from-emerald-500 to-teal-500 px-4 py-1.5 text-xs font-bold text-slate-950 shadow-md hover:brightness-110 transition"
               >
                 Đồng ý & Bắt đầu
               </button>
@@ -395,621 +368,559 @@ export function CopilotBody({ chat, mode, onClose, onOpenFullPage, onClearHistor
         </div>
       )}
 
-      {/* Header */}
-      <div className="flex shrink-0 items-center justify-between border-b border-[var(--nq-line)] bg-[var(--nq-surface)] p-3 sm:p-4">
-        <div className="flex items-center gap-2.5">
-          <div className="shrink-0 -my-1">
+      {/* ── GIAO DIỆN CUỘC GỌI LIVE ("cho nó bự lên rồi nói chuyện") ── */}
+      {isLiveCall && (
+        <div className="absolute inset-0 z-40 flex flex-col justify-between bg-gradient-to-b from-slate-950 via-slate-900 to-indigo-950 text-white overflow-hidden animate-in fade-in zoom-in-95 duration-300">
+          {/* Hào quang nền vũ trụ */}
+          <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_40%,rgba(56,189,248,0.15),transparent_60%)] pointer-events-none" />
+
+          {/* Top Header cuộc gọi */}
+          <div className="relative z-10 flex shrink-0 items-center justify-between border-b border-white/10 bg-slate-950/50 px-4 py-3 backdrop-blur-md">
+            <div className="flex items-center gap-2.5">
+              <span className="relative flex h-3 w-3">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-rose-500 opacity-75" />
+                <span className="relative inline-flex rounded-full h-3 w-3 bg-rose-600" />
+              </span>
+              <div>
+                <span className="text-xs font-bold uppercase tracking-wider text-rose-300 flex items-center gap-1.5">
+                  LIVE CALL · TRỰC TIẾP
+                </span>
+                <span className="text-[11px] font-mono text-slate-300">
+                  {formatDuration(callSeconds)}
+                </span>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <span className="rounded-full bg-emerald-500/20 border border-emerald-400/30 px-2.5 py-0.5 text-[10px] font-medium text-emerald-300 hidden sm:inline-flex items-center gap-1">
+                <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+                HD 24kHz
+              </span>
+              <button
+                type="button"
+                onClick={() => setIsLiveCall(false)}
+                className="flex items-center gap-1.5 rounded-full border border-white/20 bg-white/10 px-3 py-1 text-xs text-slate-200 hover:bg-white/20 transition active:scale-95"
+                title="Thu nhỏ về nhắn tin (cuộc gọi vẫn tiếp tục)"
+              >
+                <Icon name="chat" size={13} />
+                <span>Nhắn tin</span>
+              </button>
+            </div>
+          </div>
+
+          {/* Hero Giant Avatar ("cho nó bự lên rồi nói chuyện") */}
+          <div className="relative flex-1 flex flex-col items-center justify-center p-4 min-h-0 select-none z-10">
+            {/* Vòng hào quang năng lượng phản hồi theo âm lượng */}
+            <div
+              className="absolute rounded-full bg-gradient-to-r from-sky-500/20 via-cyan-400/25 to-amber-500/20 blur-2xl pointer-events-none transition-all duration-150"
+              style={{
+                width: `${240 + Math.round(voice.audioLevel * 100)}px`,
+                height: `${240 + Math.round(voice.audioLevel * 100)}px`,
+                opacity: 0.5 + voice.audioLevel * 0.5,
+              }}
+            />
+
+            {/* Vòng tròn Hologram */}
+            <div
+              className="absolute rounded-full border border-sky-400/30 pointer-events-none transition-all duration-300 animate-pulse"
+              style={{
+                width: `${280 + Math.round(voice.audioLevel * 50)}px`,
+                height: `${280 + Math.round(voice.audioLevel * 50)}px`,
+              }}
+            />
+
+            {/* Avatar Tinh Linh KHỔNG LỒ */}
+            <div className="relative z-10 transition-transform duration-300 hover:scale-105">
+              <Avatar2D
+                size={isMobile ? 200 : 270}
+                speaking={isSpeaking}
+                listening={isListening}
+                mouthOpen={mouthOpen}
+                mood={
+                  voice.state === "speaking"
+                    ? "speaking"
+                    : voice.state === "listening"
+                    ? "listening"
+                    : voice.state === "processing"
+                    ? "processing"
+                    : voice.state === "error"
+                    ? "error"
+                    : "idle"
+                }
+                showBadge={false}
+                showSparkles={true}
+                showHoloRing={true}
+                showFloorShadow={true}
+                showTooltip={false}
+              />
+            </div>
+
+            {/* Danh tính & Trạng thái lời nói */}
+            <div className="mt-2.5 text-center z-10 px-4">
+              <div className="flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-2">
+                <h4 className="text-base font-bold text-slate-100 whitespace-nowrap">
+                  {profile.label}
+                </h4>
+                <span className="text-[10px] px-2 py-0.5 rounded-full bg-sky-500/20 border border-sky-400/40 text-sky-300 font-semibold whitespace-nowrap">
+                  Bạn đồng hành AI
+                </span>
+              </div>
+              <p className="mt-1 text-xs text-slate-300/90 font-medium">
+                {voice.state === "connecting" && "Đang kết nối âm thanh trực tiếp…"}
+                {voice.state === "listening" && "🎙️ Tinh Linh đang nghe… Cứ nói tự nhiên nhé!"}
+                {voice.state === "processing" && "🔮 Đang tra cứu quy trình ca trực…"}
+                {voice.state === "speaking" && "✨ Tinh Linh đang trò chuyện cùng bạn…"}
+                {voice.state === "idle" && "🌟 Đang kết nối · Nói bất cứ câu hỏi nào với Tinh Linh"}
+                {voice.state === "error" && "⚠️ Lỗi âm thanh, bấm nút gác máy để thử lại"}
+              </p>
+            </div>
+
+            {/* Equalizer sóng âm Realtime */}
+            <div className="flex items-center justify-center gap-1 mt-3 h-7 z-10">
+              {[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15].map((idx) => {
+                const height = Math.max(
+                  4,
+                  Math.min(
+                    30,
+                    Math.round(
+                      voice.audioLevel * 30 * (0.6 + Math.sin(idx * 0.6) * 0.4) + (isVoiceActive ? 6 : 2)
+                    )
+                  )
+                );
+                return (
+                  <span
+                    key={idx}
+                    className="w-1 rounded-full bg-gradient-to-t from-emerald-500 to-cyan-300 transition-all duration-75"
+                    style={{ height: `${height}px` }}
+                  />
+                );
+              })}
+            </div>
+
+            {/* Phụ đề trực tiếp (Live Captions) */}
+            {(latestUserTranscript || latestCopilotTranscript) && (
+              <div className="mt-3 w-full max-w-md rounded-2xl border border-white/10 bg-slate-950/75 p-3 text-xs shadow-2xl backdrop-blur-md z-10 transition-all animate-in fade-in slide-in-from-bottom-2">
+                {latestUserTranscript && (
+                  <p className="text-amber-300/95 line-clamp-2">
+                    <strong className="text-amber-400">🗣️ Bạn:</strong> {latestUserTranscript}
+                  </p>
+                )}
+                {latestCopilotTranscript && (
+                  <p className="text-sky-200/95 mt-1 line-clamp-2">
+                    <strong className="text-sky-300">✨ Tinh Linh:</strong> {latestCopilotTranscript}
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Thanh điều khiển cuộc gọi dưới đáy */}
+          <div className="relative z-10 flex shrink-0 items-center justify-center gap-6 p-4 border-t border-white/10 bg-slate-950/60 backdrop-blur-md">
+            {/* Mute Mic */}
+            <button
+              type="button"
+              onClick={() => setIsMuted((m) => !m)}
+              className={`flex flex-col items-center gap-1.5 transition active:scale-95 ${
+                isMuted ? "text-rose-400" : "text-slate-300 hover:text-white"
+              }`}
+              title={isMuted ? "Bật lại mic" : "Tắt mic"}
+            >
+              <div
+                className={`flex h-11 w-11 items-center justify-center rounded-full border transition ${
+                  isMuted
+                    ? "border-rose-500 bg-rose-500/20 text-rose-400"
+                    : "border-slate-700 bg-slate-800 text-slate-200 hover:bg-slate-700"
+                }`}
+              >
+                <Icon name="microphone" size={18} />
+              </div>
+              <span className="text-[10px] font-medium">{isMuted ? "Đã tắt mic" : "Micro"}</span>
+            </button>
+
+            {/* NÚT KẾT THÚC CUỘC GỌI TO ĐẸP */}
+            <button
+              type="button"
+              onClick={handleEndLiveCall}
+              className="flex flex-col items-center gap-1.5 group transition active:scale-95"
+              title="Kết thúc cuộc gọi trực tiếp"
+            >
+              <div className="flex h-13 w-13 items-center justify-center rounded-full bg-rose-600 text-white shadow-xl shadow-rose-600/50 group-hover:bg-rose-500 group-hover:scale-105 transition">
+                <Icon name="phone" size={24} />
+              </div>
+              <span className="text-[11px] font-bold text-rose-400">Gác máy</span>
+            </button>
+
+            {/* Chuyển về Chat */}
+            <button
+              type="button"
+              onClick={() => setIsLiveCall(false)}
+              className="flex flex-col items-center gap-1.5 text-slate-300 hover:text-white transition active:scale-95"
+              title="Quay lại giao diện nhắn tin"
+            >
+              <div className="flex h-11 w-11 items-center justify-center rounded-full border border-slate-700 bg-slate-800 text-slate-200 hover:bg-slate-700">
+                <Icon name="chat" size={18} />
+              </div>
+              <span className="text-[10px] font-medium">Nhắn tin</span>
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── GIAO DIỆN NHẮN TIN CHÍNH (COMPANION MESSENGER) ── */}
+      {/* 1. Header bạn đồng hành */}
+      <div className="flex shrink-0 items-center justify-between border-b border-slate-800/80 bg-slate-900/90 px-4 py-2.5 select-none backdrop-blur-md z-10">
+        <div className="flex items-center gap-3 min-w-0">
+          <div className="relative shrink-0 -my-1">
             <Avatar2D
-              size={42}
+              size={44}
               speaking={isSpeaking || Boolean(streamingId)}
               listening={isListening}
               mouthOpen={mouthOpen}
               mood={chatMood}
+              showBadge={false}
+              showSparkles={true}
             />
+            <span className="absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full bg-emerald-400 ring-2 ring-slate-900 animate-pulse" />
           </div>
-          <div>
-            <h3 className="text-sm font-bold uppercase text-[var(--nq-fg)] leading-tight">{profile.label}</h3>
-            <p className="flex items-center gap-1.5 text-2xs text-[var(--nq-dim)]">
-              <span className={`h-1.5 w-1.5 rounded-full ${
-                chatMood === "processing" ? "bg-amber-400 animate-ping" :
-                chatMood === "speaking" ? "bg-cyan-400 animate-pulse" :
-                chatMood === "alert" || chatMood === "error" ? "bg-rose-400" :
-                "bg-[var(--nq-st-ok)]"
-              }`} />
-              {chatMood === "processing"
-                ? "Đang tính toán & tra cứu quy trình…"
-                : chatMood === "speaking"
-                ? "Đang phản hồi Ký chủ…"
-                : chatMood === "alert"
-                ? "Cảnh báo ca làm việc!"
-                : chatMood === "error"
-                ? "Hệ thống gặp sự cố"
-                : chatMood === "success"
-                ? "Nhiệm vụ hoàn thành xuất sắc!"
-                : "Sẵn sàng hỗ trợ · AI trả lời kèm đề xuất"}
+          <div className="min-w-0 flex-1">
+            <h3 className="text-sm font-bold text-slate-100 truncate flex items-center gap-1.5">
+              {profile.label}
+            </h3>
+            <p className="text-[11px] text-slate-400 truncate flex items-center gap-1.5">
+              {streamingId || loading ? (
+                <span className="text-amber-300 font-medium animate-pulse">✨ Đang soạn tin nhắn...</span>
+              ) : isSpeaking ? (
+                <span className="text-cyan-300 font-medium animate-pulse">🎙️ Đang trả lời bạn...</span>
+              ) : (
+                <>
+                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+                  <span>Sẵn sàng hỗ trợ ca trực</span>
+                </>
+              )}
             </p>
           </div>
         </div>
-        <div className="flex items-center gap-1">
+
+        {/* Cụm nút hành động: NÚT GỌI LIVE DUY NHẤT THEO YÊU CẦU NGƯỜI DÙNG */}
+        <div className="flex items-center gap-1.5 shrink-0">
           <button
             type="button"
-            onClick={handleVoiceToggleEnabled}
-            title={voiceEnabled ? "Tắt voice (chỉ dùng chat text)" : "Bật voice (nói chuyện với trợ lý)"}
-            className={`flex items-center gap-1 border px-2 py-1 text-2xs font-bold uppercase transition ${
-              voiceEnabled
-                ? "border-[var(--nq-accent)] bg-[var(--nq-accent)]/10 text-[var(--nq-accent)] hover:brightness-110"
-                : "border-[var(--nq-dim)] text-[var(--nq-dim)] hover:border-[var(--nq-accent)] hover:text-[var(--nq-accent)]"
-            }`}
+            onClick={handleStartLiveCall}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-gradient-to-r from-emerald-500 via-teal-500 to-cyan-500 text-slate-950 font-bold text-xs shadow-md shadow-emerald-500/25 hover:brightness-110 hover:scale-105 active:scale-95 transition-all duration-200"
+            title="Bấm để gọi điện trực tiếp với Tinh Linh"
           >
-            <Icon name="microphone" size={13} />
-            {voiceEnabled ? "Voice: Bật" : "Voice: Tắt"}
+            <span className="relative flex h-2 w-2">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-slate-950 opacity-80" />
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-slate-950" />
+            </span>
+            <Icon name="phone" size={13} />
+            <span>Gọi Live</span>
           </button>
-          {onClearHistory ? (
-            <button
-              onClick={onClearHistory ?? clearHistory}
-              title="Xoá lịch sử hội thoại"
-              className="border border-transparent px-2 py-1 text-2xs font-bold uppercase text-[var(--nq-dim)] transition hover:border-[var(--nq-red)] hover:text-[var(--nq-red)]"
-            >
-              Xoá
-            </button>
-          ) : null}
-          {onOpenFullPage ? (
-            <button
-              onClick={onOpenFullPage}
-              title="Mở trợ lý ở trang riêng"
-              className="border border-transparent px-2 py-1 text-2xs font-bold uppercase text-[var(--nq-dim)] transition hover:border-[var(--nq-accent)] hover:text-[var(--nq-accent)]"
-            >
-              Mở rộng
-            </button>
-          ) : null}
-          {onClose ? (
-            <button
-              onClick={onClose}
-              title="Đóng"
-              className="border border-transparent px-2 py-1 text-2xs font-bold uppercase text-[var(--nq-dim)] transition hover:border-[var(--nq-accent)] hover:text-[var(--nq-fg)]"
-            >
-              Đóng
-            </button>
-          ) : null}
         </div>
       </div>
 
-      {/* Empty role */}
-      {profile.quickPrompts.length === 0 ? (
-        <div className="flex flex-1 items-center justify-center p-8 text-center text-sm text-[var(--nq-dim)]">
-          {profile.emptyMessage ?? profile.greeting}
+      {/* 2. Danh sách tin nhắn phong cách Instant Messaging */}
+      <div
+        onScroll={(e) => {
+          const target = e.currentTarget;
+          const isUp = target.scrollHeight - target.scrollTop - target.clientHeight > 120;
+          setShowScrollBottom(isUp);
+        }}
+        className="relative flex-1 space-y-4 overflow-y-auto p-4 text-xs"
+      >
+        {/* Phân cách ngày */}
+        <div className="flex items-center justify-center my-1 select-none">
+          <span className="rounded-full bg-slate-900 border border-slate-800 px-3 py-0.5 text-[10px] font-medium text-slate-400 shadow-sm">
+            Hôm nay · Trợ lý Vận Hành
+          </span>
         </div>
-      ) : (
-        <>
-          {/* Messages */}
+
+        {/* Danh sách tin nhắn */}
+        {messages.map((msg) => (
           <div
-            onScroll={(e) => {
-              const target = e.currentTarget;
-              const isUp = target.scrollHeight - target.scrollTop - target.clientHeight > 120;
-              setShowScrollBottom(isUp);
-            }}
-            className="relative flex-1 space-y-4 overflow-y-auto p-4 text-xs"
+            key={msg.id}
+            className={`flex gap-2.5 ${msg.sender === "user" ? "justify-end" : "justify-start"}`}
           >
-            {messages.map((msg) => (
+            {/* Avatar Tinh Linh bên cạnh tin nhắn AI */}
+            {msg.sender === "copilot" && (
+              <div className="shrink-0 -mt-1 select-none">
+                <Avatar2D
+                  size={34}
+                  speaking={false}
+                  listening={false}
+                  mood={chatMood}
+                  showBadge={false}
+                />
+              </div>
+            )}
+
+            {/* Bong bóng tin nhắn */}
+            <div
+              className={`relative max-w-[85%] sm:max-w-[78%] p-3.5 shadow-sm transition-all ${
+                msg.sender === "user"
+                  ? "rounded-2xl rounded-tr-sm bg-gradient-to-r from-amber-500 to-amber-600 text-slate-950 font-medium"
+                  : "rounded-2xl rounded-tl-sm bg-slate-900 border border-slate-800 text-slate-100"
+              }`}
+            >
+              {/* Nhãn nguồn chế độ */}
+              {msg.sender === "copilot" && msg.id !== "welcome" && (
+                <div className="mb-1.5 flex items-center justify-between gap-2">
+                  <span className="inline-flex items-center gap-1 rounded bg-slate-950/60 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-amber-400">
+                    {msg.agent_mode === "live" ? "AI trực tiếp" : msg.agent_mode === "replay" ? "Mẫu ca" : "Tinh Linh"}
+                  </span>
+                  <span className="text-[10px] text-slate-400">{msg.timestamp}</span>
+                </div>
+              )}
+
+              {/* Tệp đính kèm */}
+              {msg.attachments && msg.attachments.length > 0 && (
+                <div className="mb-2 space-y-1.5">
+                  {msg.attachments.map((att, idx) => {
+                    const mediaUrl = resolveMediaUrl(att.url);
+                    const isImg =
+                      att.mime_type?.startsWith("image/") || /\.(png|jpe?g|webp|gif)$/i.test(att.url);
+                    if (isImg) {
+                      return (
+                        <div key={idx} className="overflow-hidden rounded-xl border border-black/20 max-w-[260px]">
+                          <a href={mediaUrl} target="_blank" rel="noreferrer">
+                            {/* eslint-disable-next-line @next/next/no-img-element */}
+                            <img
+                              src={mediaUrl}
+                              alt={att.filename || "Đính kèm"}
+                              className="max-h-48 w-auto object-cover rounded-xl hover:opacity-90 transition"
+                            />
+                          </a>
+                        </div>
+                      );
+                    }
+                    return (
+                      <a
+                        key={idx}
+                        href={mediaUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="flex items-center gap-2 rounded-lg bg-black/10 px-2.5 py-1.5 text-xs transition hover:bg-black/20"
+                      >
+                        <Icon name="attachment" size={14} />
+                        <span className="truncate max-w-[180px] font-medium">
+                          {att.filename || "Tệp đính kèm"}
+                        </span>
+                        <Icon name="download" size={12} />
+                      </a>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* Nội dung tin nhắn */}
+              <div className="whitespace-pre-wrap leading-relaxed text-[13px]">
+                <ChatText text={msg.text} />
+                {streamingId === msg.id && (
+                  <span className="ml-1 inline-block w-1.5 h-3.5 align-middle bg-amber-400 animate-pulse" />
+                )}
+              </div>
+
+              {/* Thẻ đề xuất hành động (Action Proposal) */}
+              {msg.action_proposal && (
+                <div className="mt-3">
+                  <ActionProposalCard
+                    proposal={msg.action_proposal}
+                    onExecuted={(updated) => chat.updateProposal(msg.id, updated)}
+                  />
+                </div>
+              )}
+
+              {/* Gợi ý mở đầu kèm 4 Thao tác nhanh cho ca trực */}
+              {msg.sender === "copilot" && msg.id === "welcome" && profile.quickPrompts.length > 0 && (
+                <div className="mt-3 pt-2.5 border-t border-slate-800 space-y-2">
+                  <p className="text-[11px] font-bold uppercase tracking-wider text-amber-400 flex items-center gap-1.5">
+                    <span>⚡</span> Thao tác nhanh cho ca trực:
+                  </p>
+                  <div className={mode === "page" ? "grid grid-cols-1 sm:grid-cols-2 gap-2" : "grid grid-cols-1 gap-1.5"}>
+                    {profile.quickPrompts.slice(0, 4).map((qp, idx) => (
+                      <button
+                        key={`hero-qp-${idx}`}
+                        type="button"
+                        onClick={() => send(qp)}
+                        disabled={loading || Boolean(streamingId)}
+                        className="flex items-center gap-2 rounded-xl border border-slate-700/60 bg-slate-950/70 p-2.5 text-left text-xs text-slate-200 transition hover:border-amber-400 hover:bg-amber-400/10 hover:text-amber-300 disabled:opacity-50 group"
+                      >
+                        <span className="shrink-0 text-amber-400 group-hover:scale-110 transition">
+                          {idx === 0 ? "📅" : idx === 1 ? "⚠️" : idx === 2 ? "🥛" : "✨"}
+                        </span>
+                        <span className="leading-snug font-medium line-clamp-2">{qp}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Chân tin nhắn: Sao chép & thời gian */}
               <div
-                key={msg.id}
-                className={`flex flex-col ${
-                  msg.sender === "user" ? "items-end" : "items-start"
+                className={`mt-2 flex items-center justify-between text-[10px] ${
+                  msg.sender === "user" ? "text-slate-900/70" : "text-slate-400"
                 }`}
               >
-                <div
-                  className={`max-w-[85%] sm:max-w-[72%] rounded-lg border p-3 ${
-                    msg.sender === "user"
-                      ? "border-[var(--nq-accent)] bg-[var(--nq-accent)] text-[var(--nq-accent-ink)]"
-                      : "border-[var(--nq-dim)] bg-[var(--nq-surface)] text-[var(--nq-fg)]"
-                  }`}
-                >
-                  {msg.sender === "copilot" && msg.id !== "welcome" && (
-                    <span className="mb-1.5 inline-flex items-center gap-1 rounded bg-[var(--nq-bg-elevated)] px-1.5 py-0.5 text-2xs font-semibold uppercase tracking-wider text-[var(--nq-accent)]">
-                      {msg.agent_mode === "live" ? "AI trực tiếp" : msg.agent_mode === "replay" ? "Bản ghi mẫu" : "Trợ lý"}
-                    </span>
-                  )}
-                  {msg.attachments && msg.attachments.length > 0 && (
-                    <div className="mb-2 space-y-1.5">
-                      {msg.attachments.map((att, idx) => {
-                        const mediaUrl = resolveMediaUrl(att.url);
-                        const isImg =
-                          att.mime_type?.startsWith("image/") ||
-                          /\.(png|jpe?g|webp|gif)$/i.test(att.url);
-                        if (isImg) {
-                          return (
-                            <div key={idx} className="overflow-hidden rounded-md border border-black/20 max-w-[240px]">
-                              <a href={mediaUrl} target="_blank" rel="noreferrer">
-                                {/* eslint-disable-next-line @next/next/no-img-element */}
-                                <img
-                                  src={mediaUrl}
-                                  alt={att.filename || "Đính kèm"}
-                                  className="max-h-44 w-auto object-cover rounded hover:opacity-90 transition"
-                                />
-                              </a>
-                            </div>
-                          );
-                        }
-                        return (
-                          <a
-                            key={idx}
-                            href={mediaUrl}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="flex items-center gap-2 rounded bg-black/10 px-2 py-1 text-2xs transition hover:bg-black/20"
-                          >
-                            <Icon name="attachment" size={14} />
-                            <span className="truncate max-w-[180px] font-medium">
-                              {att.filename || "Tệp đính kèm"}
-                            </span>
-                            <Icon name="download" size={12} />
-                          </a>
-                        );
-                      })}
-                    </div>
-                  )}
-                  {/* Trạng thái đang xử lý: hiện khi bong bóng CHƯA có chữ. */}
-                  {msg.sender === "copilot" && !msg.text && msg.pending_status ? (
-                    <p className="nq-copilot-pending" data-role="copilot-pending">
-                      <span className="nq-copilot-pending__dot" aria-hidden="true" />
-                      {msg.pending_status}
-                    </p>
-                  ) : null}
-                  <p className="whitespace-pre-wrap leading-relaxed">
-                    <ChatText text={msg.text} />
-                    {streamingId === msg.id && (
-                      <span className="ml-0.5 inline-block w-1.5 h-3 align-middle bg-[var(--nq-st-warn)] animate-pulse" />
-                    )}
-                  </p>
-
-                  {/* Nút sao chép nội dung tin nhắn của AI */}
-                  {msg.sender === "copilot" && msg.text && msg.id !== "welcome" && (
-                    <div className="mt-2 pt-1 border-t border-[var(--nq-dim)]/20 flex justify-end">
-                      <button
-                        type="button"
-                        onClick={() => {
-                          if (typeof navigator !== "undefined" && navigator.clipboard) {
-                            navigator.clipboard.writeText(msg.text);
-                          }
-                          setCopiedId(msg.id);
-                          setTimeout(() => setCopiedId(null), 2000);
-                        }}
-                        className="flex items-center gap-1 text-[10px] text-[var(--nq-dim)] hover:text-[var(--nq-fg)] transition px-1.5 py-0.5 rounded hover:bg-black/10"
-                        title="Sao chép nội dung tin nhắn"
-                      >
-                        {copiedId === msg.id ? (
-                          <>
-                            <span className="text-emerald-400 font-bold">✓</span>
-                            <span className="text-emerald-400 font-medium">Đã chép</span>
-                          </>
-                        ) : (
-                          <>
-                            <Icon name="clipboard" size={11} />
-                            <span>Sao chép</span>
-                          </>
-                        )}
-                      </button>
-                    </div>
-                  )}
-
-                  {msg.sender === "copilot" &&
-                    msg.id === "welcome" &&
-                    profile.capabilities.length > 0 && (
-                      <div className="mt-2 pt-2 border-t border-[var(--nq-line)]">
-                        <p className="text-2xs uppercase tracking-wider text-[var(--nq-ink-muted)] mb-1">
-                          Em làm được gì cho anh/chị
-                        </p>
-                        <ul className="flex flex-wrap gap-1">
-                          {profile.capabilities.map((cap, i) => (
-                            <li
-                              key={`cap-${i}`}
-                              className="text-2xs px-1.5 py-0.5 rounded bg-[var(--nq-surface)] border border-[color-mix(in_srgb,var(--nq-st-ok)_46%,var(--nq-line))] text-[var(--nq-st-ok-ink)]"
-                            >
-                              {cap}
-                            </li>
-                          ))}
-                        </ul>
-                        {profile.deniedNote ? (
-                          <p className="text-2xs text-[var(--nq-ink-muted)] mt-1.5 italic">
-                            {profile.deniedNote}
-                          </p>
-                        ) : null}
-
-                        {/* Thẻ thao tác nhanh tiện lợi gợi ý ngay dưới lời chào */}
-                        {profile.quickPrompts.length > 0 && (
-                          <div className="mt-3 pt-2 border-t border-[var(--nq-line)] space-y-1.5">
-                            <p className="text-2xs font-bold uppercase tracking-wider text-[var(--nq-accent)] flex items-center gap-1">
-                              <span>⚡</span> Thao tác nhanh cho ca trực:
-                            </p>
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
-                              {profile.quickPrompts.slice(0, 4).map((qp, idx) => (
-                                <button
-                                  key={`hero-qp-${idx}`}
-                                  type="button"
-                                  onClick={() => send(qp)}
-                                  disabled={loading || Boolean(streamingId)}
-                                  className="flex items-center gap-2 rounded border border-[var(--nq-dim)]/40 bg-[var(--nq-bg)] p-2 text-left text-2xs text-[var(--nq-fg)] transition hover:border-[var(--nq-accent)] hover:bg-[var(--nq-accent)]/10 hover:text-[var(--nq-accent)] disabled:opacity-50 group"
-                                >
-                                  <span className="shrink-0 text-amber-400 group-hover:scale-110 transition">
-                                    {idx === 0 ? "📅" : idx === 1 ? "⚠️" : idx === 2 ? "🥛" : "✨"}
-                                  </span>
-                                  <span className="line-clamp-2 leading-tight font-medium">{qp}</span>
-                                </button>
-                              ))}
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    )}
-
-                  {msg.sender === "copilot" &&
-                    msg.citations &&
-                    msg.citations.length > 0 && (
-                      <div className="mt-2 pt-2 border-t border-[var(--nq-line)]">
-                        <p className="text-2xs uppercase tracking-wider text-[var(--nq-ink-muted)] mb-1">
-                          Nguồn tham chiếu
-                        </p>
-                        <ul className="flex flex-wrap gap-1">
-                          {msg.citations.map((c, i) => (
-                            <li
-                              key={`${msg.id}-cit-${i}`}
-                              className="text-2xs px-1.5 py-0.5 rounded bg-[var(--nq-surface)] border"
-                              style={{
-                                color: profile.accent,
-                                borderColor: `color-mix(in srgb, ${profile.accent} 20%, transparent)`,
-                              }}
-                            >
-                              {c}
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
-
-                  {msg.action_proposal && profile.allowActionApproval && (
-                    <ActionProposalCard
-                      proposal={msg.action_proposal}
-                      onExecuted={(updated) => updateProposal(msg.id, updated)}
-                    />
-                  )}
-                  {msg.action_proposal && !profile.allowActionApproval && (
-                    <div className="mt-2 pt-2 border-t border-[var(--nq-line)] text-2xs text-[var(--nq-ink-muted)] italic">
-                      Đề xuất: {msg.action_proposal.intent} — nhờ quản lý duyệt trong
-                      <a className="underline ml-1" href="/inbox">
-                        Hộp thư
-                      </a>
-                      .
-                    </div>
-                  )}
-                </div>
-                <span className="mt-1 px-1 text-2xs text-[var(--nq-dim)]">{msg.timestamp}</span>
-              </div>
-            ))}
-            {loading && (
-              <div className="flex w-fit items-center gap-2 border border-[var(--nq-dim)] bg-[var(--nq-surface)] p-2 text-xs italic text-[var(--nq-dim)]">
-                <span className="h-2 w-2 animate-pulse rounded-full bg-[var(--nq-accent)]" />
-                Đang xử lý yêu cầu…
-              </div>
-            )}
-            {showScrollBottom && (
-              <div className="sticky bottom-2 flex justify-center z-10 pointer-events-none">
-                <button
-                  type="button"
-                  onClick={() => messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })}
-                  className="pointer-events-auto flex items-center gap-1.5 rounded-full border border-[var(--nq-accent)] bg-[var(--nq-bg-elevated)] px-3 py-1 text-2xs font-semibold text-[var(--nq-accent)] shadow-xl backdrop-blur-md transition hover:scale-105 active:scale-95 animate-in fade-in slide-in-from-bottom-2"
-                >
-                  <span>↓</span>
-                  <span>Xuống tin nhắn mới nhất</span>
-                </button>
-              </div>
-            )}
-            <div ref={messagesEndRef} />
-          </div>
-
-          {/* Quick Prompts */}
-          <div className="flex shrink-0 gap-1.5 overflow-x-auto border-t border-[var(--nq-dim)] bg-[var(--nq-surface)] px-4 py-2">
-            {profile.quickPrompts.map((qp, idx) => (
-              <button
-                key={idx}
-                onClick={() => send(qp)}
-                disabled={loading || Boolean(streamingId)}
-                className="whitespace-nowrap border border-[var(--nq-dim)] bg-[var(--nq-bg)] px-2.5 py-1 text-2xs text-[var(--nq-dim)] transition hover:border-[var(--nq-accent)] hover:text-[var(--nq-fg)] disabled:opacity-50"
-              >
-                {qp}
-              </button>
-            ))}
-          </div>
-
-          {/* Input */}
-          <div className="shrink-0 border-t border-[var(--nq-line)] bg-[var(--nq-surface)] p-3">
-            {/* Thanh xem trước đính kèm trước khi gửi */}
-            {attachedFile && (
-              <div className="mb-2 flex items-center justify-between rounded border border-[var(--nq-dim)] bg-[var(--nq-bg)] p-2 text-xs">
-                <div className="flex items-center gap-2 truncate">
-                  {attachedFile.isImage && attachedFile.previewUrl ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      src={attachedFile.previewUrl}
-                      alt="Xem trước"
-                      className="h-8 w-8 rounded object-cover border border-[var(--nq-dim)] shrink-0"
-                    />
-                  ) : (
-                    <div className="flex h-8 w-8 items-center justify-center rounded bg-[var(--nq-dim)]/20 text-[var(--nq-accent)] shrink-0">
-                      <Icon name="attachment" size={16} />
-                    </div>
-                  )}
-                  <div className="min-w-0">
-                    <p className="truncate font-semibold text-[var(--nq-fg)] text-2xs">{attachedFile.file.name}</p>
-                    <p className="text-2xs text-[var(--nq-dim)]">{(attachedFile.file.size / 1024).toFixed(1)} KB</p>
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  onClick={handleRemoveAttachment}
-                  disabled={uploading}
-                  className="p-1 text-xs font-bold text-[var(--nq-dim)] transition hover:text-[var(--nq-st-danger-ink)] shrink-0"
-                  title="Xóa tệp đính kèm"
-                >
-                  ✕
-                </button>
-              </div>
-            )}
-            {uploadError && (
-              <p className="mb-2 text-2xs text-[var(--nq-st-danger-ink)]">{uploadError}</p>
-            )}
-            {voiceEnabled && (
-              <div className="mb-2 space-y-1.5">
-                {/* Audio controls: Mode switcher & Mic dropdown */}
-                <div className="flex items-center justify-between gap-2 px-1 text-2xs">
-                  <div className="inline-flex rounded border border-[var(--nq-dim)] bg-[var(--nq-bg)] p-0.5">
-                    <button
-                      type="button"
-                      onClick={() => handleModeChange("open_mic")}
-                      className={`px-2 py-0.5 font-bold uppercase transition rounded-sm ${
-                        voiceMode === "open_mic"
-                          ? "bg-[var(--nq-accent)] text-[var(--nq-accent-ink)]"
-                          : "text-[var(--nq-dim)] hover:text-[var(--nq-fg)]"
-                      }`}
-                      title="Thu âm liên tục rảnh tay"
-                    >
-                      Mic mở
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => handleModeChange("push_to_talk")}
-                      className={`px-2 py-0.5 font-bold uppercase transition rounded-sm ${
-                        voiceMode === "push_to_talk"
-                          ? "bg-[var(--nq-accent)] text-[var(--nq-accent-ink)]"
-                          : "text-[var(--nq-dim)] hover:text-[var(--nq-fg)]"
-                      }`}
-                      title="Giữ nút khi nói, chống nhiễu quán ăn"
-                    >
-                      Giữ để nói (PTT)
-                    </button>
-                  </div>
-
-                  {voice.availableMics.length > 1 && (
-                    <select
-                      value={selectedMicId}
-                      onChange={(e) => handleMicChange(e.target.value)}
-                      className="max-w-[160px] truncate rounded border border-[var(--nq-dim)] bg-[var(--nq-bg)] px-1.5 py-0.5 text-2xs text-[var(--nq-dim)] hover:text-[var(--nq-fg)] focus:text-[var(--nq-fg)] focus:outline-none"
-                      title="Chọn thiết bị micro"
-                    >
-                      <option value="">Micro mặc định</option>
-                      {voice.availableMics.map((mic) => (
-                        <option key={mic.deviceId} value={mic.deviceId}>
-                          {mic.label}
-                        </option>
-                      ))}
-                    </select>
-                  )}
-                </div>
-
-                {/* Banner avatar — hiện khi voice đang hoạt động (kết nối/nghe/xử lý/nói).
-                    Avatar nhép miệng theo giọng nói trợ lý. */}
-                {isVoiceActive && (
-                  <div
-                    className="flex items-center gap-3 rounded border border-[var(--nq-dim)]/40 bg-[var(--nq-bg)] px-3 py-2"
-                    role="status"
-                    aria-live="polite"
-                  >
-                    <Avatar2D
-                      mouthOpen={mouthOpen}
-                      speaking={isSpeaking}
-                      listening={isListening}
-                      mood={
-                        voice.state === "speaking"
-                          ? "speaking"
-                          : voice.state === "listening"
-                          ? "listening"
-                          : voice.state === "processing"
-                          ? "processing"
-                          : voice.state === "error"
-                          ? "error"
-                          : "idle"
-                      }
-                      size={72}
-                    />
-                    <div className="min-w-0 flex-1">
-                      <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--nq-accent)]">
-                        {profile.label}
-                      </p>
-                      <p className="mt-0.5 text-[11px] text-[var(--nq-dim)]">
-                        {voice.state === "connecting" && "Đang kết nối voice trực tiếp…"}
-                        {voice.state === "listening" && (
-                          voiceMode === "push_to_talk" ? (
-                            voice.isPttSpeaking
-                              ? "Đang ghi âm giọng nói… Thả nút để gửi đi."
-                              : "Sẵn sàng. Nhấn giữ nút micro bên dưới để nói."
-                          ) : (
-                            "Đang nghe… Anh/chị có thể nói hoặc gõ bất cứ lúc nào."
-                          )
-                        )}
-                        {voice.state === "processing" && "Đang xử lý yêu cầu…"}
-                        {voice.state === "speaking" && "Trợ lý đang nói… Có thể nói chen ngang để ngắt lời."}
-                      </p>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        voice.stop();
-                        activeVoiceTurnRef.current = null;
-                      }}
-                      className="shrink-0 border border-transparent px-1.5 py-0.5 text-[9px] font-bold uppercase text-[var(--nq-dim)] hover:border-rose-400 hover:text-rose-400 transition"
-                      title="Dừng phiên voice"
-                    >
-                      Đóng
-                    </button>
-                  </div>
-                )}
-
-                {/* Banner lỗi — chỉ hiện khi có lỗi, tách khỏi banner avatar */}
-                {isVoiceError && (
-                  <div
-                    className="flex items-center justify-between gap-2 rounded border border-rose-500/30 bg-rose-500/10 px-2.5 py-1.5 text-[11px] text-rose-300"
-                    role="status"
-                    aria-live="polite"
-                  >
-                    <p className="flex-1">
-                      {voice.state === "mic_denied" && "Trình duyệt chưa cấp quyền micro. Vui lòng mở quyền micro trong cài đặt trình duyệt, rồi bấm nút micro để thử lại."}
-                      {voice.state === "mic_not_found" && "Không tìm thấy thiết bị micro. Vui lòng kiểm tra cổng cắm hoặc cài đặt micro."}
-                      {voice.state === "superseded" && "Phiên voice đã được chuyển sang tab/thiết bị khác của anh/chị."}
-                      {voice.state === "idle_timeout" && "Phiên voice tạm ngưng sau 60 giây im lặng. Bấm micro để nói lại."}
-                      {voice.state === "error" && "Voice chưa sẵn sàng. Bấm nút micro để thử lại, hoặc tiếp tục dùng chat text."}
-                    </p>
-                  </div>
-                )}
-              </div>
-            )}
-
-            <form
-              onSubmit={handleFormSubmit}
-              className="flex items-center gap-2"
-            >
-              <input
-                type="file"
-                ref={fileInputRef}
-                onChange={handleFileChange}
-                accept="image/png,image/jpeg,image/webp,image/gif,application/pdf"
-                className="hidden"
-              />
-              <button
-                type="button"
-                onClick={() => fileInputRef.current?.click()}
-                disabled={loading || Boolean(streamingId) || uploading}
-                className="nq-surface-row bg-[var(--nq-bg)] p-2 text-[var(--nq-dim)] transition hover:border-[var(--nq-accent)] hover:text-[var(--nq-accent)] disabled:opacity-40"
-                title="Đính kèm ảnh hoặc tài liệu"
-              >
-                <Icon name="attachment" size={16} />
-              </button>
-              <div className="relative flex-1">
-                <input
-                  ref={inputRef}
-                  type="text"
-                  value={input}
-                  onChange={(e) => setInput(e.target.value)}
-                  placeholder={attachedFile ? "Thêm ghi chú cho tệp đính kèm..." : "Nhập câu hỏi hoặc chọn thao tác nhanh..."}
-                  disabled={loading || Boolean(streamingId) || uploading}
-                  className="w-full border border-[var(--nq-line-control)] rounded bg-[var(--nq-bg)] pl-3.5 pr-8 py-2 text-xs text-[var(--nq-fg)] placeholder:text-[var(--nq-dim)] focus:outline-none focus:border-[var(--nq-accent)] disabled:opacity-50 transition"
-                />
-                {input.trim().length > 0 && (
+                <span>{msg.sender === "user" ? msg.timestamp : null}</span>
+                {msg.sender === "copilot" && msg.text && msg.id !== "welcome" && (
                   <button
                     type="button"
-                    onClick={() => setInput("")}
-                    className="absolute right-2.5 top-1/2 -translate-y-1/2 text-xs text-[var(--nq-dim)] hover:text-[var(--nq-fg)] transition"
-                    title="Xóa nội dung đang nhập"
+                    onClick={() => {
+                      if (typeof navigator !== "undefined" && navigator.clipboard) {
+                        navigator.clipboard.writeText(msg.text);
+                      }
+                      setCopiedId(msg.id);
+                      setTimeout(() => setCopiedId(null), 2000);
+                    }}
+                    className="flex items-center gap-1 hover:text-amber-400 transition ml-auto"
+                    title="Sao chép nội dung tin nhắn"
                   >
-                    ✕
+                    {copiedId === msg.id ? (
+                      <span className="text-emerald-400 font-bold">✓ Đã chép</span>
+                    ) : (
+                      <>
+                        <Icon name="clipboard" size={11} />
+                        <span>Sao chép</span>
+                      </>
+                    )}
                   </button>
                 )}
+                {msg.sender === "user" && <span className="ml-1 text-slate-900">✓✓</span>}
               </div>
-              {voiceEnabled && (
-                <button
-                  type="button"
-                  onClick={voiceMode === "open_mic" || !isVoiceActive ? handleVoiceToggle : undefined}
-                  onPointerDown={
-                    voiceMode === "push_to_talk" && isVoiceActive
-                      ? (e) => {
-                          e.preventDefault();
-                          voice.startPttTalk();
-                        }
-                      : undefined
-                  }
-                  onPointerUp={
-                    voiceMode === "push_to_talk" && isVoiceActive
-                      ? (e) => {
-                          e.preventDefault();
-                          voice.stopPttTalk();
-                        }
-                      : undefined
-                  }
-                  onPointerLeave={
-                    voiceMode === "push_to_talk" && isVoiceActive
-                      ? () => {
-                          if (voice.isPttSpeaking) voice.stopPttTalk();
-                        }
-                      : undefined
-                  }
-                  onPointerCancel={
-                    voiceMode === "push_to_talk" && isVoiceActive
-                      ? () => {
-                          if (voice.isPttSpeaking) voice.stopPttTalk();
-                        }
-                      : undefined
-                  }
-                  disabled={loading || Boolean(streamingId) || uploading || voice.state === "connecting"}
-                  className={`flex items-center gap-1.5 border-2 px-2.5 py-2 text-[11px] font-bold uppercase transition select-none disabled:opacity-40 ${
-                    voiceMode === "push_to_talk" && isVoiceActive
-                      ? voice.isPttSpeaking
-                        ? "border-[var(--nq-st-danger)] bg-[var(--nq-st-danger)] text-[var(--nq-accent-ink)] animate-pulse scale-105"
-                        : "border-[var(--nq-st-warn)] bg-[var(--nq-st-warn-soft)] text-[var(--nq-st-warn-ink)] hover:brightness-110"
-                      : isVoiceActive
-                      ? "border-[var(--nq-st-danger)] bg-[var(--nq-st-danger)] text-[var(--nq-accent-ink)] animate-pulse"
-                      : "border-[var(--nq-line-control)] bg-[var(--nq-bg)] text-[var(--nq-dim)] hover:border-[var(--nq-accent)] hover:text-[var(--nq-accent)]"
-                  }`}
-                  title={
-                    voiceMode === "push_to_talk"
-                      ? isVoiceActive
-                        ? voice.isPttSpeaking
-                          ? "Đang giữ để nói (thả ra để gửi)"
-                          : "Nhấn và giữ để nói (Push-to-Talk)"
-                        : "Bật phiên Voice Push-to-Talk"
-                      : isVoiceActive
-                      ? "Dừng phiên voice"
-                      : "Bắt đầu nói với trợ lý"
-                  }
-                >
-                  <Icon name="microphone" size={16} />
-                  <span className="hidden sm:inline">
-                    {voiceMode === "push_to_talk" && isVoiceActive
-                      ? voice.isPttSpeaking
-                        ? "Đang nói…"
-                        : "Giữ để nói"
-                      : isVoiceActive
-                      ? "Dừng"
-                      : "Nói"}
-                  </span>
-                </button>
-              )}
-              <button
-                type="submit"
-                disabled={loading || Boolean(streamingId) || uploading || (!input.trim() && !attachedFile)}
-                className="rounded border border-[var(--nq-accent)] bg-[var(--nq-accent)] px-3.5 py-2 text-xs font-bold uppercase text-[var(--nq-accent-ink)] transition disabled:cursor-not-allowed disabled:opacity-40"
-              >
-                {uploading ? "Đang tải…" : "Gửi"}
-              </button>
-            </form>
-            {voiceEnabled && voice.state === "idle" && (
-              <p className="mt-1.5 text-center text-[10px] text-[var(--nq-dim)]" role="status" aria-live="polite">
-                Bấm nút micro để nói chuyện với trợ lý.
-              </p>
-            )}
-            <p className="mt-1.5 text-center text-[10px] text-[var(--nq-dim)]">
-              Ctrl/Cmd+K mở hoặc đóng · Esc thu nhỏ
-            </p>
+            </div>
           </div>
-        </>
+        ))}
+
+        {/* Typing indicator khi Tinh Linh đang soạn câu trả lời */}
+        {(streamingId || (loading && !messages.some((m) => m.id === streamingId))) && (
+          <div className="flex gap-2.5 justify-start items-end animate-in fade-in">
+            <div className="shrink-0">
+              <Avatar2D size={32} speaking={true} listening={false} mood="processing" showBadge={false} />
+            </div>
+            <div className="rounded-2xl rounded-tl-sm bg-slate-900 border border-slate-800 px-4 py-3 flex items-center gap-1.5 shadow-sm">
+              <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-bounce [animation-delay:-0.3s]" />
+              <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-bounce [animation-delay:-0.15s]" />
+              <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-bounce" />
+              <span className="text-[11px] text-slate-400 ml-1.5">Tinh Linh đang soạn câu trả lời...</span>
+            </div>
+          </div>
+        )}
+
+        <div ref={messagesEndRef} />
+      </div>
+
+      {/* Nút FAB cuộn xuống tin nhắn mới nhất */}
+      {showScrollBottom && (
+        <button
+          type="button"
+          onClick={() => messagesEndRef.current?.scrollIntoView({ behavior: "smooth" })}
+          className="absolute bottom-20 right-5 z-20 flex items-center gap-1.5 rounded-full border border-amber-500/40 bg-slate-900/90 px-3 py-1.5 text-xs text-amber-300 shadow-xl backdrop-blur-md hover:bg-slate-800 hover:scale-105 active:scale-95 transition"
+        >
+          <span>↓ Xuống tin nhắn mới</span>
+        </button>
       )}
+
+      {/* 3. Thanh nhập tin nhắn sạch đẹp phong cách Instant Messenger */}
+      <div className="shrink-0 border-t border-slate-800/80 bg-slate-900/90 p-3 backdrop-blur-md z-10">
+        {/* Preview file đính kèm nếu có */}
+        {attachedFile && (
+          <div className="mb-2 flex items-center gap-2 rounded-xl border border-slate-700 bg-slate-950 p-2 text-xs">
+            {attachedFile.isImage ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={attachedFile.previewUrl}
+                alt="Xem trước"
+                className="h-10 w-10 object-cover rounded-lg border border-slate-800"
+              />
+            ) : (
+              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-slate-800 text-slate-300">
+                <Icon name="attachment" size={18} />
+              </div>
+            )}
+            <div className="min-w-0 flex-1">
+              <p className="truncate font-medium text-slate-200">{attachedFile.file.name}</p>
+              <p className="text-[10px] text-slate-400">
+                {(attachedFile.file.size / 1024).toFixed(1)} KB
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={handleRemoveAttachment}
+              className="p-1 text-slate-400 hover:text-rose-400 transition"
+              title="Xóa tệp đính kèm"
+            >
+              ✕
+            </button>
+          </div>
+        )}
+
+        {uploadError && <p className="mb-2 text-xs text-rose-400 font-medium">{uploadError}</p>}
+
+        <form onSubmit={handleFormSubmit} className="flex items-center gap-2">
+          {/* File attachment input */}
+          <input
+            type="file"
+            ref={fileInputRef}
+            onChange={handleFileChange}
+            accept="image/png,image/jpeg,image/webp,image/gif,application/pdf"
+            className="hidden"
+          />
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={loading || Boolean(streamingId) || uploading}
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-slate-700/80 bg-slate-800/80 text-slate-300 hover:border-amber-400 hover:text-amber-300 transition disabled:opacity-40"
+            title="Đính kèm ảnh hoặc tài liệu"
+          >
+            <Icon name="attachment" size={16} />
+          </button>
+
+          {/* Ô nhập tin nhắn phong cách messenger */}
+          <div className="relative flex-1">
+            <input
+              ref={inputRef}
+              type="text"
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              placeholder={
+                attachedFile ? "Thêm ghi chú cho tệp đính kèm..." : "Nhắn tin cho Tinh Linh..."
+              }
+              disabled={loading || Boolean(streamingId) || uploading}
+              className="w-full rounded-full border border-slate-700/80 bg-slate-800/90 pl-4 pr-9 py-2 text-xs text-slate-100 placeholder:text-slate-400 focus:outline-none focus:border-amber-400 focus:ring-1 focus:ring-amber-400 disabled:opacity-50 transition"
+            />
+            {input.trim().length > 0 && (
+              <button
+                type="button"
+                onClick={() => setInput("")}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-slate-400 hover:text-slate-100 transition"
+                title="Xóa chữ đang gõ"
+              >
+                ✕
+              </button>
+            )}
+          </div>
+
+          {/* Nút gửi tin nhắn */}
+          <button
+            type="submit"
+            disabled={loading || Boolean(streamingId) || uploading || (!input.trim() && !attachedFile)}
+            className="flex h-9 px-4 shrink-0 items-center justify-center gap-1.5 rounded-full bg-gradient-to-r from-amber-400 to-amber-500 text-slate-950 font-bold text-xs shadow-md shadow-amber-500/20 hover:brightness-110 active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed transition"
+          >
+            {uploading ? (
+              "Đang tải..."
+            ) : (
+              <>
+                <span>Gửi</span>
+                <Icon name="send" size={13} />
+              </>
+            )}
+          </button>
+        </form>
+
+        <p className="mt-1.5 text-center text-[10px] text-slate-500">
+          Nhấn Enter để gửi · Bấm nút <strong className="text-emerald-400 font-semibold">Gọi Live</strong> ở trên để nói chuyện trực tiếp
+        </p>
+      </div>
     </div>
   );
 }

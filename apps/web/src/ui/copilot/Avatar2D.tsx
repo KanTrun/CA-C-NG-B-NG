@@ -27,6 +27,7 @@ export interface AvatarProps {
   showFloorShadow?: boolean;
   showHoloRing?: boolean;
   showSparkles?: boolean;
+  showTooltip?: boolean;
 }
 
 // Fallback tĩnh khi không dùng sprite
@@ -290,6 +291,7 @@ export function Avatar2D({
   showFloorShadow,
   showHoloRing,
   showSparkles,
+  showTooltip = true,
 }: AvatarProps) {
   const [isHovered, setIsHovered] = useState(false);
   const [tipIndex, setTipIndex] = useState(0);
@@ -688,7 +690,7 @@ export function Avatar2D({
       )}
 
       {/* 8. Popup tooltip lời thoại khi hover với glassmorphism và mũi tên chỉ báo */}
-      {isHovered && (
+      {showTooltip && isHovered && (
         <div className="absolute -top-11 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-lg backdrop-blur-md bg-slate-900/95 border border-sky-400/50 px-3 py-1.5 text-[10px] text-sky-200 shadow-xl z-50 pointer-events-none animate-in fade-in zoom-in-95 duration-150 flex items-center gap-1.5">
           <span className="text-xs">💬</span>
           <span>{SYSTEM_TIPS[tipIndex]}</span>
