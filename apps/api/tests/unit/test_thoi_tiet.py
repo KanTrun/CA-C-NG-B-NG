@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import urllib.parse
 from typing import Any
 
 import pytest
@@ -63,6 +64,35 @@ def test_thieu_dia_chi_tra_co_du_lieu_false() -> None:
     assert body["co_du_lieu"] is False
     assert body["can_cau_hinh"] is True
     assert "địa chỉ" in (body.get("ly_do") or "").lower() or "cấu hình" in (body.get("ly_do") or "").lower()
+
+
+def test_resolve_vi_tri_fallback_tinh(monkeypatch: pytest.MonkeyPatch) -> None:
+    """'Quận 1, Hồ Chí Minh' có thể rỗng — phải fallback về tỉnh."""
+    calls: list[str] = []
+
+    def fake_get(url: str) -> dict[str, Any] | None:
+        calls.append(url)
+        if "name=Qu%E1%BA%ADn" in url or "Qu%E1%BA%ADn+1" in url or "Quận" in urllib.parse.unquote(url):
+            return {"results": []}
+        if "H%E1%BB%93+Ch%C3%AD+Minh" in url or "Ho+Chi+Minh" in url or "Hồ Chí Minh" in urllib.parse.unquote(url):
+            return {
+                "results": [
+                    {
+                        "name": "Thành phố Hồ Chí Minh",
+                        "admin1": "Thành phố Hồ Chí Minh",
+                        "latitude": 10.823,
+                        "longitude": 106.63,
+                    }
+                ]
+            }
+        return {"results": []}
+
+    monkeypatch.setattr(thoi_tiet_mod, "_http_get_json", fake_get)
+    vi = thoi_tiet_mod.resolve_vi_tri({"thanh_pho": "Quận 1", "tinh": "Hồ Chí Minh", "dia_chi": ""})
+    assert vi is not None
+    assert vi["tinh"] == "Hồ Chí Minh"
+    assert vi["thanh_pho"] == "Quận 1"
+    assert abs(vi["lat"] - 10.823) < 0.01
 
 
 def test_requires_auth() -> None:

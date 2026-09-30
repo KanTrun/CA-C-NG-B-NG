@@ -86,24 +86,51 @@ def resolve_vi_tri(profile: dict[str, Any] | None = None) -> dict[str, Any] | No
     """Geocode vị trí quán từ tinh/thanh_pho hoặc dia_chi.
 
     Trả dict `{thanh_pho, tinh, lat, lon, nguon}` hoặc `None` khi thiếu dữ liệu.
+    Thử nhiều query (tỉnh → thành+tỉnh → địa chỉ) vì Open-Meteo có thể không
+    nhận "Quận 1, Hồ Chí Minh" trong khi nhận "Hồ Chí Minh".
     """
     p = profile if isinstance(profile, dict) else get_store_profile()
     thanh_pho = str(p.get("thanh_pho") or "").strip()
     tinh = str(p.get("tinh") or "").strip()
     dia_chi = str(p.get("dia_chi") or "").strip()
 
-    query = ""
-    nguon = ""
-    if thanh_pho or tinh:
-        parts = [x for x in (thanh_pho, tinh, "Việt Nam") if x]
-        query = ", ".join(parts)
-        nguon = "tinh_thanh"
-    elif dia_chi:
-        query = f"{dia_chi}, Việt Nam" if "việt" not in dia_chi.lower() and "vietnam" not in dia_chi.lower() else dia_chi
-        nguon = "dia_chi"
-    else:
+    candidates: list[tuple[str, str]] = []
+    if tinh:
+        candidates.append((f"{tinh}, Việt Nam", "tinh_thanh"))
+    if thanh_pho and tinh:
+        candidates.append((f"{thanh_pho}, {tinh}, Việt Nam", "tinh_thanh"))
+    if thanh_pho and not tinh:
+        candidates.append((f"{thanh_pho}, Việt Nam", "tinh_thanh"))
+    if dia_chi:
+        q = f"{dia_chi}, Việt Nam" if "việt" not in dia_chi.lower() and "vietnam" not in dia_chi.lower() else dia_chi
+        candidates.append((q, "dia_chi"))
+    if not candidates:
         return None
 
+    for query, nguon in candidates:
+        hit = _geocode_once(query)
+        if hit is None:
+            continue
+        try:
+            lat = float(hit["latitude"])
+            lon = float(hit["longitude"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        name = str(hit.get("name") or thanh_pho or "").strip()
+        admin1 = str(hit.get("admin1") or tinh or "").strip()
+        return {
+            "thanh_pho": thanh_pho or name,
+            "tinh": tinh or admin1,
+            "lat": round(lat, 4),
+            "lon": round(lon, 4),
+            "nguon": nguon,
+            "query": query,
+        }
+    return None
+
+
+def _geocode_once(query: str) -> dict[str, Any] | None:
+    """Một lần geocode; thử có countryCode=VN rồi không ép nếu rỗng."""
     qs = urllib.parse.urlencode(
         {
             "name": query,
@@ -116,33 +143,13 @@ def resolve_vi_tri(profile: dict[str, Any] | None = None) -> dict[str, Any] | No
     data = _http_get_json(f"{_GEOCODE_URL}?{qs}")
     results = (data or {}).get("results") if data else None
     if not isinstance(results, list) or not results:
-        # Thử lại không ép countryCode (địa chỉ có thể viết tắt lạ).
         qs2 = urllib.parse.urlencode({"name": query, "count": 1, "language": "vi", "format": "json"})
         data = _http_get_json(f"{_GEOCODE_URL}?{qs2}")
         results = (data or {}).get("results") if data else None
     if not isinstance(results, list) or not results:
         return None
-
-    hit = results[0] if isinstance(results[0], dict) else None
-    if not hit:
-        return None
-    try:
-        lat = float(hit["latitude"])
-        lon = float(hit["longitude"])
-    except (KeyError, TypeError, ValueError):
-        return None
-
-    name = str(hit.get("name") or thanh_pho or "").strip()
-    admin1 = str(hit.get("admin1") or tinh or "").strip()
-    return {
-        "thanh_pho": thanh_pho or name,
-        "tinh": tinh or admin1,
-        "lat": round(lat, 4),
-        "lon": round(lon, 4),
-        "nguon": nguon,
-        "query": query,
-    }
-
+    hit = results[0]
+    return hit if isinstance(hit, dict) else None
 
 def _anh_huong_quan(
     *,
