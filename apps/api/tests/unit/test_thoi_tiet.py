@@ -70,18 +70,31 @@ def test_thieu_vi_tri_tra_co_du_lieu_false() -> None:
 
 
 def test_resolve_vi_tri_uu_tien_gps(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Có lat/lon → không gọi geocode."""
+    """Có lat/lon → reverse-geocode; bỏ nhãn tỉnh/thành cũ trên hồ sơ."""
 
-    def boom(url: str) -> dict[str, Any] | None:
-        raise AssertionError(f"không được geocode khi có GPS: {url}")
+    def fake_get(url: str) -> dict[str, Any] | None:
+        if "nominatim" in url:
+            return {
+                "display_name": "Phường Bến Nghé, Quận 1, Thành phố Hồ Chí Minh, Việt Nam",
+                "address": {
+                    "suburb": "Phường Bến Nghé",
+                    "city_district": "Quận 1",
+                    "city": "Thành phố Hồ Chí Minh",
+                    "state": "Thành phố Hồ Chí Minh",
+                    "country": "Việt Nam",
+                },
+            }
+        if "geocoding-api.open-meteo.com" in url:
+            raise AssertionError(f"không forward-geocode khi có GPS: {url}")
+        return None
 
-    monkeypatch.setattr(thoi_tiet_mod, "_http_get_json", boom)
+    monkeypatch.setattr(thoi_tiet_mod, "_http_get_json", fake_get)
     vi = thoi_tiet_mod.resolve_vi_tri(
         {
             "lat": 10.7756,
             "lon": 106.7019,
-            "thanh_pho": "Quận 1",
-            "tinh": "Hồ Chí Minh",
+            "thanh_pho": "Ba Đình",
+            "tinh": "Hà Nội",
             "dia_chi": "",
         }
     )
@@ -89,6 +102,22 @@ def test_resolve_vi_tri_uu_tien_gps(monkeypatch: pytest.MonkeyPatch) -> None:
     assert vi["nguon"] == "gps"
     assert abs(vi["lat"] - 10.7756) < 0.001
     assert abs(vi["lon"] - 106.7019) < 0.001
+    # Nhãn theo GPS — không giữ "Hà Nội" cũ.
+    assert "Hà Nội" not in (vi.get("tinh") or "")
+    assert "Hồ Chí Minh" in (vi.get("tinh") or "") or "Quận 1" in (vi.get("thanh_pho") or "")
+
+
+def test_resolve_vi_tri_gps_khong_reverse_van_bo_nhan_cu(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Reverse lỗi → vẫn GPS; không hiện tỉnh cũ sai."""
+
+    monkeypatch.setattr(thoi_tiet_mod, "_http_get_json", lambda _url: None)
+    vi = thoi_tiet_mod.resolve_vi_tri(
+        {"lat": 10.78, "lon": 106.7, "tinh": "Hà Nội", "thanh_pho": "Hoàn Kiếm", "dia_chi": ""}
+    )
+    assert vi is not None
+    assert vi["nguon"] == "gps"
+    assert vi["tinh"] == ""
+    assert vi["thanh_pho"] == ""
 
 
 def test_resolve_vi_tri_fallback_tinh(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -192,6 +192,9 @@ export function AiForecastBlock() {
             await luuViTriProfile({
               lat: Number(pos.coords.latitude.toFixed(6)),
               lon: Number(pos.coords.longitude.toFixed(6)),
+              // Xoá nhãn tỉnh/thành cũ — server reverse-geocode từ GPS.
+              tinh: "",
+              thanh_pho: "",
             });
             setLocMsg("Đã lưu vị trí GPS. Đang đọc dự báo…");
             load();

@@ -32,6 +32,7 @@
 | IBM Plex Sans (font) | SIL OFL 1.1 | n/a — file **commit trong repo** | 2026-09-25 | Chữ đọc chính |
 | IBM Plex Mono (font) | SIL OFL 1.1 | n/a — file **commit trong repo** | 2026-09-25 | Số liệu / mã / mono |
 | Open-Meteo Forecast + Geocoding | CC-BY 4.0 (data) / open API không cần khoá | Non-commercial free, rate hạn chế theo IP — cache 20 phút phía server | 2026-09-30 | AI FORECAST `/api/v1/thoi-tiet/hom-nay` — `ca_api/services/thoi_tiet.py` |
+| Nominatim (OpenStreetMap reverse) | ODbL (data) / Nominatim Usage Policy | 1 req/s khuyến nghị; cần User-Agent định danh | 2026-09-30 | Reverse-geocode nhãn tỉnh/quận từ lat/lon GPS — cùng `thoi_tiet.py`; không dùng nhãn hồ sơ cũ |
 
 **Vì sao font được commit vào repo (khác các mục trên):** ba họ này tải từ Google
 Fonts một lần rồi commit dưới dạng `.woff2`. Lý do: `next/font/google` tải font
