@@ -888,7 +888,7 @@ def tkb_confirm(
     if role in {"quan_ly", "chu_quan"} and nv != s["nv_id"]:
         from ca_api.persist import list_users
         users = list_users(store_id=store_id)
-        if not any(u.get("id") == nv for u in users):
+        if not any(u.get("nv_id") == nv for u in users):
             raise HTTPException(status_code=403, detail="nhan_vien_khong_thuoc_cua_hang")
 
     khoang = _clean_khoang_api(body.khoang_ban)

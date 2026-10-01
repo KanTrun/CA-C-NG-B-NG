@@ -352,6 +352,103 @@ def test_cam_nang_requires_real_edits() -> None:
     assert r.status_code == 409
 
 
+def test_hom_nay_bao_chu_quan_luat_cho_chot() -> None:
+    """Luật ở ``cho_chu_quan`` phải hiện thẻ "Chốt luật" trên Hôm nay của chủ quán.
+
+    Trước đây route lọc nhầm ``cho_chot`` — chuỗi đó không phải trạng thái nào
+    của vòng đời luật, nên chủ quán không bao giờ được báo có việc cần duyệt.
+    """
+    _seed_three_sua()
+    ql = headers(client, "lan")
+    body = client.post("/api/v1/cam-nang/chay-8-buoc", headers=ql).json()
+    assert body["cho_chot"]["trang_thai"] == "cho_chu_quan"
+
+    chu = headers(client, "hung")
+    viec = client.get("/api/v1/hom-nay", headers=chu).json()["viec_cho_toi"]
+    the = next((v for v in viec if v["id"] == "luat_cho"), None)
+    assert the is not None, f"chủ quán không được báo luật cần chốt: {viec}"
+    assert the["link"] == "/cam-nang"
+    assert the["muc"] == 1
+
+    # Quản lý không có quyền chốt nên không được nhận thẻ này.
+    viec_ql = client.get("/api/v1/hom-nay", headers=ql).json()["viec_cho_toi"]
+    assert not [v for v in viec_ql if v["id"] == "luat_cho"]
+
+    # Chốt xong thì thẻ biến mất.
+    client.post("/api/v1/cam-nang/duyet", json={"id": body["cho_chot"]["id"], "ok": True}, headers=chu)
+    viec_sau = client.get("/api/v1/hom-nay", headers=chu).json()["viec_cho_toi"]
+    assert not [v for v in viec_sau if v["id"] == "luat_cho"]
+
+
+def test_tkb_gan_khung_gio_cho_nhan_vien_khac() -> None:
+    """Quản lý gán được khung giờ cho nhân viên khác trong cửa hàng.
+
+    Bảng ``users`` không có cột ``id`` (khoá là ``username``), nên trước đây
+    so ``u["id"]`` với ``nv_id`` luôn trượt → mọi lần gán cho người khác đều 403.
+    """
+    from ca_api.persist import list_users
+
+    ql = headers(client, "lan")
+    nv = headers(client, "minh")
+    nv_id_minh = str(client.get("/api/v1/me", headers=nv).json()["nv_id"])
+    khoang = [{"thu": "T2", "start": "06:00", "end": "10:00"}]
+    # Tra ``nv_id`` từ DB thay vì hardcode — bộ seed demo khác nhau giữa môi
+    # trường test và máy dev, và DB test chỉ có vài user. Cần một người khác
+    # cả chủ quán lẫn chính `minh` để phần "chỉ gán cho mình" kiểm đúng nghĩa.
+    nv_khac = next(
+        u["nv_id"]
+        for u in list_users(store_id="quan_01")
+        if u["nv_id"] not in {"nv_01", nv_id_minh}
+    )
+    ok = client.post(
+        "/api/v1/tkb/confirm",
+        json={"tuan_iso": "2026-W44", "khoang_ban": khoang, "nv_id": nv_khac},
+        headers=ql,
+    )
+    assert ok.status_code == 200, ok.text
+    assert ok.json()["nv_id"] == nv_khac
+
+    # Nhân viên không thuộc cửa hàng thì vẫn phải chặn.
+    la = client.post(
+        "/api/v1/tkb/confirm",
+        json={"tuan_iso": "2026-W44", "khoang_ban": khoang, "nv_id": "nv_khong_co"},
+        headers=ql,
+    )
+    assert la.status_code == 403
+    assert la.json()["detail"] == "nhan_vien_khong_thuoc_cua_hang"
+
+    # Nhân viên chỉ gán được khung giờ của chính mình.
+    assert client.post(
+        "/api/v1/tkb/confirm",
+        json={"tuan_iso": "2026-W44", "khoang_ban": khoang, "nv_id": nv_id_minh},
+        headers=nv,
+    ).status_code == 200
+    assert client.post(
+        "/api/v1/tkb/confirm",
+        json={"tuan_iso": "2026-W44", "khoang_ban": khoang, "nv_id": nv_khac},
+        headers=nv,
+    ).status_code == 403
+
+
+def test_cam_nang_cho_phep_duyet_luat_ngan() -> None:
+    """Luật pipeline sinh ra ngắn hơn 140 ký tự vẫn phải duyệt được qua UI.
+
+    Nút mở rộng từng chỉ hiện khi câu luật dài trên 140 ký tự, mà câu do
+    ``derive_rule_from_edits`` dựng ra không bao giờ vượt ngưỡng đó — nên
+    chủ quán không bao giờ thấy nút "Chốt hiệu lực" dù luật đang chờ.
+    """
+    _seed_three_sua()
+    ql = headers(client, "lan")
+    cho_chot = client.post("/api/v1/cam-nang/chay-8-buoc", headers=ql).json()["cho_chot"]
+    cau = cho_chot["cau"].strip()
+    assert len(cau) < 140, f"câu luật mẫu dài {len(cau)} — không còn tái hiện được lỗi cũ"
+
+    chu = headers(client, "hung")
+    assert client.post(
+        "/api/v1/cam-nang/duyet", json={"id": cho_chot["id"], "ok": True}, headers=chu
+    ).status_code == 200
+
+
 def test_sop_twenty_with_citation_or_unknown() -> None:
     ql = headers(client, "lan")
     r = client.get("/api/v1/sop/golden", headers=ql).json()

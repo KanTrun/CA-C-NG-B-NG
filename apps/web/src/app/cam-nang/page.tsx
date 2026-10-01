@@ -354,13 +354,17 @@ export default function CamNangPage() {
                     ) : null}
                   </div>
                 </div>
-                {text.length > 140 ? (
+                {text.length > 140 || chuQuan || manager ? (
                   <button
                     type="button"
                     className="nq-lawbook__dieu-toggle"
                     onClick={() => setExpanded(open ? null : luat.id)}
                   >
-                    {open ? "Thu gọn điều luật" : "Xem đầy đủ điều luật"}
+                    {open
+                      ? "Thu gọn điều luật"
+                      : text.length > 140
+                        ? "Xem đầy đủ điều luật"
+                        : "Xem chi tiết luật"}
                   </button>
                 ) : null}
                 {open ? (
