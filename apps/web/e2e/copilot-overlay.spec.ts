@@ -19,7 +19,8 @@
 import { expect, test, type Page } from "@playwright/test";
 
 async function loginAs(page: Page, user = "lan") {
-  const res = await page.request.post("http://localhost:8000/api/v1/auth/login", {
+  const api = process.env.NEXT_PUBLIC_API_URL ?? "http://127.0.0.1:8000";
+  const res = await page.request.post(`${api}/api/v1/auth/login`, {
     data: { username: user, password: "nhipquan" },
   });
   const body = await res.json();
@@ -28,8 +29,11 @@ async function loginAs(page: Page, user = "lan") {
       sessionStorage.setItem("nq_token", token);
       sessionStorage.setItem("nq_role", role);
       sessionStorage.setItem("nq_name", name);
+      sessionStorage.setItem("nq_nv", nvId);
       sessionStorage.setItem("nq_nv_id", nvId);
       localStorage.setItem("nq_role", role);
+      localStorage.setItem("nq_name", name);
+      localStorage.setItem("nq_nv", nvId);
       localStorage.setItem("nq_onboarding_v1", "1");
     },
     [body.token, body.role, body.display_name, body.nv_id],
@@ -74,7 +78,7 @@ async function coveredControls(page: Page) {
 /** Nút hành động chính của từng trang — đúng những nút từng bị che trên production. */
 const CASES = [
   { user: "hung", path: "/menu", label: "Thêm món" },
-  { user: "lan", path: "/cau-hinh-quan", label: "LƯU THÔNG TIN QUÁN" },
+  { user: "lan", path: "/cau-hinh-quan", label: "Lưu thông tin quán" },
   { user: "lan", path: "/page-quan/dat-ban", label: "Đã hủy" },
   { user: "lan", path: "/quay", label: "Thêm Combo sang" },
 ];
@@ -96,7 +100,8 @@ for (const c of CASES) {
     await page.waitForTimeout(300);
 
     // Chạm vào phần trang ⇒ pane phải tự thu nhỏ.
-    await page.mouse.click(60, 300);
+    // Bấm vào tiêu đề trang (h1) thay vì toạ độ cố định để tránh bấm nhầm link sidebar.
+    await page.locator("h1").first().click();
     await page.waitForTimeout(600);
 
     const covered = await coveredControls(page);
@@ -115,7 +120,7 @@ test("pane không che control nào ngay khi vừa mở trang", async ({ page }) 
 
   // Trước khi chạm vào trang, pane có thể phủ — nhưng đó là hành vi mở mặc định
   // có chủ ý. Chạm vào trang một lần là phải sạch hoàn toàn.
-  await page.mouse.click(60, 300);
+  await page.locator("h1").first().click();
   await page.waitForTimeout(600);
   expect(await coveredControls(page)).toHaveLength(0);
 });
