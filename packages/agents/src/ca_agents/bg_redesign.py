@@ -1,7 +1,8 @@
-"""Redesign nền ảnh — GIỮ NGUYÊN ly nước gốc, AI chỉ vẽ lại nền.
+"""Redesign nền ảnh — GIỮ NGUYÊN bao bì sản phẩm gốc, AI chỉ vẽ lại nền.
 
-Nguyên tắc bất biến: pixel của ly nước lấy 100% từ ảnh gốc (không qua model vẽ
-lại), nền mới sinh bằng text-to-image rồi composite cục bộ bằng Pillow.
+Nguyên tắc bất biến: pixel của sản phẩm (ly/chai/lọ/bình/hộp/túi…) lấy 100% từ
+ảnh gốc (không qua model vẽ lại), nền mới sinh bằng text-to-image rồi composite
+cục bộ bằng Pillow.
 
 Ba nhóm vấn đề đã sửa so với bản đầu:
 
@@ -159,9 +160,10 @@ Rules:
 4. NEVER mention text, letters, numbers, logos, menus, signs or price tags.
 Return JSON only: {"background_prompt_en": "..."}"""
 
-_BBOX_SYSTEM = """You locate the single main drink (the glass or cup with the beverage) \
-in a cafe photo. Return its tightest bounding box in normalized coordinates \
-(0..1, origin at top-left, x right, y down). Include garnish, lid and straw if attached.
+_BBOX_SYSTEM = """You locate the single main liquid product container (a bottle, jar, \
+jug, carton, pouch, can, glass or cup holding a drink) in a cafe photo. Return its \
+tightest bounding box in normalized coordinates (0..1, origin at top-left, x right, \
+y down). Include garnish, lid, cap, label and straw if attached.
 Return JSON only: {"x1": 0.1, "y1": 0.1, "x2": 0.9, "y2": 0.9}"""
 
 # Prompt nền dự phòng khi LLM lỗi — mô tả chung, không nhắc tới đồ uống.
@@ -288,10 +290,10 @@ def _grow_background(
 
 
 def _subject_bbox(image_bytes: bytes, image_mime: str) -> tuple[float, float, float, float] | None:
-    """Xin Vision LLM hộp bao kín ly nước (normalized 0..1). Lỗi → None (bỏ prior)."""
+    """Xin Vision LLM hộp bao kín bao bì đựng nước (normalized 0..1). Lỗi → None (bỏ prior)."""
     res = complete(
         system=_BBOX_SYSTEM,
-        user="Locate the main drink glass in this photo.",
+        user="Locate the main liquid product container in this photo.",
         task="vision:bg_redesign_bbox",
         timeout_s=30.0,
         json_mode=True,
@@ -740,11 +742,14 @@ def generate_background_redesign(
     timeout_s: float = 45.0,
     style: MenuStyle | None = None,
 ) -> ImageGenResult:
-    """Giữ nguyên ly nước trong ảnh gốc, chỉ thiết kế lại background.
+    """Giữ nguyên sản phẩm trong ảnh gốc, chỉ thiết kế lại background.
+
+    Chạy cho MỌI loại bao bì đựng chất lỏng (ly, chai, lọ, bình, hộp, túi) — thuật
+    toán tách chủ thể dựa trên màu viền ảnh nên không phụ thuộc hình dạng.
 
     Quy trình (vision và sinh nền chạy SONG SONG):
 
-    1. Song song: (a) Vision LLM tìm hộp bao ly — prior, lỗi vẫn chạy tiếp;
+    1. Song song: (a) Vision LLM tìm hộp bao sản phẩm — prior, lỗi vẫn chạy tiếp;
        (b) sinh nền theo phong cách (hoặc viết lại prompt nếu chưa có phong cách).
     2. Flood-fill màu từ biên tách nền; chủ thể = pixel gốc 100%.
     3. Nền không đạt kiểm tra chất lượng → thử seed khác; hết lượt → lỗi rõ ràng.
@@ -800,8 +805,9 @@ def generate_background_redesign(
             ok=False,
             provider="local-composite",
             error="segment_failed",
-            text="Không tách được ly nước khỏi nền. Hãy thử ảnh nền đơn giản hơn, "
-            "hoặc bỏ chọn 'giữ nguyên ly nước' để AI vẽ toàn bộ.",
+            text="Không tách được sản phẩm ra khỏi nền. Hãy thử ảnh có nền đơn giản hơn "
+            "(ít vật xung quanh, nền không trùng màu sản phẩm), "
+            "hoặc bỏ chọn 'giữ nguyên sản phẩm' để AI vẽ toàn bộ.",
         )
 
     try:

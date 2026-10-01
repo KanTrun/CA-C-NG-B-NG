@@ -14,6 +14,7 @@ nguyên thay vì bỏ đi — mất thông tin còn tệ hơn là để model t�
 from __future__ import annotations
 
 import re
+import unicodedata
 
 from ca_agents.menu_style import LENSES, LIGHTINGS, PALETTES, SCENES, MenuStyle
 
@@ -145,11 +146,28 @@ _GLOSSARY: dict[str, str] = {
     "truyền thống": "traditional",
     "thủ công": "handcrafted",
     "tươi": "fresh",
+    # ── Bao bì đựng chất lỏng ──
+    # Nhóm này cần cho luồng ảnh quảng cáo từ ẢNH THẬT: prompt phải gọi đúng
+    # loại bao bì (chai/lọ/hộp/túi) để model không vẽ lại sản phẩm thành ly.
+    # Xếp cụm dài TRƯỚC cụm ngắn trong cùng nhóm để "chai thủy tinh" thắng "chai".
+    "chai thủy tinh": "glass bottle",
+    "chai nhựa": "plastic bottle",
+    "hộp giấy": "carton box",
+    "túi zip": "zipper pouch",
+    "lon nước": "drink can",
+    "chai": "bottle",
+    "lọ": "jar",
+    "hũ": "jar",
+    "bình": "jug",
+    "ca": "pitcher",
+    "hộp": "box",
+    "túi": "pouch",
+    "gói": "pack",
     "ly": "glass",
     "cốc": "glass",
     "tách": "cup",
-    "chai": "bottle",
     "lon": "can",
+    "thùng": "crate",
 }
 
 # Từ mô tả đặc tính đặt lên ĐẦU cụm tiếng Anh cho tự nhiên ("iced milk coffee"
@@ -185,6 +203,39 @@ def _normalize(text: str) -> str:
     return re.sub(r"\s+", " ", cleaned).strip()
 
 
+def known_phrase(phrase: str) -> str | None:
+    """Tra một cụm ĐÃ chuẩn hoá trong từ điển; None khi không có.
+
+    Dùng cho nơi cần tra từng cụm một (dịch ý kiến người dùng) thay vì chạy cả
+    câu qua :func:`translate_mon_ten` — chạy cả câu sẽ để cụm từ vắt qua ranh
+    giới hai ý khớp nhầm.
+    """
+    return _GLOSSARY.get(phrase.strip().lower())
+
+
+def _bo_dau(text: str) -> str:
+    """Bỏ dấu tiếng Việt (NFD rồi lọc dấu kết hợp; "đ" xử lý riêng)."""
+    decomposed = unicodedata.normalize("NFD", text.lower())
+    return "".join(ch for ch in decomposed if unicodedata.category(ch) != "Mn").replace("đ", "d")
+
+
+# Bảng tra KHÔNG DẤU suy ra từ :data:`_GLOSSARY` — người dùng gõ nhanh hay bỏ
+# dấu ("tra dao", "sua da"). Suy ra tự động thay vì viết tay để mỗi mục mới
+# thêm vào từ điển có dấu tự động có bản không dấu, không phải nhớ thêm thủ công.
+_GLOSSARY_KHONG_DAU: dict[str, str] = {}
+for _cum, _dich in _GLOSSARY.items():
+    _GLOSSARY_KHONG_DAU.setdefault(_bo_dau(_cum), _dich)
+
+
+def known_phrase_khong_dau(phrase: str) -> str | None:
+    """Tra từ điển ở dạng KHÔNG DẤU — lớp hai khi :func:`known_phrase` trượt.
+
+    Chỉ dùng sau khi đã thử bản có dấu: bản có dấu là dạng người dùng gõ đúng,
+    còn bản này là lưới bắt các trường hợp bỏ dấu.
+    """
+    return _GLOSSARY_KHONG_DAU.get(_bo_dau(phrase.strip()))
+
+
 def translate_mon_ten(mon_ten: str) -> str:
     """Dịch tên món sang cụm tiếng Anh; từ lạ được giữ nguyên.
 
@@ -198,11 +249,13 @@ def translate_mon_ten(mon_ten: str) -> str:
     i = 0
     while i < len(tokens):
         matched = False
-        # Thử cụm 4 → 1 từ; cụm dài nhất thắng.
+        # Thử cụm 4 → 1 từ; cụm dài nhất thắng. Thử bản CÓ DẤU trước rồi mới tới
+        # bản không dấu — người gõ đúng dấu phải được ưu tiên.
         for span in range(min(4, len(tokens) - i), 0, -1):
             phrase = " ".join(tokens[i : i + span])
-            if phrase in _GLOSSARY:
-                out.append(_GLOSSARY[phrase])
+            dich = known_phrase(phrase) or known_phrase_khong_dau(phrase)
+            if dich is not None:
+                out.append(dich)
                 i += span
                 matched = True
                 break

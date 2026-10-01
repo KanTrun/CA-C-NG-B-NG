@@ -151,6 +151,42 @@ class TestPrompt:
         assert self._style().to_prompt(extra="   ") == self._style().to_prompt()
 
 
+class TestPromptAd:
+    """Prompt phong cách cho ảnh GIỮ sản phẩm — tuyệt đối không chứa "no drink"."""
+
+    def _style(self):
+        from ca_agents.menu_style import parse_style
+
+        style = parse_style(
+            {
+                "slug": "nhip_quan_classic",
+                "ten": "Nhịp Quán cổ điển",
+                "mo_ta": "",
+                "scene": "cafe_wood",
+                "lighting": "golden_hour",
+                "palette": "warm_wood",
+                "lens": "shallow_85mm",
+            }
+        )
+        assert style is not None
+        return style
+
+    def test_khong_co_dieu_khoan_cam_do_uong(self):
+        prompt = self._style().to_prompt_ad().lower()
+        assert "no drink" not in prompt
+        assert "no beverage" not in prompt
+        assert "absolutely no" not in prompt
+
+    def test_van_giu_boi_canh(self):
+        prompt = self._style().to_prompt_ad()
+        assert "wooden cafe table" in prompt
+        assert "golden hour" in prompt
+        assert "85mm" in prompt
+
+    def test_deterministic(self):
+        assert self._style().to_prompt_ad() == self._style().to_prompt_ad()
+
+
 class TestCatalog:
     def test_all_presets_are_valid(self):
         """Mọi preset phải parse được — preset hỏng làm dropdown UI trống."""
