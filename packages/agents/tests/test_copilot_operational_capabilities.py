@@ -9,15 +9,11 @@
 
 from __future__ import annotations
 
-from typing import Any
-import pytest
-
 from ca_agents.ag_copilot import intent_parser as ip
 from ca_agents.ag_copilot import tool_registry as tr
 from ca_agents.ag_copilot.copilot_agent import run_copilot
 from ca_contracts import (
     CopilotContext,
-    CopilotIntent,
     copilot_role_can_use_intent,
 )
 
