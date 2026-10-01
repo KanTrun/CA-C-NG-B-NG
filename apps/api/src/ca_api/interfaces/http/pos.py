@@ -249,6 +249,15 @@ def _don_cho_role(
 
 @router.get("/api/v1/menu")
 def menu(authorization: Annotated[str | None, Header()] = None) -> dict[str, Any]:
+    """Menu quầy cho mọi vai đã đăng nhập (QA 2026-09-30 N3: chủ ý, không phải hở).
+
+    Nhân viên cần ĐỌC menu để bán ở `/quay` (`quay/page.tsx` gọi endpoint này
+    không phân biệt vai). Model `MonNuoc` chỉ có id/tên/giá/ẩn/ảnh/nhóm/BOM —
+    không có giá vốn hay dữ liệu nhạy cảm — nên cho đọc là an toàn.
+    Phân biệt với trang quản trị web `/menu` (OWNER_ONLY ở `session.ts`) và
+    `PUT /api/v1/menu/{mon_id}` + `GET /api/v1/menu/quan-tri` (đòi
+    `_require_chu_quan`): đọc thì mở, sửa thì khoá.
+    """
     _require_role(authorization)
     items = []
     for mon in menu_list():

@@ -264,3 +264,28 @@ def test_endpoint_quan_ly_yeu_cau_token(client: TestClient) -> None:
     """Không token → 401 (không phải 403) để phân biệt 'chưa đăng nhập' và 'thiếu quyền'."""
     for path in ("/api/v1/ops/explain/chains", "/api/v1/ops/predict/suggestions"):
         assert client.get(path).status_code == 401, f"{path} không token phải là 401"
+
+
+# ── QA 2026-09-30 N3: GET /menu mở cho nhân viên là chủ ý ───────────────────
+
+
+def test_menu_doc_mo_cho_nhan_vien_nhung_sua_khoa_chu_quan(client: TestClient) -> None:
+    """Nhân viên cần ĐỌC menu để bán ở `/quay` → chỉ đòi đăng nhập.
+
+    Phân biệt với `PUT /api/v1/menu/{mon_id}` + `GET /api/v1/menu/quan-tri`
+    (đòi `_require_chu_quan`) và trang quản trị web `/menu` (OWNER_ONLY ở
+    `session.ts`): đọc thì mở, sửa thì khoá. Test này chốt để lần QA sau
+    không ghi nhận nhầm thành lỗ hổng.
+    """
+    nv = headers(client, "minh")
+    r = client.get("/api/v1/menu", headers=nv)
+    assert r.status_code == 200, f"nhân viên phải đọc được menu để bán: {r.status_code}"
+    assert "items" in r.json()
+
+    assert client.get("/api/v1/menu").status_code == 401, "GET /menu không token phải là 401"
+
+    ql = headers(client, "lan")
+    assert client.get("/api/v1/menu/quan-tri", headers=ql).status_code == 403, (
+        "quản lý không được vào endpoint quản trị menu của chủ quán"
+    )
+    assert client.get("/api/v1/menu/quan-tri", headers=nv).status_code == 403

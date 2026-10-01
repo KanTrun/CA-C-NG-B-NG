@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useRef, useMemo } from "react";
+import React, { useState, useEffect, useRef, useMemo, memo } from "react";
 
 export type AvatarMood =
   | "idle"
@@ -27,6 +27,11 @@ export interface AvatarProps {
   showFloorShadow?: boolean;
   showHoloRing?: boolean;
   showSparkles?: boolean;
+  showTooltip?: boolean;
+  /** Ép tắt toàn bộ animation (dùng cho list tin nhắn). Mặc định: size < 48 tự tắt. */
+  animated?: boolean;
+  /** Ưu tiên tải ảnh (header/live). List dùng lazy. */
+  priority?: boolean;
 }
 
 // Fallback tĩnh khi không dùng sprite
@@ -217,7 +222,9 @@ const ACTION_SEQUENCES: Record<string, ActionSequence> = {
     loop: true,
   },
   processing: {
-    frames: ["processing_01", "processing_02", "processing_03", "processing_04", "processing_05", "processing_06", "processing_07", "processing_08"],
+    // FIX 2026-10: bỏ processing_04/05/06 (lạc costume váy teal giữa bộ giáp trắng/gold,
+    // review contact-sheet thấy nhấp nháy mỗi vòng). Giữ 01-03 tụ lực + 07-08 tung chiêu.
+    frames: ["processing_01", "processing_02", "processing_03", "processing_02", "processing_07", "processing_08", "processing_07", "processing_08"],
     frameInterval: 110,
     loop: true,
   },
@@ -241,12 +248,14 @@ const ACTION_SEQUENCES: Record<string, ActionSequence> = {
     loop: false,
   },
   worried: {
-    frames: ["alert_01", "alert_02", "alert_03", "alert_04", "alert_05", "alert_06", "alert_07", "alert_08"],
+    // FIX 2026-10: bỏ alert_05 (tóc hồng 1 frame đơn lẻ giữa 7 frame tóc xanh,
+    // loop sẽ chớp đỏ như glitch). Giữ alert_04 2 nhịp tạo điểm dừng lo lắng tự nhiên.
+    frames: ["alert_01", "alert_02", "alert_03", "alert_04", "alert_04", "alert_06", "alert_07", "alert_08"],
     frameInterval: 130,
     loop: true,
   },
   alert: {
-    frames: ["alert_01", "alert_02", "alert_03", "alert_04", "alert_05", "alert_06", "alert_07", "alert_08"],
+    frames: ["alert_01", "alert_02", "alert_03", "alert_04", "alert_04", "alert_06", "alert_07", "alert_08"],
     frameInterval: 130,
     loop: true,
   },
@@ -268,18 +277,98 @@ const ACTION_SEQUENCES: Record<string, ActionSequence> = {
   },
 };
 
+/** Ưu tiên webp (nhẹ ~5x so với png) — fallback png khi webp chưa có. */
+function getSpriteCandidates(frameName: string): string[] {
+  return [`/copilot/sprites/${frameName}.webp`, `/copilot/sprites/${frameName}.png`];
+}
+
 function getSpritePath(frameName: string): string {
   return `/copilot/sprites/${frameName}.png`;
 }
 
+// Cache preload để không tạo Image trùng cho cùng 1 src.
+const PRELOADED = new Set<string>();
+function preloadSrc(src: string) {
+  if (typeof window === "undefined" || PRELOADED.has(src)) return;
+  PRELOADED.add(src);
+  const img = new window.Image();
+  img.decoding = "async";
+  img.src = src;
+}
+
+export function preloadAvatarMood(mood: AvatarMood) {
+  const seq = ACTION_SEQUENCES[mood] || ACTION_SEQUENCES.idle;
+  // Chỉ preload frame đầu + toàn bộ sequence của mood hiện tại (tránh tải 20MB một lúc).
+  seq.frames.forEach((f) => preloadSrc(getSpritePath(f)));
+}
+
+/** Preload các mood nóng (idle đã có sẵn) khi trình duyệt rảnh — chuyển mood không giật frame đầu. */
+export function preloadAvatarHot() {
+  (["speaking", "listening", "processing", "greeting"] as AvatarMood[]).forEach(preloadAvatarMood);
+}
+
+/**
+ * Avatar tĩnh cho list tin nhắn / typing — 0 interval, 0 keyframes, 0 re-render.
+ * Dùng webp nhẹ, lazy-load, không gắn hiệu ứng nặng.
+ */
+export const AvatarStatic = memo(function AvatarStatic({
+  mood = "idle",
+  size = 34,
+  label,
+}: {
+  mood?: AvatarMood;
+  size?: number;
+  label?: string;
+}) {
+  const theme = MOOD_THEMES[mood] || MOOD_THEMES.idle;
+  const text = label || MOOD_LABELS[mood] || "Hệ thống AG";
+  return (
+    <span
+      className="relative inline-flex shrink-0 select-none items-center justify-center overflow-hidden rounded-full"
+      style={{ width: size, height: size, background: theme.glowBg }}
+      role="img"
+      aria-label={text}
+      title={text}
+    >
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={MOOD_IMAGES[mood] || MOOD_IMAGES.idle}
+        alt=""
+        width={size}
+        height={size}
+        loading="lazy"
+        decoding="async"
+        draggable={false}
+        className="h-full w-full object-contain"
+        data-fallback="1"
+        onError={(e) => {
+          const target = e.currentTarget;
+          if (target.dataset.fbk === "1") return;
+          target.dataset.fbk = "1";
+          // webp lỗi (chưa có file) -> thử png cùng tên, cuối cùng về idle.
+          const src = target.src;
+          if (src.endsWith(".webp")) {
+            target.src = src.replace(".webp", ".png");
+          } else if (!src.endsWith("fairy-idle.webp")) {
+            target.src = MOOD_IMAGES.idle;
+          }
+        }}
+      />
+    </span>
+  );
+});
+
 /**
  * Avatar Tinh Linh Hệ Thống (Fairy System AI) cho AG-COPILOT.
  *
- * Chuyển động lơ lửng (Anti-gravity floating), thở nhịp nhàng,
- * 86 sprite (83 frame gốc + 3 in-between nâng/hạ tay liền mạch),
- * chuyển đổi mượt mà giữa các trạng thái và tự động chớp mắt tự nhiên.
+ * Tối ưu P0:
+ * - Keyframes dùng chung trong globals.css (`.nq-fairy-*`), không còn <style jsx> mỗi instance.
+ * - size < 48 (list chat) tự render AvatarStatic — 0 setInterval.
+ * - Không còn setState trong updater (bug StrictMode); frame speaking suy trực tiếp từ mouthOpen.
+ * - Ảnh thử webp trước, png sau; guard onError chống loop vô hạn.
+ * - Holo ring chỉ bật từ size >= 40 (giữ header 44, tắt list 32-34).
  */
-export function Avatar2D({
+export const Avatar2D = memo(function Avatar2D({
   mouthOpen = 0,
   speaking,
   listening,
@@ -290,28 +379,100 @@ export function Avatar2D({
   showFloorShadow,
   showHoloRing,
   showSparkles,
+  showTooltip = true,
+  animated,
+  priority = false,
 }: AvatarProps) {
+  const shouldAnimate = animated ?? size >= 48;
+
+  // Suy luận mood — useMemo để message list memo so sánh được.
+  const activeMood: AvatarMood = useMemo(() => {
+    // isPoked xử lý ở state bên dưới; ở đây chỉ suy từ props.
+    return (
+      explicitMood || (speaking ? "speaking" : listening ? "listening" : "idle")
+    );
+  }, [explicitMood, speaking, listening]);
+
+  // Tôn trọng reduced-motion: sprite swapping cũng là animation — đứng yên hẳn.
+  // useState initializer chạy 1 lần, đặt trước mọi return nên không phạm luật hooks.
+  const [reducedMotion] = useState(
+    () =>
+      typeof window !== "undefined" &&
+      !!window.matchMedia?.("(prefers-reduced-motion: reduce)").matches
+  );
+
+  // Avatar nhỏ trong list / reduced-motion: render tĩnh, không gắn interval/effect nặng.
+  if (!shouldAnimate || reducedMotion) {
+    return <AvatarStatic mood={activeMood} size={size} />;
+  }
+
+  return (
+    <AvatarAnimated
+      mouthOpen={mouthOpen}
+      speaking={speaking}
+      listening={listening}
+      activeMood={activeMood}
+      size={size}
+      useSprites={useSprites}
+      showBadge={showBadge}
+      showFloorShadow={showFloorShadow}
+      showHoloRing={showHoloRing}
+      showSparkles={showSparkles}
+      showTooltip={showTooltip}
+      priority={priority}
+    />
+  );
+});
+
+const SYSTEM_TIPS = [
+  "Đinh! Ký chủ cần hỗ trợ kiểm tra ca làm việc không?",
+  "Hệ thống luôn sẵn sàng nhận lệnh từ Ký chủ!",
+  "Hôm nay các bạn Barista đang hoạt động rất tốt!",
+  "Ký chủ nhớ duyệt bảng lương và chốt ca đúng giờ nhé!",
+];
+
+function AvatarAnimated({
+  mouthOpen = 0,
+  speaking,
+  listening,
+  activeMood: moodProp,
+  size = 96,
+  useSprites = true,
+  showBadge,
+  showFloorShadow,
+  showHoloRing,
+  showSparkles,
+  showTooltip = true,
+  priority = false,
+}: {
+  mouthOpen?: number;
+  speaking: boolean;
+  listening: boolean;
+  activeMood: AvatarMood;
+  size?: number;
+  useSprites?: boolean;
+  showBadge?: boolean;
+  showFloorShadow?: boolean;
+  showHoloRing?: boolean;
+  showSparkles?: boolean;
+  showTooltip?: boolean;
+  priority?: boolean;
+}) {
   const [isHovered, setIsHovered] = useState(false);
   const [tipIndex, setTipIndex] = useState(0);
   const [isPoked, setIsPoked] = useState(false);
   const [isBlinking, setIsBlinking] = useState(false);
   const [currentFrameIndex, setCurrentFrameIndex] = useState(0);
+  const finishFlagRef = useRef<"blink" | "poke" | null>(null);
 
   // Cấu hình linh hoạt hiển thị hiệu ứng theo kích cỡ nếu không truyền prop cụ thể
+  // P0: holo ring chỉ từ 40px (giữ header 44, tắt list 32-34 để đỡ compositing).
   const hasBadge = showBadge !== undefined ? showBadge : size >= 60;
   const hasFloorShadow = showFloorShadow !== undefined ? showFloorShadow : size >= 56;
-  const hasHoloRing = showHoloRing !== undefined ? showHoloRing : true;
+  const hasHoloRing = showHoloRing !== undefined ? showHoloRing : size >= 40;
   const hasSparkles = showSparkles !== undefined ? showSparkles : size >= 68;
 
-  // Suy luận mood tự động nếu không truyền explicitMood
-  const activeMood: AvatarMood = isPoked
-    ? "poke"
-    : explicitMood ||
-      (speaking
-        ? "speaking"
-        : listening
-        ? "listening"
-        : "idle");
+  const activeMood: AvatarMood = isPoked ? "poke" : moodProp;
 
   const label = MOOD_LABELS[activeMood] || "Hệ thống AG";
   const theme = MOOD_THEMES[activeMood] || MOOD_THEMES.idle;
@@ -323,78 +484,124 @@ export function Avatar2D({
   // Quyết định sequence dựa trên mood và blink
   const currentAction = isBlinking && activeMood === "idle" ? "blink" : activeMood;
   const sequence = ACTION_SEQUENCES[currentAction] || ACTION_SEQUENCES.idle;
+  const framesLen = sequence.frames.length;
+  const frameInterval = sequence.frameInterval;
+  const isLoop = sequence.loop;
+
+  // Preload sequence của mood hiện tại (theo từng mood, không tải 89 file một lúc).
+  useEffect(() => {
+    if (!useSprites) return;
+    // Idle + speaking/listening là nóng nhất — preload ngay khi đổi mood.
+    const seq = ACTION_SEQUENCES[activeMood] || ACTION_SEQUENCES.idle;
+    seq.frames.forEach((f) => preloadSrc(getSpritePath(f)));
+  }, [activeMood, useSprites]);
 
   // Tự động chớp mắt ngẫu nhiên sau mỗi 3.5 - 6 giây khi ở Idle
   useEffect(() => {
     if (activeMood !== "idle" || isPoked || isBlinking) return;
-
     const delay = 3500 + Math.random() * 2500;
     const timer = setTimeout(() => {
+      finishFlagRef.current = "blink";
       setIsBlinking(true);
       setCurrentFrameIndex(0);
     }, delay);
-
     return () => clearTimeout(timer);
   }, [activeMood, isPoked, isBlinking]);
 
-  // Vòng lặp khung hình (Frame stepping)
+  // Vòng lặp khung hình — chỉ recreate khi đổi sequence, KHÔNG theo mouthOpen (tránh churn 60fps).
+  // Khi speaking có lip-sync, frame suy trực tiếp lúc render nên interval tự bỏ qua via ref.
+  const lipSyncRef = useRef(false);
+  lipSyncRef.current = activeMood === "speaking" && open > 0;
   useEffect(() => {
     if (!useSprites) return;
-
-    // Riêng speaking: nếu có mouthOpen thì ánh xạ trực tiếp vào frame miệng
-    if (activeMood === "speaking" && mouthOpen > 0) {
-      const frameIdx = Math.min(5, Math.floor(open * 6));
-      setCurrentFrameIndex(frameIdx);
-      return;
-    }
-
     const interval = setInterval(() => {
+      if (lipSyncRef.current) return;
+      if (typeof document !== "undefined" && document.hidden) return; // tab ẩn: đứng yên, đỡ tốn CPU + tránh burst khi quay lại
       setCurrentFrameIndex((prev) => {
         const next = prev + 1;
-        if (next >= sequence.frames.length) {
-          if (isBlinking) {
-            setIsBlinking(false);
-            return 0;
-          }
-          if (isPoked) {
-            setIsPoked(false);
-            return 0;
-          }
-          // Khi ngủ say: sau khi ngáp và ôm gối (frame 0-3), lặp êm dịu chu kỳ thở với gối mây (frame 3-7)
-          if (activeMood === "sleepy" && sequence.frames.length >= 8) {
-            return 3; // lặp lại từ sleepy_04 đến sleepy_08 với gối mây
-          }
-          return sequence.loop ? 0 : sequence.frames.length - 1;
+        if (next >= framesLen) {
+          if (finishFlagRef.current === "blink") return 0; // reset ở effect dưới
+          if (finishFlagRef.current === "poke") return 0;
+          if (activeMood === "sleepy" && framesLen >= 8) return 3;
+          return isLoop ? 0 : framesLen - 1;
         }
         return next;
       });
-    }, sequence.frameInterval);
-
+    }, frameInterval);
     return () => clearInterval(interval);
-  }, [sequence, isBlinking, isPoked, activeMood, mouthOpen, open, useSprites]);
+  }, [framesLen, frameInterval, isLoop, activeMood, useSprites]);
 
-  // Reset frame khi đổi mood
+  // Hoàn tất blink/poke NGOÀI updater (fix bug setState trong updater).
   useEffect(() => {
-    setCurrentFrameIndex(0);
-  }, [activeMood]);
+    if (finishFlagRef.current === "blink" && currentFrameIndex === 0 && isBlinking) {
+      // Đã quay về đầu sau 1 vòng blink -> tắt blink ở tick sau để mắt kịp mở.
+      const t = setTimeout(() => {
+        finishFlagRef.current = null;
+        setIsBlinking(false);
+      }, frameInterval);
+      return () => clearTimeout(t);
+    }
+    if (finishFlagRef.current === "poke" && currentFrameIndex >= framesLen - 1) {
+      finishFlagRef.current = null;
+      setIsPoked(false);
+      setCurrentFrameIndex(0);
+    }
+  }, [currentFrameIndex, framesLen, frameInterval, isBlinking]);
 
-  // Lời thoại tip ngẫu nhiên khi Ký chủ bấm vào Tinh Linh
-  const SYSTEM_TIPS = [
-    "Đinh! Ký chủ cần hỗ trợ kiểm tra ca làm việc không?",
-    "Hệ thống luôn sẵn sàng nhận lệnh từ Ký chủ!",
-    "Hôm nay các bạn Barista đang hoạt động rất tốt!",
-    "Ký chủ nhớ duyệt bảng lương và chốt ca đúng giờ nhé!",
-  ];
+  // Khi blink chạy hết 1 vòng mà chưa tắt (loop=false giữ frame cuối), tự tắt.
+  useEffect(() => {
+    if (!isBlinking) return;
+    if (currentFrameIndex >= framesLen - 1) {
+      const t = setTimeout(() => {
+        finishFlagRef.current = null;
+        setIsBlinking(false);
+        setCurrentFrameIndex(0);
+      }, frameInterval);
+      return () => clearTimeout(t);
+    }
+  }, [isBlinking, currentFrameIndex, framesLen, frameInterval]);
+
+  // Đổi mood: sequence one-shot (greeting/success/poke) chạy lại từ đầu cho đúng story;
+  // sequence loop (idle/listening/processing/...) giữ frame liên tục theo modulo
+  // để không giật về frame 0 mỗi lần speaking<->processing đảo nhau khi streaming.
+  useEffect(() => {
+    const seq = ACTION_SEQUENCES[activeMood] || ACTION_SEQUENCES.idle;
+    if (seq.loop) {
+      setCurrentFrameIndex((prev) => prev % seq.frames.length);
+    } else {
+      setCurrentFrameIndex(0);
+    }
+  }, [activeMood]);
 
   const handleClick = () => {
     setTipIndex((prev) => (prev + 1) % SYSTEM_TIPS.length);
-    setIsPoked(true);
-    setCurrentFrameIndex(0);
+    if (!isPoked) {
+      finishFlagRef.current = "poke";
+      setIsPoked(true);
+      setCurrentFrameIndex(0);
+    }
   };
 
-  const currentFrameName = sequence.frames[currentFrameIndex] || sequence.frames[0] || "idle_01";
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter" || e.key === " ") {
+      e.preventDefault();
+      handleClick();
+    }
+  };
+
+  // Speaking + có amplitude: ánh xạ trực tiếp vào frame miệng, không qua state.
+  const displayFrameIndex =
+    activeMood === "speaking" && open > 0
+      ? Math.min(sequence.frames.length - 1, Math.floor(open * sequence.frames.length))
+      : currentFrameIndex;
+  const currentFrameName =
+    sequence.frames[displayFrameIndex] || sequence.frames[0] || "idle_01";
+  const candidates = useMemo(
+    () => (useSprites ? getSpriteCandidates(currentFrameName) : []),
+    [useSprites, currentFrameName]
+  );
   const imageSrc = useSprites
-    ? getSpritePath(currentFrameName)
+    ? candidates[0]
     : MOOD_IMAGES[activeMood] || MOOD_IMAGES.idle;
 
   return (
@@ -404,138 +611,28 @@ export function Avatar2D({
       onClick={handleClick}
       onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
+      onKeyDown={handleKeyDown}
+      tabIndex={0}
       title="Bấm để tương tác với Tinh Linh Hệ Thống"
       aria-label={label}
-      role="img"
+      role="button"
     >
-      <style jsx>{`
-        @keyframes fairyFloatOrganic {
-          0%, 100% {
-            transform: translate3d(0, 0, 0) rotate(0deg);
-          }
-          25% {
-            transform: translate3d(1px, -3.5px, 0) rotate(0.4deg);
-          }
-          50% {
-            transform: translate3d(0, -6px, 0) rotate(-0.3deg);
-          }
-          75% {
-            transform: translate3d(-1px, -2.5px, 0) rotate(0.2deg);
-          }
-        }
-        @keyframes floorShadowBreathe {
-          0%, 100% {
-            transform: translateX(-50%) scale(1);
-            opacity: 0.45;
-          }
-          50% {
-            transform: translateX(-50%) scale(0.72);
-            opacity: 0.18;
-            filter: blur(4px);
-          }
-        }
-        @keyframes holoSpinCW {
-          from {
-            transform: rotate(0deg);
-          }
-          to {
-            transform: rotate(360deg);
-          }
-        }
-        @keyframes holoSpinCCW {
-          from {
-            transform: rotate(360deg);
-          }
-          to {
-            transform: rotate(0deg);
-          }
-        }
-        @keyframes pulseGlowSoft {
-          0%, 100% {
-            opacity: 0.45;
-            transform: scale(0.96);
-          }
-          50% {
-            opacity: 0.85;
-            transform: scale(1.06);
-          }
-        }
-        @keyframes acousticRippleWave {
-          0% {
-            transform: scale(0.88);
-            opacity: 0.8;
-          }
-          100% {
-            transform: scale(1.45);
-            opacity: 0;
-          }
-        }
-        @keyframes manaDrift1 {
-          0%, 100% {
-            transform: translate3d(0, 0, 0) scale(0.85);
-            opacity: 0.35;
-          }
-          50% {
-            transform: translate3d(3px, -5px, 0) scale(1.2);
-            opacity: 0.95;
-          }
-        }
-        @keyframes manaDrift2 {
-          0%, 100% {
-            transform: translate3d(0, 0, 0) scale(1.1);
-            opacity: 0.9;
-          }
-          50% {
-            transform: translate3d(-3px, -4px, 0) scale(0.65);
-            opacity: 0.25;
-          }
-        }
-        @keyframes manaDrift3 {
-          0%, 100% {
-            transform: translate3d(0, 0, 0) scale(0.9);
-            opacity: 0.4;
-          }
-          50% {
-            transform: translate3d(2px, -6px, 0) scale(1.25);
-            opacity: 1;
-          }
-        }
-        .fairy-container {
-          animation: fairyFloatOrganic 3.4s ease-in-out infinite;
-        }
-        @media (prefers-reduced-motion: reduce) {
-          .fairy-container,
-          .floor-shadow,
-          .holo-outer,
-          .holo-inner,
-          .glow-halo,
-          .acoustic-ripple,
-          .mana-sparkle {
-            animation: none !important;
-          }
-        }
-      `}</style>
-
       {/* 1. Bóng năng lượng tiếp đất phản xạ (Floor energy reflection shadow) */}
       {hasFloorShadow && (
         <div
-          className="floor-shadow absolute -bottom-1 left-1/2 pointer-events-none rounded-full"
+          className="nq-fairy-shadow absolute -bottom-1 left-1/2 pointer-events-none rounded-full"
           style={{
             width: `${size * 0.65}px`,
             height: `${Math.max(6, size * 0.12)}px`,
             background: `radial-gradient(ellipse at center, ${theme.shadowColor} 0%, rgba(0,0,0,0.6) 45%, transparent 75%)`,
-            animation: "floorShadowBreathe 3.4s ease-in-out infinite",
           }}
         />
       )}
 
       {/* 2. Vòng hào quang năng lượng Hologram tỏa tròn phía sau */}
       <div
-        className="glow-halo absolute inset-0 rounded-full blur-md pointer-events-none transition-all duration-500"
-        style={{
-          background: theme.glowBg,
-          animation: "pulseGlowSoft 2.8s ease-in-out infinite",
-        }}
+        className="nq-fairy-halo absolute inset-0 rounded-full blur-md pointer-events-none transition-all duration-500"
+        style={{ background: theme.glowBg }}
       />
 
       {/* 3. Vòng ma pháp công nghệ đôi (Dual Holographic Tech Rings) */}
@@ -543,10 +640,10 @@ export function Avatar2D({
         <>
           {/* Vòng ngoài (Outer tech ring) - xoay theo chiều kim đồng hồ */}
           <div
-            className="holo-outer absolute -inset-1.5 rounded-full pointer-events-none transition-all duration-500"
+            className="absolute -inset-1.5 rounded-full pointer-events-none transition-all duration-500"
             style={{
               border: `1px dashed ${theme.ringBorder}`,
-              animation: `holoSpinCW ${
+              animation: `nq-fairy-spin-cw ${
                 activeMood === "processing" ? "4s" : speaking || listening ? "8s" : "16s"
               } linear infinite`,
             }}
@@ -572,11 +669,11 @@ export function Avatar2D({
 
           {/* Vòng trong (Inner tech ring) - xoay ngược chiều kim đồng hồ */}
           <div
-            className="holo-inner absolute inset-0.5 rounded-full pointer-events-none transition-all duration-500"
+            className="absolute inset-0.5 rounded-full pointer-events-none transition-all duration-500"
             style={{
               border: `0.75px dotted ${theme.ringBorder}`,
               opacity: 0.65,
-              animation: `holoSpinCCW ${
+              animation: `nq-fairy-spin-ccw ${
                 activeMood === "processing" ? "3s" : speaking || listening ? "6s" : "12s"
               } linear infinite`,
             }}
@@ -588,18 +685,12 @@ export function Avatar2D({
       {(speaking || listening) && (
         <>
           <div
-            className="acoustic-ripple absolute -inset-2 rounded-full pointer-events-none"
-            style={{
-              border: `1.5px solid ${theme.dotColor}`,
-              animation: "acousticRippleWave 1.8s cubic-bezier(0, 0.2, 0.8, 1) infinite",
-            }}
+            className="nq-fairy-ripple absolute -inset-2 rounded-full pointer-events-none"
+            style={{ border: `1.5px solid ${theme.dotColor}` }}
           />
           <div
-            className="acoustic-ripple absolute -inset-2 rounded-full pointer-events-none"
-            style={{
-              border: `1px solid ${theme.dotColor}`,
-              animation: "acousticRippleWave 1.8s cubic-bezier(0, 0.2, 0.8, 1) infinite 0.9s",
-            }}
+            className="nq-fairy-ripple absolute -inset-2 rounded-full pointer-events-none"
+            style={{ border: `1px solid ${theme.dotColor}`, animationDelay: "0.9s" }}
           />
         </>
       )}
@@ -608,37 +699,34 @@ export function Avatar2D({
       {hasSparkles && (
         <div className="absolute inset-0 pointer-events-none overflow-visible">
           <span
-            className="mana-sparkle absolute select-none text-[8px] font-black"
+            className="nq-fairy-mana-1 absolute select-none text-[8px] font-black"
             style={{
               top: "8%",
               right: "12%",
               color: theme.dotColor,
               filter: `drop-shadow(0 0 3px ${theme.dotColor})`,
-              animation: "manaDrift1 3.2s ease-in-out infinite",
             }}
           >
             ✦
           </span>
           <span
-            className="mana-sparkle absolute select-none text-[6px] font-black"
+            className="nq-fairy-mana-2 absolute select-none text-[6px] font-black"
             style={{
               bottom: "22%",
               left: "10%",
               color: theme.dotColor,
               filter: `drop-shadow(0 0 3px ${theme.dotColor})`,
-              animation: "manaDrift2 2.7s ease-in-out infinite 0.4s",
             }}
           >
             ✦
           </span>
           <span
-            className="mana-sparkle absolute select-none text-[7px] font-black"
+            className="nq-fairy-mana-3 absolute select-none text-[7px] font-black"
             style={{
               top: "30%",
               left: "8%",
               color: theme.dotColor,
               filter: `drop-shadow(0 0 3px ${theme.dotColor})`,
-              animation: "manaDrift3 3.6s ease-in-out infinite 0.8s",
             }}
           >
             ✦
@@ -647,7 +735,7 @@ export function Avatar2D({
       )}
 
       {/* 6. Khung bay lơ lửng thuần CSS (Không bị React state can thiệp) */}
-      <div className="fairy-container relative w-full h-full flex items-center justify-center pointer-events-none">
+      <div className="nq-fairy-container relative w-full h-full flex items-center justify-center pointer-events-none">
         {/* Lớp biến đổi kích thước theo âm thanh riêng biệt với chuyển động êm dịu */}
         <div
           className="w-full h-full flex items-center justify-center transition-transform duration-100 ease-out"
@@ -657,16 +745,29 @@ export function Avatar2D({
           <img
             src={imageSrc}
             alt={`Tinh linh Hệ Thống - ${label}`}
+            width={size}
+            height={size}
+            decoding="async"
+            loading={priority ? "eager" : "lazy"}
+            fetchPriority={priority ? "high" : "low"}
             className="w-full h-full object-contain pointer-events-none"
             style={{
               transition: "none",
               filter: `drop-shadow(0 4px 14px ${theme.shadowColor})`,
             }}
             draggable={false}
+            data-fbk="0"
+            data-frame={currentFrameName}
             onError={(e) => {
-              // Fallback nếu sprite chưa tải xong
               const target = e.currentTarget;
-              if (target.src !== MOOD_IMAGES.idle) {
+              // Guard chống loop vô hạn khi cả webp/png đều 404.
+              if (target.dataset.fbk === "2") return;
+              const step = Number(target.dataset.fbk || "0");
+              if (step === 0 && candidates[1]) {
+                target.dataset.fbk = "1";
+                target.src = candidates[1];
+              } else {
+                target.dataset.fbk = "2";
                 target.src = MOOD_IMAGES[activeMood] || MOOD_IMAGES.idle;
               }
             }}
@@ -688,7 +789,7 @@ export function Avatar2D({
       )}
 
       {/* 8. Popup tooltip lời thoại khi hover với glassmorphism và mũi tên chỉ báo */}
-      {isHovered && (
+      {showTooltip && isHovered && (
         <div className="absolute -top-11 left-1/2 -translate-x-1/2 whitespace-nowrap rounded-lg backdrop-blur-md bg-slate-900/95 border border-sky-400/50 px-3 py-1.5 text-[10px] text-sky-200 shadow-xl z-50 pointer-events-none animate-in fade-in zoom-in-95 duration-150 flex items-center gap-1.5">
           <span className="text-xs">💬</span>
           <span>{SYSTEM_TIPS[tipIndex]}</span>

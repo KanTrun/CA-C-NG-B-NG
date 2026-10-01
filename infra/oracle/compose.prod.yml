@@ -54,6 +54,12 @@ services:
     environment:
       DATABASE_URL: postgresql+psycopg://nhipquan:nhipquan@postgres:5432/nhipquan
       REDIS_URL: redis://redis:6379/0
+      # Production KHÔNG phô toàn bộ schema API ra Internet. Cờ này đã có sẵn
+      # trong `main.py` nhưng mặc định là "1" (demo cần xem /docs) nên phải TẮT
+      # ở tầng deploy; `.env` trên máy chủ vẫn ghi đè được nếu cần mở lại để
+      # truy vết sự cố (QA 2026-10-01 LỖI 9: 287 path + Swagger UI ai cũng xem
+      # được). Cài đặt cục bộ/dev giữ nguyên mặc định "1".
+      NHIPQUAN_PUBLIC_API_DOCS: "0"
     command: ["sh", "-c", "cd /app/apps/api && uvicorn ca_api.interfaces.http.main:app --host 0.0.0.0 --port 8000 --workers 2"]
     expose:
       - "8000"

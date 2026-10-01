@@ -39,6 +39,14 @@ _RATE_WINDOWS: dict[str, _collections.deque[float]] = {}
 _RATE_LIMIT = 30
 _RATE_WINDOW_S = 60.0
 
+# Lỗi tool = "thiếu thông tin, cần hỏi lại" (không phải lỗi hệ thống). Với các
+# mã này, câu hỏi làm rõ phải đi thẳng ra cho người dùng, không bọc tiền tố
+# "Dạ kết quả tra cứu cho anh/chị" của nhánh intent-đọc.
+_CAU_HOI_LAM_RO_ERROR = frozenset({
+    "missing_thu", "thieu_ly_do", "thieu_noi_dung", "thieu_thong_tin",
+    "thieu_treo_id", "thieu_so_luong", "thieu_swap_id", "thieu_khoang_ban",
+})
+
 
 def _rate_limit_check(user_id: str) -> bool:
     """Return True if rate-limited (should reject)."""
@@ -231,6 +239,7 @@ def run_copilot(
             action_proposal=None,
             direct_answer=None,
             agent_mode=_current_agent_mode(),
+            clarification_kind=parsed.clarification_kind,
         )
 
     # 1.3 Out of scope / Conversational QA
@@ -258,6 +267,20 @@ def run_copilot(
         parsed.intent,
         {**parsed.params, "store_id": store_id, "user_id": user_id, "user_role": user_role},
     )
+
+    # 2.1 Tool fail-closed vì thiếu thông tin → hỏi lại, KHÔNG bọc trong
+    # "Dạ kết quả tra cứu cho anh/chị". Câu đó dành cho intent ĐỌC; với yêu
+    # cầu hành động nó đọc như copilot lạc đề, và "Anh/chị cho em biết ngày
+    # nào bận ạ" bị chôn sau tiền tố sai làm NV không biết phải trả lời gì.
+    if not tool_res.success and tool_res.error in _CAU_HOI_LAM_RO_ERROR:
+        return CopilotResponse(
+            reply_text=tool_res.summary,
+            intent=getattr(CopilotIntent, parsed.intent, CopilotIntent.OUT_OF_SCOPE),
+            confidence=parsed.confidence,
+            action_proposal=None,
+            direct_answer=tool_res.summary,
+            agent_mode=_current_agent_mode(),
+        )
 
     now_iso = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
     expires_iso = (datetime.now(UTC) + timedelta(minutes=ttl_minutes)).strftime("%Y-%m-%dT%H:%M:%SZ")

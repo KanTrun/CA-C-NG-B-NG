@@ -228,6 +228,30 @@ def fetch_conversations(limit: int = 15) -> list[dict[str, Any]]:
     return out
 
 
+def fetch_psid_name(psid: str) -> str:
+    """Tên hiển thị của người nhắn Messenger qua Graph API (best-effort).
+
+    Webhook Messenger của Meta chỉ gửi PSID, không gửi tên — nên thread tạo
+    từ webhook chỉ hiện "Khách XXXX". Hàm này tra cứu bổ sung
+    `GET /{psid}?fields=first_name,last_name,name` (cần Page token; hoạt động
+    khi khách đã từng tương tác với Page). Lỗi/quyền thiếu → trả "" để caller
+    fallback, KHÔNG bao giờ raise.
+    """
+    if not psid or not psid.strip():
+        return ""
+    try:
+        data = graph_get(psid.strip(), {"fields": "first_name,last_name,name"})
+        first = str(data.get("first_name") or "").strip()
+        last = str(data.get("last_name") or "").strip()
+        full = f"{first} {last}".strip()
+        if full:
+            return full
+        name = str(data.get("name") or "").strip()
+        return name
+    except Exception:
+        return ""
+
+
 def send_messenger_text(psid: str, text: str, *, tag: str | None = None) -> dict[str, Any]:
     """
     Gửi tin Messenger tới PSID.

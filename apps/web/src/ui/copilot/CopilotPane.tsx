@@ -16,6 +16,7 @@ import { Avatar2D } from "./Avatar2D";
 import type { Role } from "../../lib/session";
 
 const POS_KEY = "ag_copilot_pane_pos_v2";
+const ROOT_REF = "nq-copilot-root";
 
 interface PaneState {
   /** 0 = collapsed (chỉ chip), 1 = small, 2 = large */
@@ -27,8 +28,8 @@ interface PaneState {
 
 const DEFAULT_STATE: PaneState = {
   size: 1,
-  w: 380,
-  h: 540,
+  w: 430,
+  h: 640,
 };
 
 function loadState(): PaneState {
@@ -55,10 +56,6 @@ function saveState(s: PaneState) {
   } catch {/* ignore */}
 }
 
-function clamp(v: number, lo: number, hi: number): number {
-  return Math.max(lo, Math.min(hi, v));
-}
-
 interface Props {
   /** Controlled mode: nếu truyền `open` thì pane dùng giá trị này. */
   open?: boolean;
@@ -71,7 +68,7 @@ export function CopilotPane({ open, onClose }: Props = {}) {
   const [internalOpen, setInternalOpen] = useState(true);
   const isOpen = isControlled ? Boolean(open) : internalOpen;
 
-  const [state, setState] = useState<PaneState>({ size: 0, w: 400, h: 580 });
+  const [state, setState] = useState<PaneState>({ size: 0, w: 430, h: 640 });
   const [hydrated, setHydrated] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
 
@@ -101,12 +98,41 @@ export function CopilotPane({ open, onClose }: Props = {}) {
     if (isControlled) {
       onClose?.();
     } else {
-      // Khi bấm đóng ở chế độ thông thường, thu nhỏ về chip Tinh Linh lơ lửng để luôn sẵn sàng
+      // Khi bấm đóng ở chế độ thông thường, thu nhỏ về Tinh Linh lơ lửng để luôn đồng hành
       setState((s) => ({ ...s, size: 0 }));
     }
   }, [isControlled, onClose]);
 
-  // Phím tắt Ctrl/Cmd+K mở nhanh pane hoặc chuyển đổi giữa chip và cửa sổ
+  /**
+   * QA 2026-10-01 LỖI 11: pane nổi là `position: fixed` 430×640 ở góc phải dưới
+   * và MỞ SẴN trên mọi trang desktop (`DEFAULT_STATE.size = 1`). Nó đè lên nội
+   * dung trang, nên 20 control trên 14 trang không bấm được — kể cả nút lưu cấu
+   * hình quán và nút thêm món. Người dùng bấm mãi không có phản hồi, không hề
+   * biết vì sao.
+   *
+   * Cách sửa: người dùng chạm vào PHẦN TRANG (ngoài pane) là tín hiệu rõ ràng
+   * "tôi muốn làm việc với trang" ⇒ tự thu nhỏ về Tinh Linh để không chắn tay.
+   * Bấm vào avatar là mở lại. Không cần dành chỗ trống cố định trong layout vì
+   * pane vốn đã ở vị trí phủ và có thể kéo.
+   */
+  useEffect(() => {
+    if (state.size === 0) return;
+    function onPointerDown(e: PointerEvent) {
+      const target = e.target as HTMLElement | null;
+      if (!target) return;
+      // Bấm trong pane thì không đụng tới.
+      if (target.closest(`#${ROOT_REF}`)) return;
+      // Lớp phủ toàn màn hình của hộp thoại/lệnh (CommandPalette, Tour, modal):
+      // để các lớp đó quyết định, không tự thu nhỏ theo.
+      if (target.closest("[role='dialog'][aria-modal='true']")) return;
+      setState((s) => (s.size === 0 ? s : { ...s, size: 0 }));
+    }
+    // `true` để bắt cả pointerdown ngoài pane mà không chặn propagation.
+    window.addEventListener("pointerdown", onPointerDown, true);
+    return () => window.removeEventListener("pointerdown", onPointerDown, true);
+  }, [state.size]);
+
+  // Phím tắt Ctrl/Cmd+K mở nhanh pane hoặc chuyển đổi giữa Tinh Linh và cửa sổ
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       const isToggle = (e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k";
@@ -120,7 +146,7 @@ export function CopilotPane({ open, onClose }: Props = {}) {
         return;
       }
       if (e.key === "Escape" && isOpen && state.size > 0) {
-        // Thu nhỏ về chip thay vì đóng hẳn
+        // Thu nhỏ về Tinh Linh thay vì đóng hẳn
         setState((s) => ({ ...s, size: 0 }));
       }
     }
@@ -140,16 +166,16 @@ export function CopilotPane({ open, onClose }: Props = {}) {
         maxHeight: "92vh",
         position: "fixed",
         zIndex: 60,
-        borderTopLeftRadius: "20px",
-        borderTopRightRadius: "20px",
+        borderTopLeftRadius: "24px",
+        borderTopRightRadius: "24px",
       };
     }
-    const viewportWidth = typeof window === "undefined" ? 400 + 32 : window.innerWidth;
-    const viewportHeight = typeof window === "undefined" ? 580 + 32 : window.innerHeight;
-    const maxWidth = Math.max(280, viewportWidth - 32);
-    const maxHeight = Math.max(360, viewportHeight - 32);
-    const w = state.size === 0 ? 68 : Math.min(state.size === 2 ? 680 : state.w, maxWidth);
-    const h = state.size === 0 ? 68 : Math.min(state.size === 2 ? Math.min(820, viewportHeight - 40) : state.h, maxHeight);
+    const viewportWidth = typeof window === "undefined" ? 440 + 32 : window.innerWidth;
+    const viewportHeight = typeof window === "undefined" ? 640 + 32 : window.innerHeight;
+    const maxWidth = Math.max(320, viewportWidth - 32);
+    const maxHeight = Math.max(400, viewportHeight - 32);
+    const w = state.size === 0 ? 84 : Math.min(state.size === 2 ? 720 : state.w, maxWidth);
+    const h = state.size === 0 ? 84 : Math.min(state.size === 2 ? Math.min(860, viewportHeight - 40) : state.h, maxHeight);
     const margin = 20;
     return {
       right: margin,
@@ -158,7 +184,7 @@ export function CopilotPane({ open, onClose }: Props = {}) {
       height: h,
       position: "fixed",
       zIndex: 50,
-      borderRadius: "16px",
+      borderRadius: "20px",
     };
   })();
 
@@ -166,29 +192,40 @@ export function CopilotPane({ open, onClose }: Props = {}) {
 
   if (!isOpen) return null;
 
-  // Chế độ thu nhỏ (chip): Tinh Linh Hệ Thống bay lơ lửng ở góc màn hình
+  // Chế độ thu nhỏ (Tinh Linh đồng hành): Tinh Linh 2D bay lơ lửng luôn đi theo người dùng
   if (state.size === 0) {
     return (
       <div
+        id={ROOT_REF}
         style={{
-          right: 20,
-          bottom: 20,
+          right: isMobile ? 16 : 24,
+          bottom: isMobile ? 16 : 24,
           position: "fixed",
           zIndex: 50,
         }}
         className="relative group select-none"
       >
-        {/* Bong bóng gợi ý mở trợ lý với phím tắt Ctrl+K */}
-        <div className="absolute right-0 bottom-full mb-3 hidden group-hover:flex items-center gap-2 whitespace-nowrap rounded-xl border border-sky-400/40 bg-slate-950/95 px-3.5 py-2 text-xs text-sky-200 shadow-2xl backdrop-blur-md pointer-events-none transition-all duration-300 group-hover:scale-105 animate-in fade-in slide-in-from-bottom-2">
-          <span className="relative flex h-2 w-2">
-            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-sky-400 opacity-75" />
-            <span className="relative inline-flex rounded-full h-2 w-2 bg-sky-500" />
-          </span>
-          <span className="font-semibold text-sky-100">AG-Copilot</span>
-          <span className="text-sky-300/80">· Bấm để mở trợ lý</span>
-          <kbd className="hidden sm:inline-block rounded bg-sky-950/80 border border-sky-500/30 px-1.5 py-0.5 text-[10px] font-mono text-sky-300">
-            Ctrl+K
-          </kbd>
+        {/* Bong bóng chào mời tương tác phong cách nhân vật ảo */}
+        <div className="absolute right-0 bottom-full mb-3 flex flex-col items-end pointer-events-none transition-all duration-300 group-hover:scale-105 animate-in fade-in slide-in-from-bottom-2">
+          <div className="relative w-64 max-w-[calc(100vw-2.5rem)] rounded-2xl border border-amber-400/40 bg-slate-950/95 px-4 py-2.5 text-xs text-amber-200 shadow-2xl backdrop-blur-md">
+            <div className="flex items-center justify-between gap-1.5 font-bold text-amber-300 mb-1">
+              <div className="flex items-center gap-1.5 whitespace-nowrap">
+                <span className="relative flex h-2 w-2">
+                  <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                  <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
+                </span>
+                <span className="whitespace-nowrap">Tinh Linh Trợ Lý</span>
+              </div>
+              <kbd className="hidden sm:inline-block rounded bg-amber-950/80 border border-amber-500/30 px-1.5 py-0.5 text-[9px] font-mono text-amber-300 whitespace-nowrap">
+                Ctrl+K
+              </kbd>
+            </div>
+            <p className="text-[11px] text-slate-300 leading-snug">
+              Chào Ký chủ! Bấm vào em để nhắn tin hoặc <strong className="text-emerald-400 font-semibold">Gọi Live</strong> trực tiếp nhé ✨
+            </p>
+            {/* Đuôi bong bóng thoại chĩa xuống Tinh Linh */}
+            <div className="absolute -bottom-1.5 right-8 h-3 w-3 rotate-45 border-r border-b border-amber-400/40 bg-slate-950" />
+          </div>
         </div>
 
         {/* Nút bấm hình Tinh Linh 2D lơ lửng */}
@@ -196,18 +233,19 @@ export function CopilotPane({ open, onClose }: Props = {}) {
           type="button"
           onClick={() => setState((s) => ({ ...s, size: 1 }))}
           className="relative flex items-center justify-center transition-all duration-300 hover:scale-110 active:scale-95 focus:outline-none rounded-full"
-          title="Mở Trợ lý Tinh Linh Hệ Thống (Ctrl+K)"
+          title="Trò chuyện với Tinh Linh Trợ Lý (Ctrl+K)"
           aria-label="Mở Trợ lý Tinh Linh Hệ Thống"
         >
-          {/* Hào quang phát sáng mềm mại */}
-          <div className="absolute -inset-1.5 rounded-full bg-gradient-to-r from-sky-500/20 via-cyan-400/20 to-indigo-500/20 blur-md pointer-events-none group-hover:opacity-100 opacity-60 transition duration-500" />
+          {/* Hào quang phát sáng mềm mại xung quanh Tinh Linh */}
+          <div className="absolute -inset-2 rounded-full bg-gradient-to-r from-amber-500/30 via-sky-400/30 to-emerald-400/30 blur-lg pointer-events-none group-hover:opacity-100 opacity-70 transition duration-500 animate-pulse" />
           <Avatar2D
-            size={76}
+            size={isMobile ? 74 : 84}
             speaking={false}
             listening={false}
             mood="idle"
             showBadge={false}
             showSparkles={true}
+            showTooltip={false}
           />
         </button>
       </div>
@@ -216,23 +254,25 @@ export function CopilotPane({ open, onClose }: Props = {}) {
 
   return (
     <div
+      id={ROOT_REF}
       style={style}
-      className={`nq-surface-block flex flex-col overflow-hidden bg-[var(--nq-bg-elevated)] border border-[var(--nq-accent)]/60 shadow-[0_20px_50px_rgba(0,0,0,0.5)] transition-all duration-300 ease-out backdrop-blur-md ${
-        isMobile ? "rounded-t-2xl border-b-0" : "rounded-2xl"
+      role="complementary"
+      aria-label="Trợ lý Tinh Linh"
+      className={`flex flex-col overflow-hidden bg-slate-950/95 border border-amber-500/40 shadow-[0_25px_60px_rgba(0,0,0,0.7)] transition-all duration-300 ease-out backdrop-blur-xl ${
+        isMobile ? "rounded-t-3xl border-b-0" : "rounded-3xl"
       }`}
     >
-      {/* Header bar điều khiển cửa sổ */}
-      <div className="flex h-9 shrink-0 items-center justify-between border-b border-[var(--nq-line)] bg-[var(--nq-surface-hi)] px-3 select-none">
+      {/* Header bar điều khiển cửa sổ nhỏ gọn, tinh tế */}
+      <div className="flex h-8 shrink-0 items-center justify-between border-b border-slate-800/80 bg-slate-900/60 px-3 select-none">
         <div className="flex items-center gap-2">
           {isMobile ? (
-            <div className="mx-auto h-1 w-10 rounded-full bg-[var(--nq-dim)]/50 -mt-1 mb-1" />
+            <div className="mx-auto h-1 w-12 rounded-full bg-slate-600/70 -mt-0.5 mb-1" />
           ) : (
             <div className="flex items-center gap-1.5">
-              <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse" />
-              <span className="text-2xs font-bold uppercase tracking-wider text-[var(--nq-fg)]">
-                AG-Copilot
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
+              <span className="text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                AG-Copilot · Companion
               </span>
-              <span className="text-[10px] text-[var(--nq-dim)] hidden sm:inline">· Trợ lý AI</span>
             </div>
           )}
         </div>
@@ -242,7 +282,7 @@ export function CopilotPane({ open, onClose }: Props = {}) {
             onClick={() => setState((s) => ({ ...s, size: 0 }))}
             title="Thu nhỏ về Tinh Linh lơ lửng (Ctrl+K hoặc Esc)"
             aria-label="Thu nhỏ về Tinh Linh"
-            className="flex h-6 w-6 items-center justify-center rounded border border-[var(--nq-dim)]/30 bg-[var(--nq-surface)] text-xs text-[var(--nq-dim)] hover:border-[var(--nq-accent)] hover:text-[var(--nq-fg)] transition active:scale-95"
+            className="flex h-5 w-5 items-center justify-center rounded border border-slate-700/50 bg-slate-800/60 text-xs text-slate-400 hover:border-amber-400 hover:text-amber-300 transition active:scale-95"
           >
             –
           </button>
@@ -252,13 +292,13 @@ export function CopilotPane({ open, onClose }: Props = {}) {
                 setState((s) => ({
                   ...s,
                   size: s.size === 2 ? 1 : 2,
-                  w: s.size === 2 ? 400 : Math.min(680, window.innerWidth - 40),
-                  h: s.size === 2 ? 580 : Math.min(820, window.innerHeight - 40),
+                  w: s.size === 2 ? 430 : Math.min(720, window.innerWidth - 40),
+                  h: s.size === 2 ? 640 : Math.min(860, window.innerHeight - 40),
                 }))
               }
               title={state.size === 2 ? "Kích thước vừa" : "Mở rộng không gian làm việc"}
               aria-label={state.size === 2 ? "Kích thước vừa" : "Mở rộng"}
-              className="flex h-6 w-6 items-center justify-center rounded border border-[var(--nq-dim)]/30 bg-[var(--nq-surface)] text-xs text-[var(--nq-dim)] hover:border-[var(--nq-accent)] hover:text-[var(--nq-fg)] transition active:scale-95"
+              className="flex h-5 w-5 items-center justify-center rounded border border-slate-700/50 bg-slate-800/60 text-xs text-slate-400 hover:border-amber-400 hover:text-amber-300 transition active:scale-95"
             >
               {state.size === 2 ? "▢" : "▣"}
             </button>
@@ -267,7 +307,7 @@ export function CopilotPane({ open, onClose }: Props = {}) {
             onClick={closePane}
             title="Đóng về Tinh Linh"
             aria-label="Đóng"
-            className="flex h-6 w-6 items-center justify-center rounded border border-[var(--nq-dim)]/30 bg-[var(--nq-surface)] text-xs text-[var(--nq-dim)] hover:border-rose-400 hover:text-rose-400 transition active:scale-95"
+            className="flex h-5 w-5 items-center justify-center rounded border border-slate-700/50 bg-slate-800/60 text-xs text-slate-400 hover:border-rose-400 hover:text-rose-400 transition active:scale-95"
           >
             ✕
           </button>

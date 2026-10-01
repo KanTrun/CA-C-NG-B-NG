@@ -60,6 +60,12 @@ class SkillLoader:
         "customer-memory-voc": ["khách quen", "khach quen", "khen chê", "khen che", "đánh giá khách", "danh gia khach", "ít ngọt", "it ngot"],
         "fbpage-concierge": ["fanpage", "inbox", "menu", "giá", "gia", "đặt bàn", "dat ban", "giờ mở cửa", "gio mo cua"],
         "mailwriter-notification": ["soạn mail", "soan mail", "email", "thư", "thu", "nhà cung cấp", "nha cung cap"],
+        # Đặt CUỐI bảng: `match_intent_to_skill` trả về khớp ĐẦU TIÊN, nên thêm
+        # ở cuối bảo đảm từ khóa rộng của skill khác (vd "fanpage", "inbox") vẫn
+        # thắng. Từ khóa cố tình hẹp và không trùng ngữ cảnh vận hành: skill này
+        # viết system prompt cho agent nhắn tin khách hàng, dùng cho FB Messenger
+        # — không liên quan câu lệnh nội bộ của copilot.
+        "genz-texting-agent": ["gộp tin nhắn", "gop tin nhan", "nhiều tin nhắn", "nhieu tin nhan", "tin nhắn dài", "tin nhan dai", "giọng gen z", "giong gen z", "teencode", "debounce"],
     }
 
 

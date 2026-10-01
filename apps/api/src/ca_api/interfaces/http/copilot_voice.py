@@ -262,6 +262,15 @@ async def _serve_pipeline_call(
         return
 
     try:
+        # Lịch sử lượt trong phiên voice: copilot hỏi "lý do xin nghỉ là gì ạ?"
+        # rồi NV trả lời ở lượt sau. Không truyền `recent_messages`/`cho_phep_noi_ly_do`
+        # thì lượt trả lời rơi vào OUT_OF_SCOPE và lý do bị bỏ rơi.
+        from ca_agents.ag_copilot.intent_parser import copilot_dang_hoi_ly_do
+
+        trang_thai = context.turn_state
+        can_tra_loi = bool(trang_thai.user_turns) and copilot_dang_hoi_ly_do(
+            trang_thai.last_reply
+        )
         # run_copilot() có thể gọi LLM (chậm) trong live mode → chạy trong
         # thread executor để không block event loop của WebSocket.
         response = await asyncio.to_thread(
@@ -273,6 +282,8 @@ async def _serve_pipeline_call(
                 "user_role": context.user_role,
                 "active_date": ngay_hom_nay_vn(),
                 "channel": "voice",
+                "recent_messages": list(trang_thai.user_turns[-3:]),
+                "cho_phep_noi_ly_do": can_tra_loi,
             },
         )
     except Exception:
@@ -312,6 +323,10 @@ async def _serve_pipeline_call(
         except Exception:
             pass
     await live.send_function_response(call_id, response.reply_text, proposal)
+    # Ghi lại lượt để lượt sau ghép được multi-turn (xem VoiceTurnState).
+    context.turn_state.user_turns.append(message)
+    context.turn_state.user_turns[:] = context.turn_state.user_turns[-3:]
+    context.turn_state.last_reply = response.reply_text
     await websocket.send_json(
         {
             "event": "voice:proposal",

@@ -104,6 +104,60 @@ class SoundEffects {
       // ignore
     }
   }
+
+  /** Chuông kết nối cuộc gọi Live trực tiếp (3 nốt thăng hoa vui tươi). */
+  playCallStart(): void {
+    try {
+      const ctx = this.getContext();
+      if (!ctx) return;
+      const now = ctx.currentTime;
+      [
+        { freq: 523.25, time: 0 },    // C5
+        { freq: 659.25, time: 0.12 }, // E5
+        { freq: 783.99, time: 0.24 }, // G5
+        { freq: 1046.5, time: 0.36 }, // C6
+      ].forEach(({ freq, time }) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = "sine";
+        osc.frequency.setValueAtTime(freq, now + time);
+        gain.gain.setValueAtTime(0.12, now + time);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + time + 0.25);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start(now + time);
+        osc.stop(now + time + 0.25);
+      });
+    } catch {
+      // ignore
+    }
+  }
+
+  /** Chuông gác máy kết thúc cuộc gọi. */
+  playCallEnd(): void {
+    try {
+      const ctx = this.getContext();
+      if (!ctx) return;
+      const now = ctx.currentTime;
+      [
+        { freq: 783.99, time: 0 },    // G5
+        { freq: 523.25, time: 0.14 }, // C5
+      ].forEach(({ freq, time }) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.type = "sine";
+        osc.frequency.setValueAtTime(freq, now + time);
+        gain.gain.setValueAtTime(0.1, now + time);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + time + 0.22);
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.start(now + time);
+        osc.stop(now + time + 0.22);
+      });
+    } catch {
+      // ignore
+    }
+  }
 }
 
 export const chatSounds = new SoundEffects();

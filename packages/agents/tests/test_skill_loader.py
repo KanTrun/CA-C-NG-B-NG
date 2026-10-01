@@ -5,7 +5,10 @@ from ca_agents.runtime import AgentRuntime, SkillLoader
 def test_skill_loader_list_skills() -> None:
     loader = SkillLoader()
     skills = loader.list_skills()
-    assert len(skills) == 13
+    # Số kỹ năng do `scripts/distill_project_skills.py` sinh ra. Thêm skill mới
+    # phải chạy lại script đó để `skills_index.jsonl` có đủ dòng + content_sha256,
+    # và sửa con số ở đây.
+    assert len(skills) == 14
     skill_ids = [s["skill_id"] for s in skills]
     assert "solver-scheduling" in skill_ids
     assert "smart-swap-recommender" in skill_ids
@@ -20,6 +23,25 @@ def test_skill_loader_list_skills() -> None:
     assert "customer-memory-voc" in skill_ids
     assert "fbpage-concierge" in skill_ids
     assert "mailwriter-notification" in skill_ids
+    assert "genz-texting-agent" in skill_ids
+
+
+def test_skill_loader_genz_skill_khong_cướp_từ_khoa_rong() -> None:
+    """Từ khoá skill nhắn tin phải hẹp và không cướp intent vận hành.
+
+    `match_intent_to_skill` trả khớp ĐẦU TIÊN theo thứ tự bảng, nên skill
+    nhắn tin phải đứng CUỐI và không chứa từ khoa chung như "fanpage"/"inbox"
+    (đã thuộc `fbpage-concierge`) — nếu không, câu hỏi vận hành sẽ bị gắn nhãn
+    nhầm vào skill sai.
+    """
+    loader = SkillLoader()
+    # Câu vận hành phải vẫn về đúng skill chuyên dụng.
+    assert loader.match_intent_to_skill("Khách hỏi menu và đặt bàn trên fanpage") == "fbpage-concierge"
+    assert loader.match_intent_to_skill("Anh xem lịch xếp ca tuần tới giúp em") == "solver-scheduling"
+    # Câu nói về gộp tin nhắn thuộc skill nhắn tin.
+    assert loader.match_intent_to_skill("Gộp tin nhắn của khách lại thành 1 câu trả lời") == "genz-texting-agent"
+    # Skill nhắn tin đứng cuối bảng.
+    assert list(loader.TRIGGER_MAP)[-1] == "genz-texting-agent"
 
 
 def test_skill_loader_match_intent() -> None:

@@ -40,7 +40,11 @@ def req(method: str, path: str, token: str | None = None, body: dict | None = No
     if token:
         r.add_header("Authorization", f"Bearer {token}")
     try:
-        with urllib.request.urlopen(r, timeout=60) as resp:
+        # Timeout rộng rãi: `SCHEDULE_SOLVE` chạy CP-SAT thật, đo được 60.1s
+        # trên stack đã nạp 19 nhân viên vận hành. Mốc cũ 60s sát đúng ngưỡng
+        # nên script báo timeout ở đúng bước xếp lịch — đây là giới hạn của
+        # script, không phải lỗi sản phẩm.
+        with urllib.request.urlopen(r, timeout=300) as resp:
             return resp.status, json.loads(resp.read().decode("utf-8", "replace"))
     except urllib.error.HTTPError as e:
         try:
