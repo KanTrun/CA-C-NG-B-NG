@@ -12,7 +12,7 @@ def test_http_list_skills() -> None:
     assert resp.status_code == 200
     data = resp.json()
     assert isinstance(data, list)
-    assert len(data) == 13
+    assert len(data) == 14
     ids = [s["skill_id"] for s in data]
     assert "solver-scheduling" in ids
     assert "smart-swap-recommender" in ids
