@@ -142,11 +142,14 @@ jobs:
             sudo rm -rf /tmp/* 2>/dev/null || true
             # 4. Xóa bớt log container quá lớn nếu có
             sudo truncate -s 0 /var/lib/docker/containers/*/*-json.log 2>/dev/null || true
-            # 5. Chỉ xóa image lơ lửng (dangling), KHÔNG `-a`: xóa cả tagged
-            # image đang làm `pull` sau chậm/kẹt khi phải tải lại từ đầu, và
-            # xoá mất tag `:rollback` cứu hộ. Dọn triệt để ra cron đêm trên VM.
-            sudo docker image prune -f || true
-            sudo docker builder prune -f || true
+            # 5. HOTFIX hết disk (2026-09-30): ổ EC2 20GB sống nhờ prune triệt để
+            # mỗi deploy — image API ~800MB/layer, tag SHA tích lũy từng bản.
+            # Đã thử chỉ prune dangling và deploy đỏ ngay `no space left` khi
+            # pull. Giữ `-a` ở đây; dọn thông minh (giữ current+rollback) là
+            # việc follow-up, không làm trong hotfix.
+            # Xóa toàn bộ images cũ không còn container nào dùng (cờ -a để xóa cả tagged images)
+            sudo docker image prune -a -f || true
+            sudo docker builder prune -a -f || true
             sudo docker system prune -f || true
             # 6. Dọn containerd snapshot cache dở dang từ các lần pull trước
             sudo ctr -n moby content prune 2>/dev/null || true
@@ -177,7 +180,7 @@ jobs:
                curl -fsS --retry 12 --retry-delay 5 "https://${domain}/health" &&
                curl -fsS --retry 12 --retry-delay 5 "https://${domain}/";             then
               printf '%s\n' "$release_sha" | sudo tee .deployed_sha >/dev/null
-              sudo docker image prune -f || true
+              sudo docker image prune -a -f || true
               sudo IMAGE_TAG="$target_tag" docker compose ps
               echo "=== Dung lượng đĩa sau khi deploy ==="
               df -h /
