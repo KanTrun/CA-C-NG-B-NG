@@ -154,6 +154,7 @@ không deploy nếu CI đỏ hoặc phát hiện bất kỳ cờ demo/fixture n�
 | Solve chậm | Swap đã có 4G; kiểm `docker stats`; t3.small đủ cho solve 60s của quán nhỏ |
 | Let's Encrypt fail | Chờ 1-2 phút sau lần request đầu; kiểm DuckDNS trỏ đúng IP; port 80/443 mở SG |
 | Không SSH được | SG rule SSH source = IP nhà bạn (đổi IP thì update rule); đúng key file, `chmod 400` trên Linux |
+| Deploy đỏ `no space left on device` (containerd) | Ổ 20GB cạn do dở dang layer pull hoặc image cũ tích lũy: SSH vào chạy `sudo rm -rf /var/lib/containerd/io.containerd.content.v1.content/ingest/* && sudo docker image prune -a -f`. Khuyến nghị: tăng EBS lên 30GB trên AWS Console (EC2 → Volumes → Modify Volume → 30 GiB, không cần reboot). |
 
 ## 10. Pham vi AWS production
 
