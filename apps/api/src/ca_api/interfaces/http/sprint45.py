@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import uuid
 from dataclasses import asdict
 from io import BytesIO
@@ -441,6 +442,9 @@ class SwapBody(BaseModel):
     a: str
     b: str
     ca_id: str
+    # Tuần của ca cần đổi — mặc định tuần hiện tại của quán. Cho phép ghi rõ
+    # để phiếu không rơi nhầm tuần khi người mở đang xem tuần khác.
+    tuan: str | None = None
 
 
 class OpenShiftBody(BaseModel):
@@ -2066,6 +2070,15 @@ async def swap_open(
         raise HTTPException(status_code=403, detail="khong_phai_nguoi_tham_gia")
     if not _known_nv(body.a) or (body.b != "all" and not _known_nv(body.b)):
         raise HTTPException(status_code=422, detail="nhan_vien_khong_hop_le")
+    week = (body.tuan or "").strip() or str(_life().get("tuan_iso") or "2026-W01")
+    if not re.fullmatch(r"\d{4}-W\d{2}", week):
+        raise HTTPException(status_code=422, detail="tuan_khong_hop_le")
+    # Người nhả PHẢI đang giữ ca đó trong tuần của phiếu. Không kiểm ở đây thì
+    # mở được phiếu nhả ca của người khác — phiếu rác, tới lúc duyệt mới lộ
+    # (`ca_khong_trong_phan_cong_cua_nguoi_nhuong`).
+    phan_tuan = _phan_cong_tuan(week)
+    if body.a not in [str(x) for x in phan_tuan.get(body.ca_id, [])]:
+        raise HTTPException(status_code=409, detail="nguoi_nhuong_khong_trong_ca")
     item = {
         "id": f"sw_{uuid.uuid4().hex[:8]}",
         "a": body.a,
@@ -2073,7 +2086,7 @@ async def swap_open(
         "ca_id": body.ca_id,
         "trang_thai": "cho_xac_nhan",
         "nguon": "quan",
-        "tuan_id": _life().get("tuan_iso", "2026-W01"),
+        "tuan_id": week,
     }
 
     def mut(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -2404,7 +2417,8 @@ def _guard_swap_cong_bo(week: str, caller: dict[str, Any]) -> None:
         ("consent bắt buộc") mà mã nguồn chưa hề thực thi.
     """
     trang_thai = str(_life(week).get("trang_thai") or "nhap")
-    if trang_thai not in {"da_cong_bo", "da_dong"}:
+    # `da_duyet` cũng là tuần đã chốt (nhất quán với /toi/lich và /ca/nha).
+    if trang_thai not in {"da_duyet", "da_cong_bo", "da_dong"}:
         raise HTTPException(status_code=409, detail="lich_chua_cong_bo")
     if str(caller.get("role") or "") not in {"quan_ly", "chu_quan"}:
         raise HTTPException(status_code=409, detail="doi_ca_can_quan_ly_duyet")

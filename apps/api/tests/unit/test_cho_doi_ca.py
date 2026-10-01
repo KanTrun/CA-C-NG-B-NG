@@ -15,7 +15,7 @@ Hai lỗi gốc được chốt ở đây:
 from __future__ import annotations
 
 from ca_api.interfaces.http.main import app
-from ca_api.persist import kv_set
+from ca_api.persist import kv_get, kv_set
 from fastapi.testclient import TestClient
 
 from unit.auth_util import headers
@@ -152,3 +152,78 @@ def test_swap_list_can_token() -> None:
     """Chưa đăng nhập thì 401, không trả dữ liệu phiếu."""
     r = client.get("/api/v1/cho-doi-ca")
     assert r.status_code == 401
+
+
+def test_swap_open_chan_khi_nguoi_nhuong_khong_giu_ca() -> None:
+    """Không được mở phiếu nhả ca mình KHÔNG giữ — phiếu rác, duyệt mới lộ."""
+    week = "2026-W36"
+    _tuan_cong_bo(week, {"w1_c01": ["nv_01"]})
+    try:
+        r = client.post(
+            "/api/v1/cho-doi-ca",
+            json={"a": "nv_03", "b": "nv_02", "ca_id": "w1_c01"},
+            headers=headers(client, "minh"),
+        )
+        assert r.status_code == 409
+        assert r.json()["detail"] == "nguoi_nhuong_khong_trong_ca"
+    finally:
+        kv_set("swap", [])
+
+
+def test_swap_open_gan_dung_tuan_duoc_chon() -> None:
+    """Phiếu mở khi đang xem tuần khác phải gắn đúng tuần đó, không rơi nhầm."""
+    cur, target = "2026-W37", "2026-W38"
+    kv_set("lich_tuan_lifecycle", {"tuan_iso": cur, "trang_thai": "da_cong_bo"})
+    kv_set(
+        "lich_tuan_lifecycle_by_week",
+        {
+            cur: {"tuan_iso": cur, "trang_thai": "da_cong_bo"},
+            target: {"tuan_iso": target, "trang_thai": "da_cong_bo"},
+        },
+    )
+    kv_set("phan_cong", {"w1_c01": ["nv_03"]})
+    kv_set("phan_cong_by_week", {target: {"w1_c01": ["nv_03"]}})
+    try:
+        r = client.post(
+            "/api/v1/cho-doi-ca",
+            json={"a": "nv_03", "b": "nv_02", "ca_id": "w1_c01", "tuan": target},
+            headers=headers(client, "minh"),
+        )
+        assert r.status_code == 200, r.text
+        assert r.json()["tuan_id"] == target
+    finally:
+        kv_set("swap", [])
+
+
+def test_swap_dong_y_duyet_duoc_o_tuan_da_duyet() -> None:
+    """Tuần `da_duyet` cũng là chốt — đồng ý + duyệt chạy như tuần công bố."""
+    week = "2026-W39"
+    ca_id = "w1_c01"
+    kv_set("lich_tuan_lifecycle", {"tuan_iso": week, "trang_thai": "da_duyet"})
+    kv_set(
+        "lich_tuan_lifecycle_by_week",
+        {week: {"tuan_iso": week, "trang_thai": "da_duyet"}},
+    )
+    kv_set("phan_cong", {ca_id: ["nv_01"]})
+    kv_set("phan_cong_by_week", {week: {ca_id: ["nv_01"]}})
+    try:
+        opened = client.post(
+            "/api/v1/cho-doi-ca",
+            json={"a": "nv_01", "b": "nv_03", "ca_id": ca_id},
+            headers=headers(client, "lan"),
+        )
+        assert opened.status_code == 200, opened.text
+        swap_id = opened.json()["id"]
+        blocked = client.post(
+            f"/api/v1/cho-doi-ca/{swap_id}/dong-y", headers=headers(client, "minh")
+        )
+        assert blocked.status_code == 409
+        assert blocked.json()["detail"] == "doi_ca_can_quan_ly_duyet"
+        client.post(f"/api/v1/cho-doi-ca/{swap_id}/dong-y", headers=headers(client, "lan"))
+        duyet = client.post(
+            f"/api/v1/cho-doi-ca/{swap_id}/duyet", headers=headers(client, "lan")
+        )
+        assert duyet.status_code == 200, duyet.text
+        assert kv_get("phan_cong_by_week", {})[week][ca_id] == ["nv_03"]
+    finally:
+        kv_set("swap", [])
