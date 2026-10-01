@@ -1,0 +1,109 @@
+{
+  "properties": {
+    "to": {
+      "items": {
+        "type": "string"
+      },
+      "minItems": 1,
+      "title": "To",
+      "type": "array"
+    },
+    "subject": {
+      "maxLength": 200,
+      "minLength": 1,
+      "title": "Subject",
+      "type": "string"
+    },
+    "body_text": {
+      "maxLength": 50000,
+      "minLength": 1,
+      "title": "Body Text",
+      "type": "string"
+    },
+    "body_html": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Body Html"
+    },
+    "cc": {
+      "anyOf": [
+        {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Cc"
+    },
+    "bcc": {
+      "anyOf": [
+        {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Bcc"
+    },
+    "thread_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Thread Id"
+    },
+    "in_reply_to": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "In Reply To"
+    },
+    "references": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "References"
+    }
+  },
+  "required": [
+    "to",
+    "subject",
+    "body_text"
+  ],
+  "title": "GmailSendMessageRequest",
+  "type": "object"
+}

@@ -1,0 +1,23 @@
+{
+  "properties": {
+    "account_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Account Id"
+    },
+    "full_sync": {
+      "default": false,
+      "title": "Full Sync",
+      "type": "boolean"
+    }
+  },
+  "title": "GmailSyncRequest",
+  "type": "object"
+}

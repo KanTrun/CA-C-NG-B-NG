@@ -53,12 +53,13 @@ _VN_TZ = timezone(timedelta(hours=7))
 # lifespan của API nạp `.env` SAU khi import module — đọc key lúc import thì key
 # trong `.env` không bao giờ được dùng, token mã hoá bằng key tạm và hỏng sau
 # restart (đúng lỗi "Cần kết nối lại" sau mỗi lần khởi động lại API).
+_FernetCls: Any
 try:
     from cryptography.fernet import Fernet as _FernetCls
 
     _FERNET_IMPORT_OK = True
 except ImportError:  # pragma: no cover — cryptography là dependency bắt buộc
-    _FernetCls = None  # type: ignore[assignment]
+    _FernetCls = None
     _FERNET_IMPORT_OK = False
 
 _FERNET: Any = None
@@ -94,12 +95,12 @@ def _fernet() -> Any:
 
 def _encrypt(plaintext: str) -> str:
     """Mã hoá chuỗi nhạy cảm (OAuth token). Trả về base64 string."""
-    return _fernet().encrypt(plaintext.encode()).decode()
+    return cast(str, _fernet().encrypt(plaintext.encode()).decode())
 
 
 def _decrypt(ciphertext: str) -> str:
     """Giải mã chuỗi đã mã hoá."""
-    return _fernet().decrypt(ciphertext.encode()).decode()
+    return cast(str, _fernet().decrypt(ciphertext.encode()).decode())
 
 
 USERS = (

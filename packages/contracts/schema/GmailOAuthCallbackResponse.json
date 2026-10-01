@@ -1,0 +1,28 @@
+{
+  "properties": {
+    "ok": {
+      "title": "Ok",
+      "type": "boolean"
+    },
+    "account_id": {
+      "title": "Account Id",
+      "type": "string"
+    },
+    "email": {
+      "title": "Email",
+      "type": "string"
+    },
+    "message": {
+      "title": "Message",
+      "type": "string"
+    }
+  },
+  "required": [
+    "ok",
+    "account_id",
+    "email",
+    "message"
+  ],
+  "title": "GmailOAuthCallbackResponse",
+  "type": "object"
+}

@@ -1,0 +1,50 @@
+{
+  "properties": {
+    "account_id": {
+      "title": "Account Id",
+      "type": "string"
+    },
+    "access_token": {
+      "title": "Access Token",
+      "type": "string"
+    },
+    "refresh_token": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Refresh Token"
+    },
+    "expires_at": {
+      "title": "Expires At",
+      "type": "string"
+    },
+    "scope": {
+      "default": "",
+      "title": "Scope",
+      "type": "string"
+    },
+    "token_type": {
+      "default": "Bearer",
+      "title": "Token Type",
+      "type": "string"
+    },
+    "updated_at": {
+      "title": "Updated At",
+      "type": "string"
+    }
+  },
+  "required": [
+    "account_id",
+    "access_token",
+    "expires_at",
+    "updated_at"
+  ],
+  "title": "GmailOAuthTokens",
+  "type": "object"
+}

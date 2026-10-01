@@ -1,0 +1,54 @@
+{
+  "properties": {
+    "id": {
+      "title": "Id",
+      "type": "string"
+    },
+    "store_id": {
+      "default": "quan_01",
+      "title": "Store Id",
+      "type": "string"
+    },
+    "nv_id": {
+      "title": "Nv Id",
+      "type": "string"
+    },
+    "email": {
+      "pattern": "^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$",
+      "title": "Email",
+      "type": "string"
+    },
+    "display_name": {
+      "default": "",
+      "title": "Display Name",
+      "type": "string"
+    },
+    "is_primary": {
+      "default": false,
+      "title": "Is Primary",
+      "type": "boolean"
+    },
+    "is_active": {
+      "default": true,
+      "title": "Is Active",
+      "type": "boolean"
+    },
+    "created_at": {
+      "title": "Created At",
+      "type": "string"
+    },
+    "updated_at": {
+      "title": "Updated At",
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "nv_id",
+    "email",
+    "created_at",
+    "updated_at"
+  ],
+  "title": "GmailAccount",
+  "type": "object"
+}
