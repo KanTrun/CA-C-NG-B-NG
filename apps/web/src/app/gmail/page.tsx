@@ -127,8 +127,12 @@ const PAGE_SIZE = 50;
  * Vì sao cần: chủ quán theo dõi NHIỀU mail trong cùng một trang. Chấm màu
  * + địa chỉ email luôn đi cùng nhau (bảng tài khoản, hộp chọn, tiêu đề hộp
  * thư) để mắt không lẫn mail của hộp này sang hộp khác.
+ *
+ * KHÔNG `export`: Next.js App Router chỉ cho phép export mặc định + các field
+ * quy ước (metadata…) ở file page — export helper sẽ làm `next build` đỏ với
+ * lỗi `"accountColor" is not a valid Page export field`.
  */
-export function accountColor(email: unknown): string {
+function accountColor(email: unknown): string {
   const raw = typeof email === "string" ? email : "";
   let hue = 0;
   for (let i = 0; i < raw.length; i += 1) hue = (hue * 31 + raw.charCodeAt(i)) % 360;

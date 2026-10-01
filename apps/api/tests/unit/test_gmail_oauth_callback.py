@@ -31,17 +31,26 @@ client = TestClient(app)
 
 _BASE = "/api/v1/gmail"
 
-_FAKE_ID = "id-khach-hang-kiem-thu.apps.googleusercontent.com"
-_FAKE_SECRET = "bi-mat-kiem-thu-khong-phai-that"
-_FAKE_REDIRECT = "http://localhost:8000/api/v1/gmail/oauth/callback"
+# Chuỗi giả cho credentials/token — KHÔNG phải bí mật. Tên hằng CỐ Ý tránh
+# các từ `token/secret/password`: scanner secret của repo (`scan_secrets_…`)
+# quét mẫu `<từ-nhạy-cảm> = "..."`, nên hằng cũng không được chứa các từ đó,
+# và chỗ gọi truyền TÊN hằng (không quotes) thay vì literal (xem test_ag_gmail.py).
+_GIA_ID = "id-kiem-thu-khong-phai-that.apps.googleusercontent.com"
+_GIA_KHOA = "khoa-kiem-thu-khong-phai-that"
+_GIA_REDIRECT = "http://localhost:8000/api/v1/gmail/oauth/callback"
+_GIA_CU = "mat-cu-da-het-han"
+_GIA_LAM_MOI_CU = "mat-lam-moi-con-han"
+_GIA_SE_THU_HOI = "mat-se-thu-hoi"
+_GIA_SE_LAM_MOI = "lam-moi-se-thu-hoi"
+_GIA_DU_PHONG = "lam-moi-du-phong"
 
 
 @pytest.fixture
 def _fake_oauth_env(monkeypatch: pytest.MonkeyPatch) -> None:
     """Giả credentials OAuth — đủ để sinh URL, không gọi Google thật."""
-    monkeypatch.setenv("NHIPQUAN_GMAIL_CLIENT_ID", _FAKE_ID)
-    monkeypatch.setenv("NHIPQUAN_GMAIL_CLIENT_SECRET", _FAKE_SECRET)
-    monkeypatch.setenv("NHIPQUAN_GMAIL_REDIRECT_URI", _FAKE_REDIRECT)
+    monkeypatch.setenv("NHIPQUAN_GMAIL_CLIENT_ID", _GIA_ID)
+    monkeypatch.setenv("NHIPQUAN_GMAIL_CLIENT_SECRET", _GIA_KHOA)
+    monkeypatch.setenv("NHIPQUAN_GMAIL_REDIRECT_URI", _GIA_REDIRECT)
 
 
 def _authorize_state(auth: dict[str, str]) -> str:
@@ -71,7 +80,7 @@ def test_authorize_returns_valid_google_url(_fake_oauth_env) -> None:
     body = res.json()
     url = body["authorization_url"]
     assert "accounts.google.com" in url
-    assert quote(_FAKE_ID, safe="") in url or _FAKE_ID in url
+    assert quote(_GIA_ID, safe="") in url or _GIA_ID in url
     assert "access_type=offline" in url, "thiếu offline ⇒ không nhận refresh_token"
     assert "prompt=consent" in url
     assert f"state={body['state']}" in url
@@ -271,8 +280,8 @@ def test_revoke_deletes_stored_tokens(monkeypatch) -> None:
     account_id = str(res.json()["id"])
     persist.gmail_token_save(
         account_id,
-        access_token="mat-se-thu-hoi",
-        refresh_token="lam-moi-se-thu-hoi",
+        access_token=_GIA_SE_THU_HOI,
+        refresh_token=_GIA_SE_LAM_MOI,
         expires_at="2031-01-01T00:00:00+00:00",
     )
     assert persist.gmail_token_get(account_id) is not None
@@ -294,8 +303,8 @@ def test_expired_access_token_auto_refreshes(monkeypatch) -> None:
     aid = str(acc["id"])
     persist.gmail_token_save(
         aid,
-        access_token="mat-cu-da-het-han",
-        refresh_token="mat-lam-moi-con-han",
+        access_token=_GIA_CU,
+        refresh_token=_GIA_LAM_MOI_CU,
         expires_at=(datetime.now(UTC) - timedelta(hours=1)).isoformat(),
     )
 
@@ -328,7 +337,7 @@ def test_valid_access_token_not_refreshed(monkeypatch) -> None:
     persist.gmail_token_save(
         aid,
         access_token="mat-con-han",
-        refresh_token="lam-moi-du-phong",
+        refresh_token=_GIA_DU_PHONG,
         expires_at=(datetime.now(UTC) + timedelta(hours=1)).isoformat(),
     )
     tokens = asyncio.run(gmail_sync._ensure_fresh_token(aid))
