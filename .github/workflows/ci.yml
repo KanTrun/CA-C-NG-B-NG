@@ -1,5 +1,8 @@
 name: ci
 
+# CỐ TÌNH không ignore `.github/workflows/deploy-*.yml`: một PR chỉ sửa deploy
+# từng làm đỏ production mà không chạy CI nào (2026-09-30, prune -a). Script
+# deploy đổi là phải chạy full CI như mọi code khác.
 on:
   push:
     branches: [main, release/**]
@@ -9,7 +12,6 @@ on:
       - "*.md"
       - ".gitignore"
       - "LICENSE"
-      - ".github/workflows/deploy-*.yml"
       - "**/*.png"
       - "**/*.jpg"
       - "**/*.jpeg"
@@ -23,7 +25,6 @@ on:
       - "*.md"
       - ".gitignore"
       - "LICENSE"
-      - ".github/workflows/deploy-*.yml"
       - "**/*.png"
       - "**/*.jpg"
       - "**/*.jpeg"
