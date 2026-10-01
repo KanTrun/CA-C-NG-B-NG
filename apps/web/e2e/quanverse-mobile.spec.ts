@@ -1,54 +1,73 @@
 import { expect, test } from "@playwright/test";
+import { disableWebgl, ensureDemoData, loginAs } from "./_helpers";
 
-/** QUANVERSE mobile e2e — 390x844 (chromium project chỉ định trong config). */
+/**
+ * QUÁNVERSE 2.0 mobile e2e — 390×844.
+ *
+ * Yêu cầu gốc: "Mobile: stack thành một cột. Verdict JEV phải nhìn thấy ngay."
+ */
 
-test.use({
-  viewport: { width: 390, height: 844 },
-  isMobile: true,
-  hasTouch: true,
-});
+test.describe("QUÁNVERSE mobile", () => {
+  test.use({ viewport: { width: 390, height: 844 } });
 
-test.describe("QUANVERSE mobile", () => {
   test.beforeEach(async ({ page }) => {
-    await page.goto("/login");
-    await page.getByLabel("Tài khoản").fill("lan");
-    await page.getByLabel("Mật khẩu").fill("nhipquan");
-    await page.getByRole("button", { name: "Vào hệ thống" }).click();
-    await expect(page).toHaveURL(/\/hom-nay/, { timeout: 15_000 });
+    await disableWebgl(page);
+    await loginAs(page);
+    await ensureDemoData(page);
   });
 
-  test("living map renders without horizontal overflow", async ({ page }) => {
+  test("không tràn ngang", async ({ page }) => {
     await page.goto("/quanverse");
-    await expect(page.locator(".nq-living-map")).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId("quanverse-root")).toBeVisible({ timeout: 15_000 });
 
-    // Không overflow ngang ở viewport mobile
-    const overflow = await page.evaluate(() => {
-      return document.documentElement.scrollWidth > window.innerWidth;
-    });
-    expect(overflow).toBe(false);
-
-    // Zone vẫn tương tác được
-    await page.getByTestId("zone-bar").click();
+    const overflow = await page.evaluate(() => ({
+      scrollW: document.documentElement.scrollWidth,
+      clientW: document.documentElement.clientWidth,
+    }));
+    expect(
+      overflow.scrollW,
+      `tràn ngang: ${overflow.scrollW} > ${overflow.clientW}`,
+    ).toBeLessThanOrEqual(overflow.clientW + 1);
   });
 
-  test("touch target đủ lớn cho khu vực mặt bằng", async ({ page }) => {
+  test("Verdict nhìn thấy ngay trong màn đầu", async ({ page }) => {
     await page.goto("/quanverse");
-    await expect(page.locator(".nq-living-map")).toBeVisible({ timeout: 15_000 });
+    const verdict = page.getByTestId("quanverse-verdict");
+    await expect(verdict).toBeVisible({ timeout: 15_000 });
 
-    // Mục tiêu chạm ≥ 44px theo WCAG 2.5.5.
-    const box = await page.getByTestId("zone-bar").boundingBox();
+    const box = await verdict.boundingBox();
+    expect(box, "không đo được khối verdict").not.toBeNull();
+    // Verdict phải nằm trong màn đầu (844px).
+    expect(box?.y ?? 9999).toBeLessThanOrEqual(844);
+  });
+
+  test("bố cục xếp thành một cột", async ({ page }) => {
+    await page.goto("/quanverse");
+    await expect(page.getByTestId("quanverse-map")).toBeVisible({ timeout: 15_000 });
+
+    const map = await page.getByTestId("quanverse-map").boundingBox();
+    const actions = await page.getByTestId("quanverse-actions").boundingBox();
+    expect(map).not.toBeNull();
+    expect(actions).not.toBeNull();
+    // Trên mobile, cột việc cần xử lý nằm DƯỚI bản đồ (không cạnh nhau).
+    expect((actions?.y ?? 0)).toBeGreaterThanOrEqual((map?.y ?? 0) + (map?.height ?? 0) - 2);
+  });
+
+  test("ô khu vực có đích chạm ≥ 44px", async ({ page }) => {
+    await page.goto("/quanverse");
+    const zone = page.getByTestId("qv-zone-quay_pha");
+    await expect(zone).toBeVisible({ timeout: 15_000 });
+
+    const box = await zone.boundingBox();
     expect(box).not.toBeNull();
-    expect(box!.height).toBeGreaterThanOrEqual(44);
+    expect(box?.height ?? 0, "ô khu vực quá thấp để chạm").toBeGreaterThanOrEqual(44);
   });
 
-  test("flavor + mode actions accessible on mobile", async ({ page }) => {
+  test("bấm khu vực trên mobile vẫn đổi được trạng thái chọn", async ({ page }) => {
     await page.goto("/quanverse");
-    await expect(page.locator(".nq-living-map")).toBeVisible({ timeout: 15_000 });
-
-    // Núm độ ngọt là nút thật (bấm chạm được, không còn select ẩn).
-    await page.getByTestId("flavor-ngot-it").click();
-    await expect(page.getByTestId("flavor-ngot-it")).toHaveAttribute("aria-checked", "true");
-    await page.getByTestId("flavor-go").click();
-    await expect(page.getByTestId("flavor-results").first()).toBeVisible({ timeout: 10_000 });
+    const zone = page.getByTestId("qv-zone-quay_thu_ngan").or(page.getByTestId("qv-zone-quay_pha"));
+    await expect(zone.first()).toBeVisible({ timeout: 15_000 });
+    await zone.first().click();
+    await expect(zone.first()).toHaveAttribute("aria-pressed", "true");
   });
 });

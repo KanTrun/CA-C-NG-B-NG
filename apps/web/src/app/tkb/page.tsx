@@ -418,6 +418,11 @@ export default function TkbPage() {
       {loading ? <Loading skeleton="list">Đang tải…</Loading> : null}
 
       <Notice>
+        Khai báo <strong className="text-[var(--nq-fg)]">theo đúng ca</strong> bạn bận (ca sáng /
+        chiều / tối) — hệ thống chỉ tránh xếp ca đó, không xoá cả ngày.
+      </Notice>
+
+      <Notice>
         Ảnh thật cần <span className="font-mono text-[var(--nq-fg)]">CA_AGENT_MODE=live</span> và key
         Gemini. Có thể bấm <strong className="text-[var(--nq-fg)]">Thử ảnh mẫu</strong> ngay không cần
         Gemini.

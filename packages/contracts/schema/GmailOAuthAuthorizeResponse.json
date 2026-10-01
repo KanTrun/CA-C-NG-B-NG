@@ -1,0 +1,18 @@
+{
+  "properties": {
+    "authorization_url": {
+      "title": "Authorization Url",
+      "type": "string"
+    },
+    "state": {
+      "title": "State",
+      "type": "string"
+    }
+  },
+  "required": [
+    "authorization_url",
+    "state"
+  ],
+  "title": "GmailOAuthAuthorizeResponse",
+  "type": "object"
+}

@@ -5,26 +5,31 @@ import { MotionProvider } from "../ui/motion/MotionProvider";
 import { fontClass } from "../ui/fonts";
 import "./globals.css";
 import "./experience.css";
+import "./quanverse.css";
 import "./pos.css";
 
 export const metadata: Metadata = {
   title: "NHỊP QUÁN",
   description: "Ca làm việc · cẩm nang sống",
   manifest: "/manifest.webmanifest",
+  // Favicon dùng `favicon.png` theo yêu cầu — chỉ đổi favicon, không đụng logo.
+  // `apple`: giữ nguyên cho iOS.
   icons: {
-    icon: "/favicon.ico",
-    apple: "/favicon.png",
+    icon: [{ url: "/favicon.png", type: "image/png" }],
+    apple: [{ url: "/apple-touch-icon.png", type: "image/png", sizes: "180x180" }],
+  },
+  // iOS chỉ đọc được vài khoá này qua thẻ meta riêng, không qua manifest.
+  appleWebApp: {
+    capable: true,
+    title: "NHỊP QUÁN",
+    statusBarStyle: "black-translucent",
   },
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="vi" className={fontClass}>
-      {/* suppressHydrationWarning: tiện ích trình duyệt (dịch trang, chặn quảng
-          cáo) chèn class/thuộc tính vào <body> TRƯỚC khi React hydrate, làm
-          React báo lỗi hydration dù HTML của mình đúng. Chỉ bỏ qua cảnh báo ở
-          riêng <body>; mọi phần khác vẫn được kiểm tra nghiêm. */}
-      <body suppressHydrationWarning>
+      <body>
         <MotionProvider>
           <SmoothScroll>
             <a href="#nq-content" className="nq-skip">

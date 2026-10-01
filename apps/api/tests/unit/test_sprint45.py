@@ -257,6 +257,20 @@ def test_handover_khong_bao_lech_khi_so_giong() -> None:
     assert body["vf_number_conflict"] == []
 
 
+def test_cong_bang_chi_tra_nv_co_that() -> None:
+    """Bug QA đợt 4: /cong-bang tra số dư cho nv_20..nv_25 (mã trong seed
+    fixture) dù DB chỉ có 19 người. Kết quả phải chỉ gồm NV đang xếp lịch.
+    """
+    cq = headers(client, "hung")  # /nguoi đòi quyền chu_quan
+    body = client.get("/api/v1/cong-bang", headers=cq).json()
+    so_du = body["so_du"]
+    items = client.get("/api/v1/nguoi", headers=cq).json()["items"]
+    nv_that = {u["nv_id"] for u in items if u["role"] != "ai_assistant"}
+    la = set(so_du.keys())
+    assert la <= nv_that, f"số dư có mã không tồn tại: {sorted(la - nv_that)}"
+    assert not any(k.startswith("nv_2") for k in la), f"còn mã ngoài DB: {sorted(la)}"
+
+
 def test_cam_nang_eight_steps_den_cho_chu_quan() -> None:
     """Chạy 8 bước trên lần sửa thật: luật suy tất định phải qua VF và chờ chủ quán.
 
@@ -355,6 +369,14 @@ def test_qr_one_shot() -> None:
 
 
 def test_swap_uses_requester_and_any_recipient() -> None:
+    week = "2026-W50"
+    kv_set("phan_cong", {"w1_c01": ["nv_03"]})
+    kv_set("phan_cong_by_week", {week: {"w1_c01": ["nv_03"]}})
+    kv_set("lich_tuan_lifecycle", {"tuan_iso": week, "trang_thai": "da_cong_bo"})
+    kv_set(
+        "lich_tuan_lifecycle_by_week",
+        {week: {"tuan_iso": week, "trang_thai": "da_cong_bo"}},
+    )
     nv = headers(client, "minh")
     r = client.post(
         "/api/v1/cho-doi-ca",
@@ -472,6 +494,8 @@ def test_swap_consent_by_any_recipient() -> None:
         "lich_tuan_lifecycle_by_week",
         {"2026-W01": {"tuan_iso": "2026-W01", "trang_thai": "da_cong_bo"}},
     )
+    kv_set("phan_cong", {"w1_c01": ["nv_03"]})
+    kv_set("phan_cong_by_week", {"2026-W01": {"w1_c01": ["nv_03"]}})
     opened = client.post(
         "/api/v1/cho-doi-ca",
         json={"a": "nv_03", "b": "all", "ca_id": "w1_c01"},
@@ -546,6 +570,13 @@ def test_swap_tu_choi_idor_protection() -> None:
     ).json()
     headers_outsider = {"Authorization": f"Bearer {reg['token']}"}
 
+    kv_set("phan_cong", {"w1_c01": ["nv_03"]})
+    kv_set("phan_cong_by_week", {"2026-W01": {"w1_c01": ["nv_03"]}})
+    kv_set("lich_tuan_lifecycle", {"tuan_iso": "2026-W01", "trang_thai": "da_cong_bo"})
+    kv_set(
+        "lich_tuan_lifecycle_by_week",
+        {"2026-W01": {"tuan_iso": "2026-W01", "trang_thai": "da_cong_bo"}},
+    )
     opened = client.post(
         "/api/v1/cho-doi-ca",
         json={"a": "nv_03", "b": "nv_02", "c": "nv_01", "ca_id": "w1_c01"},
@@ -691,58 +722,95 @@ def test_handover_history_list() -> None:
 
 
 def test_publication_guard_blocks_claimed_shifts(_du_nhan_vien_xep_lich: None, _xac_nhan_kha_dung_tuan: None) -> None:
-    """Cannot publish when claimed shifts exist."""
-    from ca_api.persist import open_shift_create, shift_application_claim_first
-    from ca_api.services.scheduling_service import run_authoritative_schedule
-    
-    week = "2026-W44"
+    """Không công bố được khi phân công hiện tại CÒN ca dưới định biên."""
+    from ca_api.persist import kv_set, open_shift_create, schedule_run_create
+
+    week = "2026-W45"
     ql = headers(client, "lan")
-    
-    # Create a valid schedule run
-    run = run_authoritative_schedule(
-        store_id="quan_01", tuan_iso=week, actor_id="lan", idempotency_key="pub-guard-test",
+
+    # Run gần nhất tồn tại + fingerprint khớp dữ liệu hiện tại (guard đòi cả hai).
+    from ca_api.services.scheduling_service import authoritative_input_fingerprint
+    _, fp = authoritative_input_fingerprint("quan_01", week)
+    run = schedule_run_create(
+        store_id="quan_01", tuan_iso=week, input_snapshot={}, fingerprint=fp,
+        idempotency_key="pub-guard-test", created_by="lan", status="needs_gap_resolution",
     )
-    assert run["status"] == "computed"
-    
-    # Create and claim an open shift
-    shift = open_shift_create(
+    # Phân công TRỐNG cho w1_c01 → ca này còn thiếu thật → chặn công bố.
+    kv_set("phan_cong_by_week", {week: {}})
+    open_shift_create(
         store_id="quan_01", schedule_run_id=str(run["id"]), tuan_iso=week,
         ca_id="w1_c01", deadline_at="2026-11-01T00:00:00Z",
     )
-    shift_application_claim_first(
-        open_shift_id=shift["id"], store_id="quan_01", nv_id="nv_03",
-    )
-    
-    # Set lifecycle to da_duyet
-    from ca_api.persist import kv_set
     kv_set("lich_tuan_lifecycle_by_week", {week: {"tuan_iso": week, "trang_thai": "da_duyet"}})
-    
-    # Attempt to publish should fail
+
     r = client.patch(
         "/api/v1/lich-tuan/lifecycle",
         json={"tuan_iso": week, "trang_thai": "da_cong_bo"},
         headers=ql,
     )
     assert r.status_code == 409
-    assert r.json()["detail"] == "schedule_has_open_shifts"
+    # Ca dưới định biên → chặn công bố.
+    assert r.json()["detail"] == "schedule_has_unresolved_gaps"
+
+
+def test_publish_duoc_khi_phan_cong_da_du_nguoi(_du_nhan_vien_xep_lich: None) -> None:
+    """Run cũ báo thiếu nhưng ghim tay đã lấp đủ → PHẢI công bố được.
+
+    Đây là lỗi user gặp: `run.status` đóng băng `needs_gap_resolution` khoá công
+    bố mãi dù phân công hiện tại đã đủ người.
+    """
+    from ca_api.persist import kv_set, schedule_run_create
+
+    week = "2026-W46"
+    ql = headers(client, "lan")
+    from ca_api.services.scheduling_service import authoritative_input_fingerprint
+    _, fp = authoritative_input_fingerprint("quan_01", week)
+    schedule_run_create(
+        store_id="quan_01", tuan_iso=week, input_snapshot={}, fingerprint=fp,
+        idempotency_key="publish-full-test", created_by="lan", status="needs_gap_resolution",
+    )
+    # Lấp đủ MỌI ca trong seed theo ĐÚNG định biên từng ca (có ca cần 2 người).
+    from ca_api.interfaces.http.sprint45 import _so_nguoi_toi_thieu_map
+    phan_cong = {
+        ca_id: [f"nv_{i:02d}" for i in range(1, need + 1)]
+        for ca_id, need in _so_nguoi_toi_thieu_map().items()
+    }
+    kv_set("phan_cong_by_week", {week: phan_cong})
+    kv_set("lich_tuan_lifecycle_by_week", {week: {"tuan_iso": week, "trang_thai": "da_duyet"}})
+
+    r = client.patch(
+        "/api/v1/lich-tuan/lifecycle",
+        json={"tuan_iso": week, "trang_thai": "da_cong_bo"},
+        headers=ql,
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["trang_thai"] == "da_cong_bo"
 
 
 def test_manager_sees_claimed_shifts_employee_does_not(_du_nhan_vien_xep_lich: None, _xac_nhan_kha_dung_tuan: None) -> None:
     """Manager sees both open and claimed shifts; employee sees only open."""
-    from ca_api.persist import open_shift_create, shift_application_claim_first
-    
+    from ca_api.persist import open_shift_create, schedule_run_create, shift_application_claim_first
+
     week = "2026-W44"
     ql = headers(client, "lan")
     nv = headers(client, "minh")
-    
-    # Create two open shifts
+
+    # Ca thiếu chỉ thuộc LẦN XẾP GẦN NHẤT mới được hiện (xem
+    # `current_open_shifts`), nên phải neo vào một run THẬT.
+    run = schedule_run_create(
+        store_id="quan_01", tuan_iso=week, input_snapshot={}, fingerprint="fp-vis",
+        idempotency_key="vis-run-test", created_by="lan", status="needs_gap_resolution",
+    )
+    run_id = str(run["id"])
+
+    # Create two open shifts on the latest run
     shift1 = open_shift_create(
-        store_id="quan_01", schedule_run_id="vis-test-1", tuan_iso=week,
+        store_id="quan_01", schedule_run_id=run_id, tuan_iso=week,
         ca_id="w1_c01", deadline_at="2026-11-01T00:00:00Z",
     )
     # Ca thứ 2 chỉ để tạo dữ liệu cho test đếm (không cần giữ id).
     open_shift_create(
-        store_id="quan_01", schedule_run_id="vis-test-2", tuan_iso=week,
+        store_id="quan_01", schedule_run_id=run_id, tuan_iso=week,
         ca_id="w1_c02", deadline_at="2026-11-01T00:00:00Z",
     )
     

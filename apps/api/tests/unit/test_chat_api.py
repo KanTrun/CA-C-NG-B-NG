@@ -219,14 +219,21 @@ def test_chat_upload_accepts_browser_voice_formats(
     assert media_res.content == payload
 
 
-def test_ws_auth_failures_do_not_lock_out_password_login(client: TestClient) -> None:
+def test_ws_auth_failures_do_not_lock_out_password_login(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Token phiên sai/hết hạn qua /ws/chat không được khóa trang đăng nhập.
 
     Hai bề mặt auth giữ hai bí mật khác nhau — mật khẩu và token phiên — nên bộ
     đếm brute-force phải tách riêng. Client tự reconnect bằng token đã hết hạn là
     chuyện thường ngày; nếu đếm chung thì vài lần reconnect là cả IP đó bị 429 ở
     /api/v1/auth/login suốt 10 phút, đúng lúc người dùng cần đăng nhập lại nhất.
+
+    LƯU Ý: `conftest.py` đặt `NHIPQUAN_DISABLE_RATE_LIMIT=1` cho toàn suite (nhiều
+    test gọi auth liên tiếp dùng chung IP `testclient`). Test này phải BẬT LẠI cơ
+    chế để chứng minh nó thật sự hoạt động.
     """
+    monkeypatch.delenv("NHIPQUAN_DISABLE_RATE_LIMIT", raising=False)
     from ca_api.services.chat_ws import login_ip_limiter, ws_auth_ip_limiter
 
     try:

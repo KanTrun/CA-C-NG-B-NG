@@ -51,6 +51,14 @@ def _isolated_store(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     # quán. Test INFEASIBLE (vd test_infeasible_solver_returns_specific_conflicts)
     # ghi đè phan_cong rỗng + status INFEASIBLE vào file này, làm UI mất lịch.
     monkeypatch.setenv("NHIPQUAN_LICH_TUAN_OUT", str(tmp_path / "lich_tuan.json"))
+    # Tắt rate limit theo IP trong test — nếu không, các test gọi `POST
+    # /api/v1/auth/register` liên tiếp (test_sprint45 tạo NV cho ca trống,
+    # test_sprint3 tạo NV ngoài cuộc…) sẽ bị đếm chung một IP `testclient` và
+    # ăn 429 (bug QA đợt 6 #37 vừa thêm giới hạn này). Đây là hành vi ĐÚNG ở
+    # production, chỉ không phù hợp trong suite chạy hàng nghìn request.
+    # Test RIÊNG của cơ chế rate limit tự bật lại cờ này (xem
+    # test_qa_dot6_security_fixes.py::test_register_bi_chan_sau_nhieu_lan_lien_tiep).
+    monkeypatch.setenv("NHIPQUAN_DISABLE_RATE_LIMIT", "1")
     reset_init_flag()
 
 

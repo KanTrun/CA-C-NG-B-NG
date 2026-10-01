@@ -1,0 +1,64 @@
+{
+  "properties": {
+    "account_id": {
+      "title": "Account Id",
+      "type": "string"
+    },
+    "last_history_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Last History Id"
+    },
+    "last_sync_at": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Last Sync At"
+    },
+    "sync_cursor": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Sync Cursor"
+    },
+    "total_messages": {
+      "default": 0,
+      "title": "Total Messages",
+      "type": "integer"
+    },
+    "unread_count": {
+      "default": 0,
+      "title": "Unread Count",
+      "type": "integer"
+    },
+    "updated_at": {
+      "title": "Updated At",
+      "type": "string"
+    }
+  },
+  "required": [
+    "account_id",
+    "updated_at"
+  ],
+  "title": "GmailSyncState",
+  "type": "object"
+}

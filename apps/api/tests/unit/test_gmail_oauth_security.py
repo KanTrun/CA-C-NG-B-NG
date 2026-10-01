@@ -21,7 +21,7 @@ def test_callback_rejects_missing_state() -> None:
     res = client.post(
         _BASE + "/oauth/callback",
         json={"code": "ma-gia", "state": ""},
-        headers=headers(client, "lan"),
+        headers=headers(client, "hung"),
     )
     assert res.status_code == 400
     assert res.json()["detail"] == "thieu_state_oauth"
@@ -32,7 +32,7 @@ def test_callback_rejects_forged_state() -> None:
     res = client.post(
         _BASE + "/oauth/callback",
         json={"code": "ma-gia", "state": "state-do-ke-tan-cong-tu-nghi"},
-        headers=headers(client, "lan"),
+        headers=headers(client, "hung"),
     )
     assert res.status_code == 400
     assert res.json()["detail"] == "state_oauth_khong_hop_le"
@@ -87,7 +87,11 @@ def test_oauth_state_table_does_not_grow_forever() -> None:
     from ca_api.persist import kv_mutate
 
     past = (datetime.now(UTC) - timedelta(hours=1)).isoformat()
-    kv_mutate("gmail_oauth_states", lambda b: {**b, "state-cu-1": {"nv_id": "nv_01", "deadline": past}}, {})
+    kv_mutate(
+        "gmail_oauth_states",
+        lambda b: {**b, "state-cu-1": {"nv_id": "nv_01", "deadline": past}},
+        {},
+    )
 
     _remember_oauth_state("state-moi", {"nv_id": "nv_01"})
 

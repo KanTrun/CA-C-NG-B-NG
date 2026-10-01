@@ -43,9 +43,23 @@ class TestGmailOAuthConfig:
             redirect_uri="http://localhost/callback",
         )
         assert config.scopes is not None
-        assert len(config.scopes) == 6
+        assert len(config.scopes) == 5
         assert "https://www.googleapis.com/auth/gmail.readonly" in config.scopes
         assert "https://www.googleapis.com/auth/gmail.send" in config.scopes
+
+    def test_khong_xin_scope_chia_se_hop_thu(self):
+        """`gmail.settings.sharing` cho phép đổi quyền chia sẻ hộp thư (delegate).
+
+        Không endpoint/agent nào trong repo dùng ⇒ không được xin: đây là scope
+        nhạy cảm khiến Google xét duyệt gắt khi publish app.
+        """
+        config = GmailOAuthConfig(
+            client_id="test_id",
+            client_secret="test_secret",
+            redirect_uri="http://localhost/callback",
+        )
+        assert "https://www.googleapis.com/auth/gmail.settings.sharing" not in config.scopes
+        assert "https://www.googleapis.com/auth/gmail.settings.basic" in config.scopes
 
     def test_custom_scopes(self):
         config = GmailOAuthConfig(

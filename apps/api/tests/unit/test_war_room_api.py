@@ -64,6 +64,56 @@ def test_simulate_returns_comparison() -> None:
     assert "baseline_snapshot_hash" in body
 
 
+def test_simulate_live_tinh_tren_lich_tuan_that() -> None:
+    """War Room mô phỏng trên LỊCH TUẦN THẬT: số ca lấy từ phân công thật."""
+    from ca_api.persist import kv_set
+
+    week = "2026-W40"
+    kv_set("phan_cong_by_week", {week: {"w1_c01": ["nv_01"], "w1_c04": ["nv_02"]}})
+    kv_set("lich_tuan_lifecycle_by_week", {week: {"tuan_iso": week, "trang_thai": "nhap"}})
+
+    r = client.post(
+        "/api/v1/experience/war-room/simulate-live",
+        json={},
+        headers=headers(client, "lan"),
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["co_du_lieu"] is True
+    assert body["nguon"] == "lich_tuan"
+    assert body["baseline"]["tuan_iso"] == week
+    # w1_c01 cần 2 người, chỉ có 1 → thiếu; phải có phương án xử lý ca thiếu.
+    assert body["baseline"]["chi_so"]["so_ca_thieu"] >= 1
+    ids = {o["option_id"] for o in body["options"]}
+    assert "opt_giu_nguyen" in ids
+    assert any(o["option_id"] in {"opt_tang_nguoi", "opt_dieu_chuyen"} for o in body["options"])
+    for o in body["options"]:
+        assert o.get("reason"), "phương án trên dữ liệu thật vẫn phải có lời giải thích"
+
+
+def test_simulate_live_khong_co_lich_tra_co_du_lieu_false() -> None:
+    """Chưa xếp lịch tuần → co_du_lieu=False (UI rơi về mô phỏng mẫu)."""
+    r = client.post(
+        "/api/v1/experience/war-room/simulate-live",
+        json={"tuan_iso": "1999-W01"},
+        headers=headers(client, "lan"),
+    )
+    assert r.status_code == 200
+    assert r.json()["co_du_lieu"] is False
+
+
+def test_moi_phuong_an_co_loi_giai_thich() -> None:
+    """Bấm 'Đề xuất' phải thấy nội dung, không chỉ số khô.
+
+    Ở replay, lời giải thích là bản TẤT ĐỊNH (không gọi LLM) nhưng vẫn phải có.
+    """
+    r = _simulate()
+    options = r.json()["options"]
+    for opt in options:
+        assert opt.get("reason"), f"phương án {opt['option_id']} thiếu lời giải thích"
+        assert opt.get("reason_provider") == "replay"
+
+
 def test_get_scenarios_after_simulate() -> None:
     r = _simulate()
     sim_id = r.json()["simulation_id"]

@@ -133,6 +133,10 @@ def _headcount_row(row: dict[str, Any]) -> int:
     sau = row.get("sau")
     if isinstance(sau, dict) and isinstance(sau.get("nv"), list):
         return len(sau["nv"])
+    # Cung cach dem nhu derive._headcount_from_row: ban ghi xac-nhan lich
+    # (sau.nv_id) la 1 nguoi, neu khong tap-su luon lech voi luat da suy ra.
+    if isinstance(sau, dict) and sau.get("nv_id"):
+        return 1
     return 0
 
 

@@ -72,9 +72,10 @@ const STAFF_ACCESS = new Set([
   "/chat",
   // Thư viện Kỹ năng đã kiểm định — API `/api/v1/skills` công khai (🟢), mọi vai xem được.
   "/skills",
-  // Grand AI Experience — HỒN QUÁN Spatial Memory + Living Map mở cho mọi vai trò
+  // Quánverse — trung tâm điều hành quán, mở cho mọi vai đã đăng nhập.
+  // (Bốn route phụ cũ war-room/shift-rescue/rules/spatial-memory đã bỏ khỏi UX
+  // và chuyển hướng về /quanverse ở `next.config.js`.)
   "/quanverse",
-  "/quanverse/spatial-memory",
 ]);
 const MANAGER_ONLY = new Set([
   "/lich-tuan",
@@ -83,8 +84,6 @@ const MANAGER_ONLY = new Set([
   "/page-quan",
   "/page-quan/fb-inbox",
   "/ai-learning",
-  // Quản lý hộp thư Gmail (OAuth, nhãn, bộ lọc, gửi) — README ghi Quản lý/chủ quán.
-  "/gmail",
   // Cấu hình quán & hướng dẫn AI — kv store_profile, API đòi `_require_manager`.
   "/cau-hinh-quan",
   // Mỗi lượt khảo sát tốn chi phí proxy + Vision thật, nên khớp với `_require_manager`
@@ -95,12 +94,71 @@ const MANAGER_ONLY = new Set([
   "/giai-thich",
   "/de-xuat-thong-minh",
   "/thu-nghiem-an-toan",
-  // Grand AI Experience Portfolio — War Room / Shift Rescue / luật là manager-only
-  "/quanverse/war-room",
-  "/quanverse/shift-rescue",
-  "/quanverse/rules",
 ]);
-const OWNER_ONLY = new Set(["/menu", "/nguoi"]);
+const OWNER_ONLY = new Set([
+  "/menu",
+  "/nguoi",
+  // Quản lý hộp thư Gmail — CHỈ chủ quán: chủ quán tự thêm mail mình muốn
+  // theo dõi, mail của quán không cho quản lý/nhân viên thấy. API
+  // `/api/v1/gmail/*` đòi vai `chu_quan` (403 `chi_danh_cho_chu_quan`).
+  "/gmail",
+]);
+
+/**
+ * Mọi đường dẫn HỢP LỆ của app (khớp `GROUPS` trong `AppShell.tsx` + route
+ * ngoài sidebar). Dùng để phân biệt "bị chặn quyền" với "không có trang này":
+ * trước đây gõ sai URL vẫn hiện "Không đủ quyền truy cập" — thông báo sai làm
+ * người dùng tưởng mình bị khoá quyền trong khi thật ra trang không tồn tại.
+ */
+const KNOWN_PATHS = new Set<string>([
+  "/",
+  "/login",
+  "/dang-ky",
+  "/hom-nay",
+  "/quay",
+  "/pha",
+  "/phieu",
+  "/treo",
+  "/cuoc-hop",
+  "/handover",
+  "/chat",
+  "/lich-tuan",
+  "/roster",
+  "/toi",
+  "/doi-ca",
+  "/qr",
+  "/cong-bang",
+  "/tkb",
+  "/nguoi",
+  "/copilot",
+  "/sop",
+  "/cam-nang",
+  "/skills",
+  "/ai-learning",
+  "/de-xuat-thong-minh",
+  "/giai-thich",
+  "/thu-nghiem-an-toan",
+  "/inbox",
+  "/quanverse",
+  "/menu",
+  "/tieu-thu",
+  "/hao-phi",
+  "/khao-sat-gia",
+  "/page-quan",
+  "/page-quan/fb-inbox",
+  "/page-quan/dat-ban",
+  "/gmail",
+  "/cau-hinh-quan",
+  "/vet",
+  "/contracts",
+  "/huong-dan",
+  "/them",
+]);
+
+/** Trang có tồn tại trong app không. */
+export function isKnownPath(path: string): boolean {
+  return KNOWN_PATHS.has(path);
+}
 
 /** Client-side gate for navigation and hand-typed URLs. API remains authoritative. */
 export function canAccess(role: Role, path: string): boolean {

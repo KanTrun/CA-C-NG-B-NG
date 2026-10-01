@@ -1,0 +1,89 @@
+{
+  "properties": {
+    "id": {
+      "title": "Id",
+      "type": "string"
+    },
+    "account_id": {
+      "title": "Account Id",
+      "type": "string"
+    },
+    "name": {
+      "title": "Name",
+      "type": "string"
+    },
+    "label_type": {
+      "default": "user",
+      "enum": [
+        "system",
+        "user"
+      ],
+      "title": "Label Type",
+      "type": "string"
+    },
+    "message_list_visibility": {
+      "default": "show",
+      "enum": [
+        "show",
+        "hide"
+      ],
+      "title": "Message List Visibility",
+      "type": "string"
+    },
+    "label_list_visibility": {
+      "default": "labelShow",
+      "enum": [
+        "labelShow",
+        "labelHide"
+      ],
+      "title": "Label List Visibility",
+      "type": "string"
+    },
+    "color_background": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Color Background"
+    },
+    "color_text": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Color Text"
+    },
+    "total_messages": {
+      "default": 0,
+      "title": "Total Messages",
+      "type": "integer"
+    },
+    "unread_messages": {
+      "default": 0,
+      "title": "Unread Messages",
+      "type": "integer"
+    },
+    "updated_at": {
+      "title": "Updated At",
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "account_id",
+    "name",
+    "updated_at"
+  ],
+  "title": "GmailLabel",
+  "type": "object"
+}

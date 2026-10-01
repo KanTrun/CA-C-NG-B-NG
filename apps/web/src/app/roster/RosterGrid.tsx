@@ -6,8 +6,15 @@ import { Icon } from "../../ui/icons";
 
 const KHUNGS = ["sang", "chieu", "toi"] as const;
 const DAYS = ["T2", "T3", "T4", "T5", "T6", "T7", "CN"] as const;
-/** Số tên hiện trong ô trước khi gom "+N nữa" — một cột, đủ cao để đọc. */
-const CREW_VISIBLE = 5;
+/**
+ * Trần số người hiện trong một ô trước khi gom "+N nữa".
+ *
+ * Ô lịch chỉ rộng ~150px, nên một ca đông vẫn cần một giới hạn để không đẩy
+ * cả lưới cao vọt. Trần này đặt CAO (10) có chủ đích: ca bar phổ biến 3–6
+ * người luôn hiện đủ, chỉ ca đặc biệt mới nén lại — và khi nén thì số người bị
+ * ẩn vẫn nằm ở tooltip.
+ */
+const CREW_VISIBLE = 10;
 
 type DayLabel = { title: string; date: string; isToday?: boolean };
 
@@ -69,7 +76,7 @@ export function RosterGrid({
       </ul>
       <div className="nq-roster-wrap">
         <table
-          className="nq-roster-table nq-roster-table--compact"
+          className="nq-roster-table nq-roster-table--compact nq-roster-table--fit"
           style={{ ["--roster-rows" as string]: String(Math.max(visibleKhungs.length, 1)) }}
         >
           <caption className="nq-roster-caption">
@@ -137,7 +144,13 @@ export function RosterGrid({
                   </th>
                   {DAYS.map((d) => {
                     const shifts = (byDay[d] ?? []).filter((c) => c.khung === khung);
-                    const assigned = [...new Set(shifts.flatMap((shift) => phanCong[shift.id] ?? []))];
+                    const slots = shifts.flatMap((shift) => phanCong[shift.id] ?? []);
+                    const assigned = [...new Set(slots)];
+                    // Đếm theo SUẤT trực (mỗi vị trí một suất), KHÔNG gộp trùng
+                    // đầu người: một người gánh 2 vị trí cùng khung giờ lấp 2
+                    // suất — chi tiết từng vị trí đều báo Đủ. Đếm đầu người duy
+                    // nhất sẽ báo Thiếu oan (vd 3 người/4 suất thành "Thiếu").
+                    const slotCount = slots.length;
                     const visibleShifts = shifts.filter((shift) => matchCell(phanCong[shift.id] ?? [], shift));
                     const dimmed = shifts.length > 0 && visibleShifts.length === 0;
                     const lit = spotlightDay === d;
@@ -147,15 +160,20 @@ export function RosterGrid({
                       (sum, shift) => sum + Number(shift.so_nguoi_toi_thieu ?? 1),
                       0,
                     );
-                    const summary = rosterCellSummary(assigned.length, roleLabel, assigned.length < required);
+                    const summary = rosterCellSummary(slotCount, roleLabel, slotCount < required);
                     const hasUnconfirmed = assigned.some((id) => nvStatusMap?.[id] === "chua_xac_nhan");
+                    // Người xuất hiện ở >1 ca trong cùng ô = đang gánh đôi.
+                    const ganDoi = assigned.filter(
+                      (id) => slots.filter((s) => s === id).length > 1,
+                    );
                     const pinnedIds = new Set(
                       pins
                         .filter((pin) => shifts.some((shift) => shift.id === pin.ca_id))
                         .map((pin) => pin.nv_id),
                     );
                     const overflow = Math.max(0, assigned.length - CREW_VISIBLE);
-                    const statusText = countLabel(assigned.length, required, summary.tone);
+                    const statusText = countLabel(slotCount, required, summary.tone);
+                    const ganDoiNames = ganDoi.map((id) => nvName(id)).join(", ");
 
                     return (
                       <td
@@ -169,10 +187,10 @@ export function RosterGrid({
                             className={`nq-roster-slot-btn nq-roster-slot-btn--${summary.tone}`}
                             data-unconfirmed={hasUnconfirmed ? "1" : undefined}
                             onClick={() => onSelectDay(d)}
-                            aria-label={`${dayLabels[DAYS.indexOf(d)]?.title} ${rowLabel}: ${statusText}, ${roleLabel}${hasUnconfirmed ? " (Có nhân sự chưa xác nhận lịch)" : ""}`}
+                            aria-label={`${dayLabels[DAYS.indexOf(d)]?.title} ${rowLabel}: ${statusText}, ${roleLabel}${hasUnconfirmed ? " (Có nhân sự chưa xác nhận lịch)" : ""}${ganDoi.length > 0 ? ` (${ganDoiNames} gánh 2 vị trí)` : ""}`}
                           >
                             <span
-                              className={`nq-roster-slot-accent nq-roster-slot-accent--${summary.tone}`}
+                              className="nq-roster-slot-accent nq-roster-slot-accent--ok"
                               aria-hidden="true"
                             />
                             <span className="nq-roster-slot-body">
@@ -183,10 +201,22 @@ export function RosterGrid({
                                     <Icon name="warn" size={12} />
                                   </span>
                                 )}
+                                {ganDoi.length > 0 && (
+                                  <span
+                                    className="nq-roster-slot-flag"
+                                    title={`${ganDoiNames} đang gánh 2 vị trí cùng khung giờ — các suất đều có người nhưng một người làm 2 việc`}
+                                  >
+                                    <Icon name="users" size={12} />
+                                  </span>
+                                )}
                               </span>
                               <span className="nq-roster-slot-crew">
                                 {assigned.length > 0 ? (
                                   <>
+                                    {/* Mỗi nhân sự là MỘT ô riêng có viền và nền.
+                                        Trước đây tên nằm trần cạnh nhau nên
+                                        người xếp lịch không đếm được ai với ai
+                                        và chữ dính vào nhau khi cột hẹp. */}
                                     {assigned.slice(0, CREW_VISIBLE).map((id) => {
                                       const full = nvName(id);
                                       const { primary, role } = shortNameParts(full);
@@ -194,19 +224,19 @@ export function RosterGrid({
                                       return (
                                         <span
                                           key={id}
-                                          className="nq-roster-crew-name"
+                                          className="nq-roster-crew-chip"
                                           data-pinned={pinned ? "1" : undefined}
-                                          title={`${full}${pinned ? " · ghim ca" : ""}`}
+                                          title={`${full}${role ? ` · ${role}` : ""}${pinned ? " · ghim ca" : ""}`}
                                         >
-                                          <span className="nq-roster-crew-name__who">{primary}</span>
-                                          {role ? <span className="nq-roster-crew-name__role">{role}</span> : null}
+                                          <span className="nq-roster-crew-chip__who">{primary}</span>
+                                          {role ? <span className="nq-roster-crew-chip__role">{role}</span> : null}
                                         </span>
                                       );
                                     })}
                                     {overflow > 0 && (
                                       <span
-                                        className="nq-roster-slot-more"
-                                        title={assigned.map((id) => nvName(id)).join(", ")}
+                                        className="nq-roster-crew-chip nq-roster-crew-chip--more"
+                                        title={assigned.slice(CREW_VISIBLE).map((id) => nvName(id)).join(", ")}
                                       >
                                         +{overflow} nữa
                                       </span>

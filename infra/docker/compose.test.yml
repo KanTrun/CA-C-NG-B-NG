@@ -5,10 +5,15 @@ services:
     ports: !override []
   api:
     env_file: !override []
+    # `!override` thay TRỌN khối `environment` của compose.yml: đây là chủ ý —
+    # profile test không được kế thừa env live/demo của máy dev. Nhưng `!override`
+    # cũng xoá luôn `NHIPQUAN_SEED_DEMO`, nên volume trắng ra không có tài khoản
+    # nào và mọi test đăng nhập đều 401. Phải khai lại tường minh ở đây.
     environment: !override
       DATABASE_URL: postgresql+psycopg://nhipquan:nhipquan@postgres:5432/nhipquan
       REDIS_URL: redis://redis:6379/0
       CA_AGENT_MODE: replay
+      NHIPQUAN_SEED_DEMO: "true"
       NHIPQUAN_PAGE_MODE: disconnected
       NHIPQUAN_FB_AUTO_SEND: "0"
       NHIPQUAN_MSG_BACKEND: console
@@ -20,6 +25,7 @@ services:
       DATABASE_URL: postgresql+psycopg://nhipquan:nhipquan@postgres:5432/nhipquan
       REDIS_URL: redis://redis:6379/0
       CA_AGENT_MODE: replay
+      NHIPQUAN_SEED_DEMO: "true"
       NHIPQUAN_PAGE_MODE: disconnected
       NHIPQUAN_FB_AUTO_SEND: "0"
       NHIPQUAN_MSG_BACKEND: console

@@ -589,6 +589,11 @@ export type Lich409Code =
   | "thieu_golden_sop"
   | "qr_da_dung"
   | "swap_da_tu_choi"
+  | "ca_khong_trong_phan_cong_cua_nguoi_nhuong"
+  | "swap_chua_co_nguoi_nhan"
+  | "nguoi_nhuong_khong_trong_ca"
+  | "tuan_khong_hop_le"
+  | "doi_ca_khong_hop_le"
   | "idempotency_conflict"
   | "action_retry_not_safe"
   | "action_decision_conflict"
@@ -678,6 +683,16 @@ const LICH_409: Record<string, string> = {
   // Swap ca
   swap_da_tu_choi:
     "Yêu cầu đổi ca đã bị từ chối.",
+  ca_khong_trong_phan_cong_cua_nguoi_nhuong:
+    "Người nhường không còn giữ ca này — phiếu hỏng, hãy đóng và mở lại.",
+  swap_chua_co_nguoi_nhan:
+    "Phiếu mở cho mọi người nhưng chưa ai nhận — chưa duyệt được.",
+  nguoi_nhuong_khong_trong_ca:
+    "Bạn không giữ ca này trong tuần đã chọn — kiểm tra lại ca và tuần rồi mở lại phiếu.",
+  tuan_khong_hop_le:
+    "Tuần không hợp lệ (đúng dạng 2026-W40). Chọn lại tuần rồi thử lại.",
+  doi_ca_khong_hop_le:
+    "Phiếu đổi ca không hợp lệ (tự đổi cho mình hoặc ca không tồn tại).",
 
   // Copilot / actions
   idempotency_conflict:
@@ -735,6 +750,71 @@ export function lich409Loi(detail: unknown): string {
   }
   // Fallback chung
   return "Dữ liệu vừa đổi ở nơi khác. Tải lại trang rồi làm lại từ đầu.";
+}
+
+/**
+ * Mã lỗi OAuth Gmail → câu tiếng Việt + việc cần làm.
+ *
+ * Vì sao cần bảng riêng: các mã này KHÔNG đi qua `viError()` như lỗi thường —
+ * chúng đến từ query string `/gmail?error=...` do API chuyển hướng về, nên
+ * không có `ApiError` kèm `status` để `viError()` phân loại. Nếu để rơi vào
+ * nhánh 400 chung, người dùng chỉ thấy "Thông tin nhập chưa hợp lệ" — vô nghĩa
+ * vì họ chưa nhập gì cả, mà lại không biết phải làm gì tiếp.
+ */
+const GMAIL_OAUTH_LOI: Record<string, string> = {
+  chua_cau_hinh_oauth_gmail:
+    "Máy chủ chưa cấu hình Gmail OAuth. Nhờ quản trị điền NHIPQUAN_GMAIL_CLIENT_ID và NHIPQUAN_GMAIL_CLIENT_SECRET vào .env rồi khởi động lại API.",
+  thieu_state_oauth: "Phiên kết nối Google thiếu mã xác minh. Bấm Kết nối Gmail rồi làm lại từ đầu.",
+  state_oauth_khong_hop_le:
+    "Phiên kết nối đã dùng hoặc không hợp lệ. Bấm Kết nối Gmail rồi làm lại từ đầu.",
+  state_oauth_het_han: "Phiên kết nối đã quá 10 phút. Bấm Kết nối Gmail rồi làm lại từ đầu.",
+  state_oauth_sai_nguoi: "Phiên kết nối này của nhân viên khác. Bấm Kết nối Gmail bằng tài khoản của bạn.",
+  thieu_ma_oauth: "Google không trả về mã uỷ quyền. Bấm Kết nối Gmail rồi làm lại từ đầu.",
+  doi_ma_oauth_that_bai:
+    "Không đổi được mã uỷ quyền với Google. Kiểm tra Redirect URI khai trên Google Cloud Console có khớp NHIPQUAN_GMAIL_REDIRECT_URI không, rồi thử lại.",
+  khong_doc_duoc_ho_so_gmail:
+    "Đã nhận quyền nhưng không đọc được hồ sơ hộp thư. Kiểm tra Gmail API đã bật trên Google Cloud chưa, rồi thử lại.",
+  khong_lay_duoc_email_gmail: "Không lấy được địa chỉ Gmail từ hồ sơ Google. Thử lại; nếu vẫn vậy nhờ quản trị kiểm tra.",
+  khong_tim_thay_tai_khoan: "Không tìm thấy nhân viên gắn với phiên kết nối. Bấm Kết nối Gmail rồi làm lại.",
+};
+
+/** Đổi `error` trên query string sau OAuth callback thành câu tiếng Việt. */
+export function loiOAuthGmail(detail: unknown): string {
+  const raw = safeText(detail, "");
+  if (!raw) return "Không hoàn tất được kết nối Gmail. Bấm Kết nối Gmail rồi làm lại từ đầu.";
+  // Google trả mã chuẩn OAuth (access_denied, invalid_client…) qua tiền tố
+  // `google_tu_choi:` do API gắn vào — xem `gmail.py`.
+  if (raw.startsWith("google_tu_choi:")) {
+    const ma = raw.slice("google_tu_choi:".length);
+    if (ma === "access_denied") {
+      return "Bạn đã bấm Huỷ ở màn hình đồng ý của Google nên chưa kết nối được. Bấm Kết nối Gmail và chọn Cho phép.";
+    }
+    return `Google từ chối cấp quyền (${ma}). Kiểm tra Test users và OAuth client trên Google Cloud Console rồi thử lại.`;
+  }
+  return (
+    GMAIL_OAUTH_LOI[raw] ??
+    "Không hoàn tất được kết nối Gmail. Bấm Kết nối Gmail rồi làm lại từ đầu."
+  );
+}
+
+/**
+ * Lỗi khi bấm "Kết nối qua Google" nhưng chưa rời khỏi trang.
+ *
+ * Vì sao cần hàm riêng: `GET /oauth/authorize` trả 503 `chua_cau_hinh_oauth_gmail`
+ * khi tiến trình API chưa có Client ID/Secret — đó KHÔNG phải "máy chủ đang lỗi"
+ * mà là thiếu cấu hình. Để rơi vào nhánh `status >= 500` của `viError()` thì
+ * người dùng nhận "thử lại sau" trong khi thử lại bao nhiêu lần cũng không được.
+ * Trả `null` khi không phải case này để caller dùng `viError()` như cũ.
+ */
+export function loiKetNoiGmail(err: unknown): string | null {
+  if (
+    err instanceof ApiError &&
+    err.status === 503 &&
+    err.detail === "chua_cau_hinh_oauth_gmail"
+  ) {
+    return loiOAuthGmail(err.detail);
+  }
+  return null;
 }
 
 export function trichDanTach(raw: unknown): TrichDan {
@@ -888,10 +968,13 @@ export function hanhViLabel(code: unknown): string {
 }
 
 const SWAP: Record<string, string> = {
-  cho_3_nhanh: "Chờ cả ba nhánh đồng ý",
-  dong_y: "Ba nhánh đã đồng ý",
-  tu_choi: "Có nhánh từ chối",
+  cho_xac_nhan: "Chờ đồng ý",
+  dong_y: "Đã đủ đồng ý",
+  da_duyet: "Đã duyệt",
+  tu_choi: "Đã từ chối",
   huy: "Đã hủy",
+  // Mã cũ còn sót trong dữ liệu lịch sử — giữ để không hiện "Chưa rõ".
+  cho_3_nhanh: "Chờ đồng ý",
 };
 
 export function swapLabel(code: unknown): string {

@@ -4,8 +4,8 @@ import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ApiError, apiGet, apiSend } from "../../lib/api";
 import { formatRelativeTime } from "../../lib/date";
-import { viError } from "../../lib/present";
-import { getToken } from "../../lib/session";
+import { loiKetNoiGmail, loiOAuthGmail, viError } from "../../lib/present";
+import { getRole, getToken, isChuQuan } from "../../lib/session";
 import { Icon } from "../../ui/icons";
 import {
   Alert,
@@ -121,6 +121,24 @@ const TABS: { id: TabId; label: string }[] = [
 
 const PAGE_SIZE = 50;
 
+/**
+ * Màu chấm phân biệt các hộp thư — một màu cho một địa chỉ Gmail.
+ *
+ * Vì sao cần: chủ quán theo dõi NHIỀU mail trong cùng một trang. Chấm màu
+ * + địa chỉ email luôn đi cùng nhau (bảng tài khoản, hộp chọn, tiêu đề hộp
+ * thư) để mắt không lẫn mail của hộp này sang hộp khác.
+ *
+ * KHÔNG `export`: Next.js App Router chỉ cho phép export mặc định + các field
+ * quy ước (metadata…) ở file page — export helper sẽ làm `next build` đỏ với
+ * lỗi `"accountColor" is not a valid Page export field`.
+ */
+function accountColor(email: unknown): string {
+  const raw = typeof email === "string" ? email : "";
+  let hue = 0;
+  for (let i = 0; i < raw.length; i += 1) hue = (hue * 31 + raw.charCodeAt(i)) % 360;
+  return `hsl(${hue} 70% 62%)`;
+}
+
 export default function GmailPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -129,6 +147,7 @@ export default function GmailPage() {
   const staffName = useStaffNameMap();
 
   const [token, setToken] = useState("");
+  const [role, setRole] = useState("");
   const [accounts, setAccounts] = useState<GmailAccount[]>([]);
   const [account, setAccount] = useState<GmailAccount | null>(null);
   const [messages, setMessages] = useState<GmailMessage[]>([]);
@@ -154,6 +173,7 @@ export default function GmailPage() {
 
   useEffect(() => {
     setToken(getToken());
+    setRole(getRole());
   }, []);
 
   const navigate = useCallback(
@@ -221,7 +241,7 @@ export default function GmailPage() {
     if (connectedEmail) {
       setNotice(`Đã kết nối Gmail: ${connectedEmail}`);
     } else if (oauthError) {
-      setError(viError(new ApiError(400, oauthError), { doing: "hoàn tất kết nối Gmail" }));
+      setError(loiOAuthGmail(oauthError));
     }
     // Xoá query để thông báo không lặp lại khi tải lại trang.
     router.replace("/gmail?tab=accounts");
@@ -257,7 +277,9 @@ export default function GmailPage() {
       const res = await apiGet<{ authorization_url: string }>("/api/v1/gmail/oauth/authorize");
       window.location.href = res.authorization_url;
     } catch (cause) {
-      setError(viError(cause, { doing: "khởi tạo kết nối Gmail" }));
+      // 503 thiếu OAuth config có câu hành động riêng — không được báo thành
+      // "máy chủ đang lỗi" (xem `loiKetNoiGmail`).
+      setError(loiKetNoiGmail(cause) ?? viError(cause, { doing: "khởi tạo kết nối Gmail" }));
       setBusy(null);
     }
   }
@@ -429,6 +451,54 @@ export default function GmailPage() {
 
   if (!token) return <AuthGate />;
 
+  // Gmail CHỈ dành cho chủ quán (AppShell cũng đã chặn ở `canAccess`, đây là
+  // chốt thứ hai trong trang để không lộ cả khung UI khi gọi API trực tiếp).
+  if (!isChuQuan(role)) {
+    return (
+      <div className="nq-page">
+        <PageHeader
+          kicker="Kênh liên lạc"
+          title="Quản lý Gmail"
+          meta="Kết nối hộp thư Gmail của quán, theo dõi email đến, quản lý nhãn và bộ lọc, và đồng bộ hộp thư theo thời gian."
+        />
+        <Empty title="Khu vực dành cho chủ quán">
+          Chỉ chủ quán mới được thêm hộp thư Gmail và xem mail của quán. Nếu bạn cần xử lý email, nhờ chủ quán.
+        </Empty>
+      </div>
+    );
+  }
+
+  const selectedAccount = accounts.find((a) => a.id === accountId) ?? account;
+
+  function accountSwitcher() {
+    if (activeTab === "accounts" || accounts.length === 0) return null;
+    return (
+      <div className="mb-6 flex flex-wrap items-center gap-3">
+        <span
+          className="inline-block h-3 w-3 rounded-full"
+          style={{ backgroundColor: accountColor(selectedAccount?.email) }}
+          aria-hidden="true"
+        />
+        <Select
+          value={accountId}
+          onChange={(e) => navigate(activeTab, e.target.value)}
+          className="w-80"
+          aria-label="Chọn hộp thư Gmail đang xem"
+        >
+          {accounts.map((a) => (
+            <option key={a.id} value={a.id}>
+              {a.email}
+              {typeof a.sync_state?.unread_count === "number" && a.sync_state.unread_count > 0
+                ? ` · ${a.sync_state.unread_count} chưa đọc`
+                : ""}
+              {a.token_broken ? " · cần kết nối lại" : a.has_tokens ? "" : " · chưa kết nối"}
+            </option>
+          ))}
+        </Select>
+      </div>
+    );
+  }
+
   return (
     <div className="nq-page">
       <PageHeader
@@ -474,6 +544,11 @@ export default function GmailPage() {
                     header: "Địa chỉ Gmail",
                     render: (value, row) => (
                       <div className="flex flex-wrap items-center gap-2">
+                        <span
+                          className="inline-block h-3 w-3 rounded-full"
+                          style={{ backgroundColor: accountColor(value) }}
+                          aria-hidden="true"
+                        />
                         <span className="font-mono">{value}</span>
                         {row.is_primary ? <Badge variant="primary" size="sm">Chính</Badge> : null}
                         {row.token_broken ? (
@@ -501,8 +576,9 @@ export default function GmailPage() {
                   {
                     key: "id",
                     header: "Thao tác",
+                    align: "right",
                     render: (value, row) => (
-                      <div className="flex flex-wrap items-center gap-2">
+                      <div className="flex flex-nowrap items-center justify-end gap-2">
                         <Btn
                           variant="ghost"
                           className="nq-btn-compact"
@@ -518,7 +594,7 @@ export default function GmailPage() {
                         >
                           {row.is_primary ? "Bỏ chính" : "Đặt chính"}
                         </Btn>
-                        <Tooltip content="Xoá tài khoản cùng token, nhãn và bộ lọc">
+                        <Tooltip content="Xoá tài khoản này" position="left">
                           <Btn variant="danger" className="nq-btn-compact" onClick={() => setPendingDelete(value)}>
                             Xoá
                           </Btn>
@@ -576,6 +652,7 @@ export default function GmailPage() {
 
       {activeTab === "messages" && accountId ? (
         <section>
+          {accountSwitcher()}
           <OpsCard eyebrow={account?.email ?? "Hộp thư"} title="Email trong hộp thư" count={messages.length} countLabel="email">
             <div className="mb-6 flex flex-wrap items-end gap-3">
               <Input
@@ -678,6 +755,7 @@ export default function GmailPage() {
 
       {activeTab === "labels" && accountId ? (
         <section>
+          {accountSwitcher()}
           <OpsCard eyebrow={account?.email ?? "Hộp thư"} title="Nhãn email" count={labels.length} countLabel="nhãn">
             <form onSubmit={createLabel} className="mb-6 flex flex-wrap items-end gap-3">
               <Input
@@ -744,6 +822,7 @@ export default function GmailPage() {
 
       {activeTab === "filters" && accountId ? (
         <section>
+          {accountSwitcher()}
           <OpsCard eyebrow={account?.email ?? "Hộp thư"} title="Bộ lọc tự động" count={filters.length} countLabel="bộ lọc">
             <form onSubmit={createFilter} className="mb-6 space-y-3">
               <Input
@@ -806,6 +885,7 @@ export default function GmailPage() {
 
       {activeTab === "sync" && accountId ? (
         <section>
+          {accountSwitcher()}
           <OpsCard eyebrow={account?.email ?? "Hộp thư"} title="Đồng bộ hộp thư">
             <dl className="mb-6 grid gap-4 md:grid-cols-3">
               <div className="nq-surface-block p-4">

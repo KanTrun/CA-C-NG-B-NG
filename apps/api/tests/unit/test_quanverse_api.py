@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import pytest
+from ca_agents.grand_experience.adapter import resolve_experience_read_adapter
 from ca_api.interfaces.http.main import app
 from ca_api.interfaces.http.quanverse import clear_quanverse_state
 from ca_api.persist import init_db
@@ -103,6 +104,34 @@ def test_employee_cannot_deactivate_mode() -> None:
         headers=headers(client, "minh"),
     )
     assert r.status_code == 403
+
+
+def test_dropped_proposal_does_not_resurrect_from_fixture() -> None:
+    """Bỏ đề xuất rồi thì KHÔNG được đọc lại từ fixture.
+
+    Lỗi thật đã vấp: fixture khai `khach_doan` là `proposal_status="draft"`.
+    Sau khi quản lý bấm "Bỏ đề xuất", kv có `{"active": False}` mà KHÔNG có
+    `proposal_status`, nên biểu thức
+        state.get("proposal_status") or fixture.proposal_status
+    rơi về giá trị của fixture → UI vẫn hiện "Chờ duyệt · Bản nháp" kèm nút
+    Duyệt cho một đề xuất người dùng vừa bỏ. Có kv thì phải TIN kv, kể cả khi
+    `proposal_status` trong kv rỗng (rỗng = đã bỏ, khác hẳn chưa từng đề xuất).
+    """
+    h = headers(client, "lan")
+    mode = "khach_doan"
+
+    # Fixture khai sẵn draft → trạng thái đầu là "chờ duyệt".
+    modes = client.get("/api/v1/experience/quanverse/modes", headers=h).json()["modes"]
+    assert next(m for m in modes if m["mode"] == mode)["proposal_status"] == "draft"
+
+    client.post(f"/api/v1/experience/quanverse/modes/{mode}/deactivate", headers=h)
+
+    # Sau khi bỏ: cả `/modes` lẫn `/snapshot` phải nói "không chờ duyệt nữa".
+    modes = client.get("/api/v1/experience/quanverse/modes", headers=h).json()["modes"]
+    assert next(m for m in modes if m["mode"] == mode)["proposal_status"] in ("", None)
+
+    snap = client.get("/api/v1/experience/quanverse/snapshot", headers=h).json()
+    assert next(m for m in snap["modes"] if m["mode"] == mode)["proposal_status"] is None
 
 
 def test_snapshot_events_carry_zone_and_future_horizon() -> None:
@@ -305,6 +334,50 @@ def test_tour_entry() -> None:
     r = client.get("/api/v1/experience/quanverse/tour/tour_chao_doi", headers=headers(client, "lan"))
     assert r.status_code == 200
     assert r.json()["tour_id"] == "tour_chao_doi"
+
+
+def test_tour_entry_honours_tour_id() -> None:
+    """Mã tour sai phải 404 — KHÔNG lặng lẽ trả tour mặc định.
+
+    Lỗi thật đã vấp: route nhận `{tour_id}` nhưng handler gọi `plan_tour()`
+    KHÔNG truyền tham số, nên mọi mã — kể cả `khong-ton-tai` — đều trả
+    `tour_chao_doi` kèm HTTP 200. Người dùng gõ sai deep-link nhận một tour
+    trông hợp lệ, và không có cách nào biết mình đã sai.
+    """
+    r = client.get(
+        "/api/v1/experience/quanverse/tour/khong-ton-tai",
+        headers=headers(client, "lan"),
+    )
+    assert r.status_code == 404, r.text
+
+    # Mã hợp lệ khác mặc định vẫn phải trả ĐÚNG mã đó, không phải tour mặc định.
+    ok = client.get(
+        "/api/v1/experience/quanverse/tour/tour_kho",
+        headers=headers(client, "lan"),
+    )
+    assert ok.status_code == 200, ok.text
+    assert ok.json()["tour_id"] == "tour_kho"
+
+
+def test_tour_kho_anchors_exist_in_map() -> None:
+    """Neo của tour phải có thật trên bản đồ quán.
+
+    Fixture tour khai neo `storage`, nhưng bản đồ chỉ có `stockroom` — bước tour
+    trỏ tới một neo không tồn tại nên UI không tìm được nhãn, hiện mã khô, và
+    không nhảy tới được neo đó.
+    """
+    adapter = resolve_experience_read_adapter()
+    anchor_ids = {a.anchor_id for a in adapter.list_anchors()}
+
+    r = client.get(
+        "/api/v1/experience/quanverse/tour/tour_kho",
+        headers=headers(client, "lan"),
+    )
+    assert r.status_code == 200, r.text
+    for step in r.json()["steps"]:
+        assert step["anchor_id"] in anchor_ids, (
+            f"tour trỏ tới neo không có trên bản đồ: {step['anchor_id']}"
+        )
 
 
 def test_ar_session_requires_qr() -> None:

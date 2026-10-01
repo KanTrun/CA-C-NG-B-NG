@@ -90,6 +90,12 @@ export function shortNameParts(name: string): ShortNameParts {
   const trimmed = name.trim();
   if (!trimmed) return { primary: "?" };
 
+  // Không bao giờ hiển thị MÃ NHÂN SỰ thô (`nv_01`, `nv_26`…) cho người dùng.
+  // Mã chỉ lọt tới đây khi một id không tra được tên — dữ liệu có tham chiếu
+  // chết. Tầng API đã lọc bỏ (xem `_loc_phan_cong_theo_nhan_su`), nhưng đây là
+  // chốt thứ hai: thà hiện "?" còn hơn để người xếp lịch tưởng `nv_26` là tên.
+  if (/^nv_\w+$/i.test(trimmed)) return { primary: "?" };
+
   const roleMatch = trimmed.match(/^(.*?)\s*[（(]([^）)]+)[）)]\s*$/u);
   const core = (roleMatch?.[1] ?? trimmed).trim();
   const role = (roleMatch?.[2] ?? "").trim() || undefined;

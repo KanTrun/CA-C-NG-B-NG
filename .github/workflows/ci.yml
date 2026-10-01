@@ -1,5 +1,8 @@
 name: ci
 
+# CỐ TÌNH không ignore `.github/workflows/deploy-*.yml`: một PR chỉ sửa deploy
+# từng làm đỏ production mà không chạy CI nào (2026-09-30, prune -a). Script
+# deploy đổi là phải chạy full CI như mọi code khác.
 on:
   push:
     branches: [main, release/**]
@@ -9,7 +12,6 @@ on:
       - "*.md"
       - ".gitignore"
       - "LICENSE"
-      - ".github/workflows/deploy-*.yml"
       - "**/*.png"
       - "**/*.jpg"
       - "**/*.jpeg"
@@ -23,7 +25,6 @@ on:
       - "*.md"
       - ".gitignore"
       - "LICENSE"
-      - ".github/workflows/deploy-*.yml"
       - "**/*.png"
       - "**/*.jpg"
       - "**/*.jpeg"
@@ -91,9 +92,21 @@ jobs:
         working-directory: apps/web
         run: |
           if [ -f package.json ]; then npm install && npm run lint && npm run typecheck; else echo "web stub"; fi
+      # Test đơn vị của web (vitest): hợp đồng dữ liệu Quánverse + tính nhất quán
+      # của fixture mô phỏng. Chạy ở job này chứ không phải job 08 vì đây là test
+      # LOGIC THUẦN — không cần dựng server, chạy trong ~1 giây, và đỏ ngay khi
+      # `QuanverseViewModel` lệch khỏi bộ chuẩn hoá.
+      - name: Vitest (web unit)
+        working-directory: apps/web
+        run: |
+          if [ -f package.json ]; then npm run test:unit; else echo "web stub"; fi
 
-  unit:
-    name: "02 unit"
+  # Unit tách 2 job song song (tổng ~11p → ~4p):
+  # - unit-fast: mọi test TRỪ mark `slow` — gate chính cho PR, xong trong ~3-4p.
+  # - unit-slow: solver CP-SAT + hypothesis + sleep wall-clock (`-m slow`, ít
+  #   worker để solver có CPU, bớt flaky tranh luồng).
+  unit-fast:
+    name: "02 unit (fast)"
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -109,11 +122,31 @@ jobs:
       - name: Install workspace
         run: |
           pip install -e ./packages/contracts -e ./packages/solver -e ./packages/agents -e ./packages/gates -e ./packages/opsengine -e ./packages/playbook -e ./apps/api pytest pytest-xdist httpx pyyaml ortools hypothesis
-      # Chạy song song với -n auto (pytest-xdist): ~23min → ~2min
       # Bao gồm luôn test_architecture.py và test_no_network.py (trước đây là job 04 và 10 riêng)
-      - run: CA_AGENT_MODE=replay pytest -q -n auto
+      - run: CA_AGENT_MODE=replay pytest -q -n auto -m "not slow"
       - name: Export contracts
         run: python scripts/export_contracts.py
+
+  unit-slow:
+    name: "02 unit (slow)"
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Cache pip
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/pip
+          key: pip-unit-${{ runner.os }}-${{ hashFiles('apps/api/pyproject.toml', 'packages/*/pyproject.toml') }}
+          restore-keys: pip-unit-${{ runner.os }}-
+      - name: Install workspace
+        run: |
+          pip install -e ./packages/contracts -e ./packages/solver -e ./packages/agents -e ./packages/gates -e ./packages/opsengine -e ./packages/playbook -e ./apps/api pytest pytest-xdist httpx pyyaml ortools hypothesis
+      # -n 2 (không -n auto): solver bật 8 luồng nội bộ; 4 worker xdist × 8 = 32
+      # thread tranh CPU là nguyên nhân test fairness đỏ ngẫu nhiên trên CI.
+      - run: CA_AGENT_MODE=replay pytest -q -n 2 -m slow --durations=10
 
   # Job "03 integration" đã XOÁ (2026-09-25): nó chạy `pytest -q
   # apps/api/tests/integration || true` nhưng thư mục đó CHƯA BAO GIỜ tồn tại
@@ -169,9 +202,13 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      # Cache npm qua setup-node (đúng cách): tăng tốc `npm ci` mà không cache
+      # cả `node_modules` (cache dir đó vô hiệu vì `npm ci` luôn xoá sạch).
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
+          cache: "npm"
+          cache-dependency-path: apps/web/package-lock.json
 
       # Cache pip packages — tránh tải lại ortools/uvicorn (~60s)
       - name: Cache pip
@@ -181,16 +218,9 @@ jobs:
           key: pip-e2e-${{ runner.os }}-${{ hashFiles('apps/api/pyproject.toml', 'packages/*/pyproject.toml') }}
           restore-keys: pip-e2e-${{ runner.os }}-
 
-      # Cache node_modules — tránh npm ci mỗi lần (~60s)
-      - name: Cache node_modules
-        uses: actions/cache@v4
-        with:
-          path: apps/web/node_modules
-          key: npm-e2e-${{ runner.os }}-${{ hashFiles('apps/web/package-lock.json') }}
-          restore-keys: npm-e2e-${{ runner.os }}-
-
       # Cache Playwright browser (Chromium) — lớn nhất, ~90s nếu không cache
       - name: Cache Playwright browsers
+        id: pw-cache
         uses: actions/cache@v4
         with:
           path: ~/.cache/ms-playwright
@@ -208,23 +238,37 @@ jobs:
       - name: Install API + Playwright
         run: |
           pip install -e ./packages/contracts -e ./packages/solver -e ./packages/agents -e ./packages/gates -e ./packages/opsengine -e ./packages/playbook -e ./apps/api httpx pyyaml ortools uvicorn
-          cd apps/web && npm ci && for attempt in 1 2 3; do npx playwright install --with-deps chromium && exit 0; rm -rf "$HOME/.cache/ms-playwright"; done; exit 1
+          cd apps/web && npm ci
+          # Cache-hit thì chỉ cài shell runtime (nhanh); miss mới cài full + deps
+          # hệ thống (apt-get ~90s). Vòng retry giữ lại cho mạng chập chờn.
+          if [ "${{ steps.pw-cache.outputs.cache-hit }}" = "true" ]; then
+            npx playwright install --only-shell chromium
+          else
+            for attempt in 1 2 3; do npx playwright install --with-deps chromium && exit 0; rm -rf "$HOME/.cache/ms-playwright"; done; exit 1
+          fi
       - name: Build Next.js
         working-directory: apps/web
         env:
           NEXT_PUBLIC_API_URL: "http://127.0.0.1:8000"
         run: npm run build
-      - name: Prepare standalone static files
-        working-directory: apps/web
-        run: |
-          cp -r public .next/standalone/apps/web/public || cp -r public .next/standalone/public || true
-          cp -r .next/static .next/standalone/.next/static
+      # Bước copy `static`/`public` vào `.next/standalone` nằm trong
+      # `apps/web/scripts/prepare-standalone.mjs` và được playwright.config gọi
+      # tự động trước khi start server. Gom về một nguồn để CI và máy dev chạy
+      # CÙNG một đường — trước đây chỉ CI copy, nên lỗi thiếu asset không bao giờ
+      # tái hiện được ở local (mà hậu quả là toàn bộ e2e đỏ ở bước login).
+      # PR chạy SMOKE (~9 test, ~2p) cho vòng phản hồi nhanh; push main chạy FULL
+      # (~99 test) vì lúc đó không ai chờ. Tag smoke: `@smoke` trong tiêu đề test.
       - name: Playwright e2e tests
         working-directory: apps/web
         env:
           NEXT_PUBLIC_API_URL: "http://127.0.0.1:8000"
           NHIPQUAN_DISABLE_RATE_LIMIT: "true"
-        run: npm run test:e2e
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            npx playwright test --grep @smoke
+          else
+            npm run test:e2e
+          fi
 
   docker:
     name: "09 docker build"

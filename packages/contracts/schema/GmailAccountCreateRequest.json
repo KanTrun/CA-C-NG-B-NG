@@ -1,0 +1,25 @@
+{
+  "properties": {
+    "email": {
+      "pattern": "^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$",
+      "title": "Email",
+      "type": "string"
+    },
+    "display_name": {
+      "default": "",
+      "maxLength": 100,
+      "title": "Display Name",
+      "type": "string"
+    },
+    "is_primary": {
+      "default": false,
+      "title": "Is Primary",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "email"
+  ],
+  "title": "GmailAccountCreateRequest",
+  "type": "object"
+}

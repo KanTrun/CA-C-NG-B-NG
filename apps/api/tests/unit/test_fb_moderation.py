@@ -598,7 +598,7 @@ def test_comment_approval_uses_comment_reply_transport(
                             "comment_id": "comment_send_1",
                             "post_id": "page_1_42",
                             "from": {"id": "fb_user_send", "name": "Lan"},
-                            "message": "đặt bàn tối nay",
+                            "message": "quán phục vụ rất chậm, tôi thất vọng",
                         },
                     }
                 ],
@@ -708,12 +708,12 @@ def test_comment_unsafe_intent_still_queues_for_manager(
     assert pending, "comment không an toàn phải vào queue cho QL duyệt"
 
 
-def test_comment_auto_send_blocked_when_flag_off(
+def test_comment_auto_send_ignores_flag_off(
     api: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Cờ auto_send TẮT (NHIPQUAN_FB_AUTO_SEND=0) + page live → KHÔNG được
-    auto-send công khai dù intent an toàn + confidence cao. Comment phải vào
-    queue cho QL duyệt tay (master switch không bị bypass)."""
+    """Cờ auto_send TẮT (NHIPQUAN_FB_AUTO_SEND=0) + page live → comment an toàn
+    + confidence cao VẪN tự trả lời công khai (quyết định của Chủ quán: mặc kệ
+    env/KV, comment an toàn luôn được trả lời; cờ chỉ giữ cho Messenger)."""
     from ca_api.interfaces.http import channels as ch
 
     monkeypatch.setenv("NHIPQUAN_FB_AUTO_SEND", "0")
@@ -746,11 +746,12 @@ def test_comment_auto_send_blocked_when_flag_off(
     r = api.post("/api/v1/channels/facebook/webhook", json=payload)
     assert r.status_code == 200
     assert r.json().get("n") == 1
-    # KHÔNG auto-send dù intent an toàn
-    assert comment_replies == [], "cờ tắt thì không được gửi công khai"
-    # Vẫn vào queue cho QL duyệt
+    # VẪN auto-send dù cờ tắt (comment an toàn không phụ thuộc cờ)
+    assert comment_replies, "cờ tắt thì comment an toàn vẫn phải tự trả lời"
+    assert comment_replies[0][0] == "comment_flagoff_1"
+    # Không còn nằm trong hàng đợi pending cho QL
     pending = [i for i in _pending(api) if i["external_thread_id"] == "comment_flagoff_1"]
-    assert pending, "cờ tắt thì comment phải vào queue cho QL duyệt"
+    assert pending == []
 
 
 def test_comment_with_phone_is_hidden_and_not_auto_replied(

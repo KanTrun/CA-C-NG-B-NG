@@ -187,7 +187,12 @@ def test_scrape_raises_on_http_error(monkeypatch: pytest.MonkeyPatch):
 
 
 def test_smart_chain_official_api_first_when_configured(monkeypatch: pytest.MonkeyPatch):
-    """Có token → tier 0 Official API chạy TRƯỚC Google Bridge."""
+    """Có token → tier 0 Official API chạy TRƯỚC Google Bridge.
+
+    Tắt Camoufox: trong chuỗi `auto` Camoufox đứng trước Bridge, nhưng tier 0
+    (Official API) vẫn đứng TRƯỚC Camoufox nên test này vẫn kiểm được thứ tự 0.
+    """
+    monkeypatch.setattr("ca_agents.clients.camoufox_client.is_available", lambda: False)
     monkeypatch.setenv("THREADS_ACCESS_TOKEN", "tok123")
     api_items = [MagicMock(spec=TrendItem)]
     api_mock = MagicMock(return_value=api_items)
@@ -208,7 +213,12 @@ def test_smart_chain_official_api_first_when_configured(monkeypatch: pytest.Monk
 
 
 def test_smart_chain_falls_to_bridge_when_api_fails(monkeypatch: pytest.MonkeyPatch):
-    """Token sai / API lỗi → rớt tầng về Google Bridge (không crash)."""
+    """Token sai / API lỗi → rớt tầng về Google Bridge (không crash).
+
+    Tắt Camoufox: nó đứng TRƯỚC Bridge trong chuỗi `auto` (đo thật 2026-09-26)
+    nên nếu máy có Camoufox thì test sẽ cào THẬT thay vì chạm Bridge mock.
+    """
+    monkeypatch.setattr("ca_agents.clients.camoufox_client.is_available", lambda: False)
     monkeypatch.setenv("THREADS_ACCESS_TOKEN", "expired_token")
     monkeypatch.setattr(
         "ca_agents.sources.threads_official_api_source.scrape_threads_official_api",
@@ -227,7 +237,11 @@ def test_smart_chain_falls_to_bridge_when_api_fails(monkeypatch: pytest.MonkeyPa
 
 
 def test_smart_chain_skips_api_when_not_configured(monkeypatch: pytest.MonkeyPatch):
-    """Không token → skip tier 0 hoàn toàn (không import lỗi, không delay)."""
+    """Không token → skip tier 0 hoàn toàn (không import lỗi, không delay).
+
+    Tắt Camoufox: nó đứng TRƯỚC Bridge trong chuỗi `auto` (đo thật 2026-09-26).
+    """
+    monkeypatch.setattr("ca_agents.clients.camoufox_client.is_available", lambda: False)
     api_spy = MagicMock()
     monkeypatch.setattr(
         "ca_agents.sources.threads_official_api_source.scrape_threads_official_api",

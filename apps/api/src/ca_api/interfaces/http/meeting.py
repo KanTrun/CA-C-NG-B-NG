@@ -70,11 +70,18 @@ def _now() -> str:
 
 
 def _get_staff_list() -> list[dict[str, Any]]:
-    """Retrieve staff list from users table merged with seed."""
+    """Danh sách NV để AG-MEETING gán người phụ trách.
+
+    Chỉ dùng NV CÓ THẬT (pool đang xếp lịch). Trước đây truyền
+    `include_seed=True` nên agent có thể gán việc cho `nv_20..nv_25` — mã chỉ
+    có trong seed fixture, không tồn tại trong DB (bug QA đợt 4).
+    """
     try:
         from ca_api.nhan_vien import list_nhan_vien_ops
 
-        return list_nhan_vien_ops(include_seed=True)
+        staff = [n for n in list_nhan_vien_ops() if n.get("id")]
+        if staff:
+            return staff
     except Exception:
         pass
     users = list_users()
@@ -86,11 +93,7 @@ def _get_staff_list() -> list[dict[str, Any]]:
             }
             for u in users
         ]
-    return [
-        {"id": "nv_01", "ten": "Lan"},
-        {"id": "nv_02", "ten": "Hùng"},
-        {"id": "nv_03", "ten": "Minh"},
-    ]
+    return []
 
 
 def _get_roster_data() -> tuple[dict[str, list[str]], list[dict[str, Any]]]:
@@ -135,12 +138,15 @@ def _get_roster_data() -> tuple[dict[str, list[str]], list[dict[str, Any]]]:
 
 
 class AnalyzeMeetingBody(BaseModel):
-    text: str
-    segments: list[dict[str, Any]] = Field(default_factory=list)
-    meeting_type: str = "giao_ca"
-    audio_source: str = "google_meet_tab"
-    meeting_id: str | None = None
-    thoi_gian: str | None = None
+    # Bug QA đợt 5: `text` không có giới hạn nên payload 500.000 ký tự vẫn được
+    # nhận và giữ worker >25 giây (đo trên production) — một request là đủ làm
+    # chậm cả API. 20.000 ký tự ≈ 40 phút nói, thừa cho một biên bản giao ca.
+    text: str = Field(min_length=1, max_length=20_000)
+    segments: list[dict[str, Any]] = Field(default_factory=list, max_length=2_000)
+    meeting_type: str = Field(default="giao_ca", max_length=40)
+    audio_source: str = Field(default="google_meet_tab", max_length=40)
+    meeting_id: str | None = Field(default=None, max_length=64)
+    thoi_gian: str | None = Field(default=None, max_length=64)
 
 
 class TranscribeAudioBody(BaseModel):

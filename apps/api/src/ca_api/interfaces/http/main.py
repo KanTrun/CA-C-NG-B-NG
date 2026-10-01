@@ -10,6 +10,7 @@ try:
     from datetime import UTC, datetime
 except ImportError:
     from datetime import datetime, timezone
+
     UTC = timezone.utc
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -60,11 +61,13 @@ from ca_api.context_providers import (
     get_mail_style_for_store,
     get_ops_context_for_mail,
 )
+from ca_api.interfaces.http.ai_insight import router as ai_insight_router
 from ca_api.interfaces.http.ai_learning import router as ai_learning_router
 from ca_api.interfaces.http.channels import router as channels_router
 from ca_api.interfaces.http.chat import router as chat_router
 from ca_api.interfaces.http.copilot import router as copilot_router
 from ca_api.interfaces.http.copilot_voice import router as copilot_voice_router
+from ca_api.interfaces.http.dia_chi import router as dia_chi_router
 from ca_api.interfaces.http.experience import router as experience_router
 from ca_api.interfaces.http.experience_rules import router as experience_rules_router
 from ca_api.interfaces.http.gmail import router as gmail_router
@@ -73,6 +76,11 @@ from ca_api.interfaces.http.mail import router as mail_router
 from ca_api.interfaces.http.meeting import router as meeting_router
 from ca_api.interfaces.http.ops_explain import router as ops_explain_router
 from ca_api.interfaces.http.ops_predict import router as ops_predict_router
+from ca_api.interfaces.http.origins import (
+    DEV_WEB_ORIGINS,
+    allowed_web_origins,
+    configured_web_origins,
+)
 from ca_api.interfaces.http.pos import router as pos_router
 from ca_api.interfaces.http.quanverse import router as quanverse_router
 
@@ -86,6 +94,7 @@ try:
 except ImportError:
     pricing_radar_router = None  # type: ignore[assignment]
     serpapi_system_router = None  # type: ignore[assignment]
+from ca_api.interfaces.http.quanverse_fixtures import router as quanverse_fixtures_router
 from ca_api.interfaces.http.reservations import router as reservations_router
 from ca_api.interfaces.http.shift_rescue import router as shift_rescue_router
 from ca_api.interfaces.http.skills import router as skills_router
@@ -93,6 +102,7 @@ from ca_api.interfaces.http.spatial_memory import router as spatial_memory_route
 from ca_api.interfaces.http.sprint3 import router as sprint3_router
 from ca_api.interfaces.http.sprint45 import _SHARED_ALLOWED
 from ca_api.interfaces.http.sprint45 import router as sprint45_router
+from ca_api.interfaces.http.thoi_tiet import router as thoi_tiet_router
 from ca_api.interfaces.http.trends import router as trends_router
 from ca_api.interfaces.http.war_room import router as war_room_router
 from ca_api.nhan_vien import list_nhan_vien_ops
@@ -112,19 +122,33 @@ from ca_api.persist import (
     kv_set,
     list_users,
     menu_list,
-    open_shift_list,
     schedule_run_latest,
 )
 from ca_api.persist import login as persist_login
 from ca_api.persist import logout as persist_logout
 from ca_api.persist import register as persist_register
 from ca_api.persist import session as auth_session
-from ca_api.services.chat_ws import login_ip_limiter, notify_ops_changed
+from ca_api.services.chat_ws import login_ip_limiter, notify_ops_changed, register_ip_limiter
 
 
 @asynccontextmanager
 async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
-    """Startup/shutdown: cấu hình bảo vệ dữ liệu + đóng Redis Pub/Sub sạch sẽ."""
+    """Startup/shutdown: nạp .env, bảo vệ dữ liệu + đóng Redis Pub/Sub sạch sẽ."""
+    # Nạp `.env` cho tiến trình API: `uvicorn` chạy tay KHÔNG tự đọc file `.env`
+    # (chỉ Docker compose truyền env qua `--env-file`). Thiếu dòng này, mọi biến
+    # điền trong `.env` (Gmail OAuth, LLM keys…) đều vô hình với API chạy local —
+    # authorize trả 503 `chua_cau_hinh_oauth_gmail` dù file đã đúng.
+    #
+    # Dùng chung `ca_agents.llm.load_dotenv` (không viết loader thứ hai): đọc
+    # ROOT/.env trước, rồi ./.env (thư mục đứng chạy uvicorn). Biến môi trường
+    # sẵn có (Docker `--env-file`, shell export, CI) luôn thắng, không bị ghi đè.
+    # Sửa `.env` vẫn phải restart API (`--reload` chỉ theo dõi code).
+    #
+    # An toàn cho test: TestClient trong suite KHÔNG chạy lifespan (không dùng
+    # `with`), nên suite không bao giờ nạp `.env` thật vào tiến trình test.
+    from ca_agents.llm import load_dotenv as _load_local_env
+
+    _load_local_env()
     configure_data_protection()
     yield
     from ca_api.services.chat_ws import pubsub_backend
@@ -148,24 +172,19 @@ app = FastAPI(
     else None,
 )
 
-# CORS: mặc định 3 origin dev local. Khi deploy (Postgres, domain thật) đặt
-# NHIPQUAN_CORS_ORIGINS — danh sách origin cách nhau bởi dấu phẩy — để thay
-# toàn bộ danh sách này; bỏ trống thì giữ mặc định bên dưới.
-_cors_origins = [
-    origin.strip()
-    for origin in os.environ.get("NHIPQUAN_CORS_ORIGINS", "").split(",")
-    if origin.strip()
-] or [
-    "http://localhost:3000",
-    "http://localhost:3001",
-    "http://localhost:3002",
-    "http://127.0.0.1:3000",
-    "http://127.0.0.1:3001",
-    "http://127.0.0.1:3002",
-    "http://[::1]:3000",
-    "http://[::1]:3001",
-    "http://[::1]:3002",
-]
+# CORS: origin dev local LUÔN được phép; `NHIPQUAN_CORS_ORIGINS` chỉ THÊM origin
+# triển khai (ngăn cách bởi dấu phẩy). Logic nằm ở `origins.py` — MỘT nguồn sự
+# thật cho cả CORS lẫn OAuth redirect Gmail — ở đây chỉ giữ lại tên thuộc tính
+# mà test gate CORS đọc (`test_cors_dev_origins.py`).
+#
+# Vì sao cộng thay vì thay thế: `.env` máy dev có
+# `NHIPQUAN_CORS_ORIGINS=https://nhipquan.duckdns.org` mà hiểu là "thay toàn bộ"
+# thì `http://localhost:3000` bị chặn, trình duyệt chặn preflight và UI báo
+# "Chưa nối được máy chủ quán" trong khi API vẫn 200 qua curl (curl không kiểm
+# CORS). Muốn chặt hơn ở production: đặt `NHIPQUAN_CORS_DISABLE_DEV=1`.
+_DEV_CORS_ORIGINS = list(DEV_WEB_ORIGINS)
+_configured_cors = configured_web_origins()
+_cors_origins = allowed_web_origins()
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_cors_origins,
@@ -186,15 +205,15 @@ async def add_security_headers(request: Request, call_next: Any) -> Any:
     - HSTS: chỉ gửi khi request đã qua HTTPS (qua proxy set `x-forwarded-proto`).
 
     API trả JSON nên CSP tối giản (`default-src 'none'`) là đủ; trang HTML do
-    Next.js phục vụ có CSP riêng ở tầng web.
+    Next.js phục vụ có CSP riêng ở `apps/web/next.config.js` (`headers()`) và
+    HSTS ở `infra/oracle/Caddyfile` (tầng TLS) — không đặt CSP web ở đây để
+    tránh ghi đè lẫn nhau (QA 2026-09-30 N1).
     """
     response = await call_next(request)
     response.headers.setdefault("X-Content-Type-Options", "nosniff")
     response.headers.setdefault("X-Frame-Options", "DENY")
     response.headers.setdefault("Referrer-Policy", "no-referrer")
-    response.headers.setdefault(
-        "Permissions-Policy", "camera=(), microphone=(), geolocation=()"
-    )
+    response.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
     response.headers.setdefault(
         "Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'"
     )
@@ -204,6 +223,7 @@ async def add_security_headers(request: Request, call_next: Any) -> Any:
             "Strict-Transport-Security", "max-age=31536000; includeSubDomains"
         )
     return response
+
 
 _LOG = logging.getLogger(__name__)
 _REALTIME_SKIP_PREFIXES = (
@@ -246,10 +266,7 @@ async def broadcast_successful_mutation(request: Request, call_next: Any) -> Any
     generic_audit_added = False
     try:
         response = await call_next(request)
-        successful_mutation = (
-            is_mutation_method
-            and response.status_code < 400
-        )
+        successful_mutation = is_mutation_method and response.status_code < 400
 
         # Mọi mutation thành công của người đã đăng nhập phải có ít nhất một
         # vết. Endpoint có audit nghiệp vụ sẽ tự đánh dấu; endpoint còn thiếu
@@ -265,7 +282,11 @@ async def broadcast_successful_mutation(request: Request, call_next: Any) -> Any
             await run_in_threadpool(
                 audit_add,
                 datetime.now(UTC).isoformat(),
-                str(actor_session.get("nv_id") or actor_session.get("username") or actor_session["role"]),
+                str(
+                    actor_session.get("nv_id")
+                    or actor_session.get("username")
+                    or actor_session["role"]
+                ),
                 "operation.mutation",
                 {
                     "entity_type": "operation",
@@ -278,10 +299,7 @@ async def broadcast_successful_mutation(request: Request, call_next: Any) -> Any
 
         should_broadcast = successful_mutation and (
             generic_audit_added
-            or (
-                path not in _REALTIME_SKIP_PATHS
-                and not path.startswith(_REALTIME_SKIP_PREFIXES)
-            )
+            or (path not in _REALTIME_SKIP_PATHS and not path.startswith(_REALTIME_SKIP_PREFIXES))
         )
         if should_broadcast:
             try:
@@ -298,6 +316,8 @@ async def broadcast_successful_mutation(request: Request, call_next: Any) -> Any
 
 app.include_router(sprint3_router)
 app.include_router(sprint45_router)
+app.include_router(thoi_tiet_router)
+app.include_router(dia_chi_router)
 app.include_router(hao_hut_router)
 app.include_router(channels_router)
 app.include_router(copilot_router)
@@ -318,12 +338,20 @@ if serpapi_system_router:
 app.include_router(mail_router)
 app.include_router(gmail_router)
 app.include_router(ai_learning_router)
+# Khung "AI phân tích" dùng chung cho 6 trang AI & tự động hoá (Đề xuất thông
+# minh, Tự giải thích, Thử nghiệm an toàn, Cẩm nang, Học từ phản hồi, Hộp thư
+# ràng buộc). Router này từng bị MỒ CÔI — file có, endpoint có, nhưng không
+# import/include nên mọi trang gọi `/api/v1/ai/insight` đều 404 (QA đợt 6).
+app.include_router(ai_insight_router)
 app.include_router(chat_router)
 app.include_router(reservations_router)
 app.include_router(shift_rescue_router)
 app.include_router(spatial_memory_router)
+# Bề mặt MOCK của Quánverse (chỉ đọc, `include_in_schema=False`). Tách file để
+# xoá được bằng một `git rm` khi hết nhu cầu demo, và để route test không lẫn
+# vào router production có cổng vai thật.
+app.include_router(quanverse_fixtures_router)
 app.include_router(skills_router)
-
 
 
 ROOT = Path(__file__).resolve().parents[6]
@@ -332,11 +360,12 @@ SEED = ROOT / "data" / "seed" / "sample.json"
 
 def _lich_tuan_out() -> Path:
     """Output solver — đồng bộ sprint45._lich_out(). Đọc env MỖI LẦN GỌI
-    vì conftest set NHIPQUAN_LICH_TUAN_OUT per-test sau khi import module. """
+    vì conftest set NHIPQUAN_LICH_TUAN_OUT per-test sau khi import module."""
     env = os.environ.get("NHIPQUAN_LICH_TUAN_OUT")
     if env:
         return Path(env)
     return ROOT / "data" / "out" / "lich_tuan.json"
+
 
 # Pins persist in SQLite kv
 
@@ -446,7 +475,9 @@ def _draft_mail_with_active_rules(**kwargs: Any) -> Any:
     selected, rollout_bucket = select_active_rules(
         get_active_mail_rules_for_store(store_id),
         store_id=store_id,
-        identity=str(identities[0]) if identities else str(kwargs.get("recipient_name") or "default"),
+        identity=str(identities[0])
+        if identities
+        else str(kwargs.get("recipient_name") or "default"),
     )
     draft = _draft_email(active_style_rules=selected, **kwargs)
     draft.rule_version = ",".join(str(rule["id"]) for rule in selected) or "none"
@@ -497,8 +528,7 @@ configure_data_sources(
     get_mail_style=get_mail_style_for_store,
     # PR9 read providers — không trả email/PII qua chat
     list_users=lambda: [
-        {"nv_id": u["nv_id"], "ten": u["display_name"], "role": u["role"]}
-        for u in list_users()
+        {"nv_id": u["nv_id"], "ten": u["display_name"], "role": u["role"]} for u in list_users()
     ],
     list_nhan_vien_ops=list_nhan_vien_ops,
     menu_list=menu_list,
@@ -630,8 +660,16 @@ def _detect_staff_availability(
         for it in inbox_items:
             if not isinstance(it, dict):
                 continue
-            rb = cast(dict[str, Any], it.get("rang_buoc")) if isinstance(it.get("rang_buoc"), dict) else {}
-            hl = cast(dict[str, Any], it.get("hieu_luc")) if isinstance(it.get("hieu_luc"), dict) else {}
+            rb = (
+                cast(dict[str, Any], it.get("rang_buoc"))
+                if isinstance(it.get("rang_buoc"), dict)
+                else {}
+            )
+            hl = (
+                cast(dict[str, Any], it.get("hieu_luc"))
+                if isinstance(it.get("hieu_luc"), dict)
+                else {}
+            )
             it_tuan = rb.get("tuan_id") or hl.get("tuan_id") or it.get("tuan_id")
             if it_tuan == tuan_iso:
                 nvid = it.get("nv_id") or hl.get("nv_id")
@@ -672,11 +710,13 @@ def _detect_staff_availability(
 
         if decision == "du_bi":
             nv_status_map[nvid] = "du_bi"
-            du_bi.append({
-                "id": nvid,
-                "ten": ten,
-                "vai": vai,
-            })
+            du_bi.append(
+                {
+                    "id": nvid,
+                    "ten": ten,
+                    "vai": vai,
+                }
+            )
         elif decision == "bo_ca":
             nv_status_map[nvid] = "bo_ca"
         elif decision == "xac_nhan":
@@ -687,15 +727,38 @@ def _detect_staff_availability(
             else:
                 nv_status_map[nvid] = "chua_xac_nhan"
                 if assigned_count.get(nvid, 0) > 0:
-                    chua_xac_nhan.append({
-                        "id": nvid,
-                        "ten": ten,
-                        "vai": vai,
-                        "so_ca_du_kien": assigned_count[nvid],
-                        "ca_ids": assigned_shifts.get(nvid, []),
-                    })
+                    chua_xac_nhan.append(
+                        {
+                            "id": nvid,
+                            "ten": ten,
+                            "vai": vai,
+                            "so_ca_du_kien": assigned_count[nvid],
+                            "ca_ids": assigned_shifts.get(nvid, []),
+                        }
+                    )
 
     return chua_xac_nhan, du_bi, nv_status_map
+
+
+def _loc_phan_cong_theo_nhan_su(
+    phan_cong: dict[str, list[str]], nhan_vien: list[dict[str, Any]]
+) -> None:
+    """Bỏ mọi nv_id trong `phan_cong` không còn là nhân sự của quán (sửa tại chỗ).
+
+    Vì sao cần: `phan_cong` đến từ ẢNH CHỤP LƯU LẠI (solver, ghim) — ghi ở thời
+    điểm khác với lúc đọc. Nhân sự bị xoá sau đó vẫn nằm trong ảnh chụp, nên id
+    của họ (ví dụ `nv_26`…`nv_38` do `_nv_id_ke_tiep` cấp cho tài khoản đã đăng
+    ký rồi bị xoá) lọt ra giao diện và `nvName()` in nguyên chuỗi `nv_26`.
+
+    Nguồn sự thật về "ai đang làm ở quán" là `nhan_vien`, không phải ảnh chụp.
+    Lọc ở tầng dữ liệu (không ở giao diện) để số đếm nhân sự, chấm "đủ/thiếu" và
+    mọi bề mặt dùng chung đều đúng theo.
+
+    KHÔNG áp cho lịch sử seed: xem ghi chú ở `_build_lich_tuan_from_seed`.
+    """
+    hop_le = {str(nv.get("id")) for nv in nhan_vien}
+    for ca_id, nv_ids in phan_cong.items():
+        phan_cong[ca_id] = [nid for nid in nv_ids if str(nid) in hop_le]
 
 
 def _build_lich_tuan_from_seed(
@@ -720,7 +783,20 @@ def _build_lich_tuan_from_seed(
     status_store = kv_get("roster_nv_status", {})
     week_decisions = status_store.get(tuan_iso, {}) if isinstance(status_store, dict) else {}
     for ca_id, nv_ids in phan_cong.items():
-        phan_cong[ca_id] = [nid for nid in nv_ids if week_decisions.get(nid) not in {"du_bi", "bo_ca"}]
+        phan_cong[ca_id] = [
+            nid for nid in nv_ids if week_decisions.get(nid) not in {"du_bi", "bo_ca"}
+        ]
+
+    # KHÔNG lọc theo `nhan_vien` ở nhánh này.
+    #
+    # Nhánh này chỉ chạy khi CHƯA có kết quả solver, và nguồn lịch sử duy nhất là
+    # fixture demo (`data/seed/sample.json`) — dữ liệu tham chiếu được biên soạn
+    # tay, không phải ảnh chụp sinh tự động. Nhân sự trong đó (`nv_07`, `nv_19`…)
+    # KHÔNG nằm trong bảng `users` của môi trường test/demo, nên lọc theo
+    # `nhan_vien` sẽ xoá sạch lịch sử thật (test
+    # `test_lich_output_rong_fallback_phan_cong_seed_history` bắt đúng lỗi này).
+    #
+    # "Id ma" chỉ sinh ra từ ẢNH CHỤP SOLVER, nên chỉ nhánh solver cần chốt.
 
     chua_xac_nhan, du_bi, nv_status_map = _detect_staff_availability(tuan_iso, phan_cong, nhan_vien)
 
@@ -765,10 +841,9 @@ def get_lich_tuan(
     current_session = auth_session(authorization) or {}
     store_id = str(current_session.get("store_id") or "quan_01")
     schedule_run = schedule_run_latest(store_id, tuan_iso)
-    open_shifts = [
-        *open_shift_list(store_id, tuan_iso=tuan_iso),
-        *open_shift_list(store_id, tuan_iso=tuan_iso, status="claimed"),
-    ]
+    # "Ca thiếu người thật" được tính SAU khi dựng xong `phan_cong`: ca nào còn
+    # dưới định biên mới là việc phải làm (xem `current_open_shifts`).
+    open_shifts: list[dict[str, Any]] = []
 
     data = _week_value("lich_tuan_results_by_week", tuan_iso, None)
     if not isinstance(data, dict):
@@ -791,8 +866,13 @@ def get_lich_tuan(
         for ca_id, nv_ids in seeded_assignments.items():
             if str(ca_id) not in phan_cong:
                 phan_cong[str(ca_id)] = list(nv_ids)
+        # `tu_seed_lich_su` = lịch sử fixture biên soạn tay, KHÔNG phải ảnh chụp
+        # solver. Nhánh này lọc theo `nhan_vien` được, còn lịch sử seed thì không
+        # (xem ghi chú ở `_build_lich_tuan_from_seed`).
+        tu_seed_lich_su = False
         if not phan_cong:
             phan_cong = _seeded_history_assignments(seed, tuan_iso)
+            tu_seed_lich_su = bool(phan_cong)
         for (ca_id, nv_id), pinned in _pin_map(tuan_iso).items():
             if pinned and nv_id not in phan_cong.get(ca_id, []):
                 phan_cong.setdefault(ca_id, []).append(nv_id)
@@ -800,10 +880,37 @@ def get_lich_tuan(
         status_store = kv_get("roster_nv_status", {})
         week_decisions = status_store.get(tuan_iso, {}) if isinstance(status_store, dict) else {}
         for ca_id, nv_ids in phan_cong.items():
-            phan_cong[ca_id] = [nid for nid in nv_ids if week_decisions.get(nid) not in {"du_bi", "bo_ca"}]
+            phan_cong[ca_id] = [
+                nid for nid in nv_ids if week_decisions.get(nid) not in {"du_bi", "bo_ca"}
+            ]
 
         nhan_vien = list_nhan_vien_ops()
-        chua_xac_nhan, du_bi, nv_status_map = _detect_staff_availability(tuan_iso, phan_cong, nhan_vien)
+
+        # CHỐT TOÀN VẸN THAM CHIẾU — chỉ cho dữ liệu từ ẢNH CHỤP.
+        #
+        # `phan_cong` ghép từ ảnh chụp solver + ghim, ghi ở thời điểm khác lúc đọc.
+        # Nhân sự bị xoá sau đó vẫn còn trong ảnh chụp → id lọt ra UI và `nvName()`
+        # in nguyên chuỗi `nv_26`. Xem `_loc_phan_cong_theo_nhan_su`.
+        #
+        # KHÔNG áp khi `phan_cong` đến từ lịch sử seed: nhân sự trong fixture demo
+        # không nằm trong bảng `users` của môi trường test, lọc sẽ xoá sạch lịch sử.
+        if not tu_seed_lich_su:
+            _loc_phan_cong_theo_nhan_su(phan_cong, nhan_vien)
+
+        chua_xac_nhan, du_bi, nv_status_map = _detect_staff_availability(
+            tuan_iso, phan_cong, nhan_vien
+        )
+
+        # Bỏ ca thiếu ĐÃ ĐƯỢC LẤP (đủ người trong `phan_cong` hiện tại) — dùng
+        # chung `current_open_shifts` với chợ đổi ca để hai bề mặt không lệch.
+        from ca_api.services.scheduling_service import current_open_shifts
+
+        open_shifts = current_open_shifts(
+            store_id,
+            tuan_iso,
+            phan_cong=phan_cong,
+            ca_list=ca_list,
+        )
 
         lifecycle = _week_value("lich_tuan_lifecycle_by_week", tuan_iso, {})
         return {
@@ -839,7 +946,15 @@ def get_lich_tuan(
     result["trang_thai"] = lifecycle.get("trang_thai", result.get("trang_thai", "nhap"))
     result["khung_gio"] = _khung_template()
     result["schedule_run"] = schedule_run
-    result["open_shifts"] = open_shifts
+    # Nhánh seed: tính ca thiếu thật từ phân công seed + định biên, giống nhánh solver.
+    from ca_api.services.scheduling_service import current_open_shifts
+
+    result["open_shifts"] = current_open_shifts(
+        store_id,
+        tuan_iso,
+        phan_cong=cast(dict[str, list[str]], result.get("phan_cong") or {}),
+        ca_list=cast(list[dict[str, Any]], result.get("ca") or []),
+    )
     return result
 
 
@@ -931,7 +1046,9 @@ async def pin_assignment(
     solver_result: dict[str, Any] | None = None
     if body.pinned:
         # Chạy thử với pin mới: đây là kiểm tra đồng thời C01–C06, không chỉ kỹ năng.
-        solver_result = run_solver(body.tuan_iso, extra_pin=(body.ca_id, body.nv_id), store_id=store_id)
+        solver_result = run_solver(
+            body.tuan_iso, extra_pin=(body.ca_id, body.nv_id), store_id=store_id
+        )
         if not solver_result.get("ok"):
             baseline = run_solver(body.tuan_iso, store_id=store_id)
             if baseline.get("ok"):
@@ -1059,9 +1176,12 @@ async def patch_lifecycle(
     authoritative: dict[str, Any] | None = None
     if body.trang_thai == "dang_giai":
         from ca_api.services.scheduling_service import authoritative_input_fingerprint
+
         _, fingerprint = authoritative_input_fingerprint(store_id, week)
         authoritative = run_authoritative_schedule(
-            store_id=store_id, tuan_iso=week, actor_id=_role,
+            store_id=store_id,
+            tuan_iso=week,
+            actor_id=_role,
             idempotency_key=f"lifecycle:{week}:solve:{fingerprint[:16]}",
         )
         solver_ket_qua = authoritative.get("result") or {}
@@ -1120,6 +1240,19 @@ def get_lich_thay_doi(
     }
 
 
+@app.post("/api/v1/lich-tuan/demo-mini-w41")
+def post_demo_mini_w41(
+    _role: Annotated[str, Depends(_require_write_role)],
+) -> dict[str, Any]:
+    """Seed bộ test 4 NV + tuần W41 — tự kiểm xếp → nhật ký → swap trong vài phút.
+
+    Chỉ quản lý/chủ. Không đụng tuần khác. Trả hướng dẫn bước tiếp theo.
+    """
+    from ca_api.services.mini_w41_fixture import seed_mini_w41_roster
+
+    return seed_mini_w41_roster()
+
+
 @app.post("/api/v1/lich-tuan/nv-status")
 async def post_nv_status(
     body: NvStatusBody,
@@ -1160,6 +1293,7 @@ async def post_nv_status(
     kv_mutate("roster_nv_status", mut_status, {})
 
     if body.hanh_dong in {"du_bi", "bo_ca"}:
+
         def mut_pc(cur: dict[str, Any]) -> dict[str, Any]:
             for cid, nv_ids in list(cur.items()):
                 if isinstance(nv_ids, list):
@@ -1259,13 +1393,26 @@ async def post_nv_self_confirm(
 
 
 @app.post("/api/v1/auth/register", response_model=LoginOut, status_code=201)
-def register(body: RegisterBody) -> LoginOut:
+async def register(body: RegisterBody, request: Request) -> LoginOut:
     """Tạo tài khoản nhân viên mới rồi mở phiên luôn.
 
     Vai trò luôn là `nhan_vien` (xem `persist.VAI_TU_DANG_KY`): tự đăng ký mà
     lấy được vai quản lý thì ai cũng duyệt được ràng buộc và phát được mã điểm
     danh. Nâng vai là việc của chủ quán, làm ngoài luồng này.
     """
+    # Bug QA đợt 6 (#37): endpoint này CÔNG KHAI và trước đây không có giới hạn
+    # nào — đo được 10/10 tài khoản tạo liên tiếp trong 1 giây từ cùng một IP,
+    # mỗi tài khoản chiếm 1 `nv_id` vĩnh viễn và lọt vào mọi danh sách nhân sự.
+    #
+    # KHÁC login: ở đây đếm MỌI lần gọi chứ không chỉ lần lỗi — kẻ spam thành
+    # công mới là vấn đề, còn đăng ký hỏng thì đã bị validate chặn. Không
+    # `clear()` sau thành công: quán nhỏ không có nhu cầu tạo 5 tài khoản trong
+    # 10 phút, vượt ngưỡng đó là bất thường. Dùng bộ đếm RIÊNG để người dùng
+    # thật đăng ký không bị ảnh hưởng bởi các lần đăng nhập sai.
+    ip = _client_ip(request)
+    if await register_ip_limiter.is_blocked(ip):
+        raise HTTPException(status_code=429, detail="dang_ky_qua_nhieu_lan_thu_lai_sau")
+    await register_ip_limiter.record_failure(ip)
     try:
         row = persist_register(body.username, body.password, body.display_name)
     except DangKyLoi as exc:

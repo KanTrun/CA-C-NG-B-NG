@@ -52,6 +52,7 @@
         "GET_SERPAPI_QUOTA",
         "GET_SURVEY_RESULT",
         "QUERY_AUDIT",
+        "QUERY_QUANVERSE",
         "OUT_OF_SCOPE"
       ],
       "title": "CopilotIntent",

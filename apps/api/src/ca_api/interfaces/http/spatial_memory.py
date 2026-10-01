@@ -81,6 +81,14 @@ def clear_spatial_state() -> None:
 
 
 def _rate_limit(user_id: str) -> None:
+    import os
+
+    if os.environ.get("NHIPQUAN_DISABLE_RATE_LIMIT", "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+    }:
+        return
     now = time.time()
     with _LOCK:
         recent = [t for t in _USER_TS.get(user_id, []) if now - t < _WINDOW_S]
@@ -116,6 +124,32 @@ def _role_of(authorization: str | None) -> ExperienceRole:
         return ExperienceRole(role)
     except ValueError:
         return ExperienceRole.NHAN_VIEN
+
+
+def _real_anchors() -> list[tuple[str, str]]:
+    """Danh sách ``(anchor_id, nhãn)`` neo THẬT đang có ký ức, để dựng tour thật.
+
+    Chỉ trả neo xuất hiện trong ký ức đã xác nhận — tour sẽ bám đúng nơi quán
+    thật sự có thông tin, thay vì route mẫu. Nhãn lấy từ bản đồ neo (adapter),
+    fallback về id. Rỗng khi chưa có neo nào có ký ức.
+    """
+    repo = _get_repo()
+    memories = repo.all_memories() or []
+    order: list[str] = []
+    for m in memories:
+        if m.status.value != "confirmed" or not m.anchor_id:
+            continue
+        if m.anchor_id not in order:
+            order.append(m.anchor_id)
+    if not order:
+        return []
+    nhan_by_id: dict[str, str] = {}
+    try:
+        for a in resolve_experience_read_adapter().list_anchors():
+            nhan_by_id[str(a.anchor_id)] = str(getattr(a, "label", "") or a.anchor_id)
+    except Exception:
+        nhan_by_id = {}
+    return [(aid, nhan_by_id.get(aid, aid)) for aid in order]
 
 
 @router.get("/api/v1/experience/map")
@@ -257,12 +291,37 @@ def memory_delete(
 def tour_start(
     authorization: Annotated[str | None, Header()] = None,
 ) -> dict[str, Any]:
-    """Bắt đầu AI Tour Guide — chuỗi anchor đóng + narration grounded."""
+    """Bắt đầu AI Tour Guide — tour dựng TỪ NEO THẬT nếu có, else route mẫu."""
     _role_of(authorization)
     repo = _get_repo()
     memories = repo.all_memories()
-    tour = plan_tour(memories=memories)
-    return cast(dict[str, Any], tour.model_dump(mode="json"))
+    # Đường DỮ LIỆU THẬT: nếu kho có neo thật (gắn ký ức) thì dựng tour theo
+    # đúng các neo đó, thay vì route mẫu `OPENING_ROUTE`.
+    tour = None
+    try:
+        from ca_agents.ag_spatial_memory.tour import plan_tour_from_anchors
+
+        anchors = _real_anchors()
+        if anchors:
+            tour = plan_tour_from_anchors(anchors, memories=memories)
+    except Exception:
+        tour = None
+    if tour is None:
+        tour = plan_tour(memories=memories)
+    if tour is None:
+        # `plan_tour` trả None khi tour_id không hợp lệ; ở đây dùng route mặc
+        # định nên không xảy ra — chặn rõ ràng thay vì crash `union-attr`.
+        raise HTTPException(status_code=404, detail="tour_not_found")
+    payload = tour.model_dump(mode="json")
+    # Diễn đạt lại lời dẫn khi có LLM (live); replay giữ nguyên bản tất định.
+    # Bước/anchor/ký ức KHÔNG đổi — chỉ câu chữ. Lỗi ở đây không làm hỏng tour.
+    try:
+        from ca_agents.ag_spatial_memory.narrate import enrich_narration
+
+        payload["steps"] = enrich_narration(payload.get("steps", []) or [])
+    except Exception:
+        pass
+    return cast(dict[str, Any], payload)
 
 
 @router.post("/api/v1/experience/voice/turn")
@@ -270,7 +329,19 @@ def voice_turn(
     body: VoiceTurnRequest,
     authorization: Annotated[str | None, Header()] = None,
 ) -> dict[str, Any]:
-    """Một lượt voice — grounded answer hoặc proposal. Không bao giờ mutate."""
+    """Một lượt voice — grounded answer hoặc proposal (draft, chờ consent).
+
+    "Không mutate" nghĩa là KHÔNG ghi thẳng confirmed memory và không đổi trạng
+    thái ký ức có sẵn — điều đó vẫn đúng. Nhưng bản trước trả proposal xong rồi
+    bỏ đó: draft KHÔNG được lưu vào kho, nên nó không bao giờ xuất hiện ở "Chờ
+    quyết định" của neo, quản lý không có gì để duyệt, reload là mất. Người dùng
+    được hứa "chờ quản lý xác nhận" trong khi không tồn tại bản ghi nào để xác
+    nhận — hợp đồng UI/API gãy giữa chừng.
+
+    Nay lưu draft y hệt `memory_propose` (status=draft, consent=required) —
+    vẫn fail-closed: draft không được retrieve cho answer, chỉ hiện trong
+    danh sách chờ duyệt, và chỉ thành confirmed khi qua `/memories/{id}/consent`.
+    """
     role = _role_of(authorization)
     _rate_limit(str(role))
     repo = _get_repo()
@@ -282,18 +353,33 @@ def voice_turn(
     )
     mems = retrieve_filtered(repo, q)
     ctx = GroundingContext(memories=mems)
-    # "Nhớ điều này..." → đề xuất memory
+    # "Nhớ điều này..." → đề xuất memory (draft chờ duyệt)
     proposal: MemoryProposal | None = None
     is_remember = body.transcript.lower().startswith(("nhớ điều này", "nhớ")) and len(body.transcript) > 15
     if is_remember and body.anchor_id:
-        proposal = MemoryProposal(
-            proposal_id=f"vp_{int(time.time()*1000)}",
-            anchor_id=body.anchor_id,
-            content=body.transcript.replace("nhớ điều này", "").strip(),
-            owner_scope=f"staff_{body.requester_id}",
-            proposed_by=body.requester_id,
-            snapshot_hash="snap_20260918_spatial_001",
-        )
+        content = body.transcript.replace("nhớ điều này", "").strip(" :")
+        if content:
+            proposal = MemoryProposal(
+                proposal_id=f"vp_{int(time.time()*1000)}",
+                anchor_id=body.anchor_id,
+                content=content,
+                owner_scope=f"staff_{body.requester_id}",
+                proposed_by=body.requester_id,
+                snapshot_hash="snap_20260918_spatial_001",
+            )
+            repo.add_memory(
+                ExperienceMemory(
+                    memory_id=f"mem_prop_{proposal.proposal_id}",
+                    anchor_id=proposal.anchor_id,
+                    owner_scope=proposal.owner_scope,
+                    content=proposal.content,
+                    source_event_ids=proposal.source_event_ids,
+                    consent_status=MemoryConsentStatus.REQUIRED,
+                    visibility=MemoryVisibility(proposal.visibility),
+                    status=MemoryStatus.DRAFT,
+                    created_by=proposal.proposed_by,
+                )
+            )
 
     # Query mặc định nếu không phải "nhớ"
     answer = build_grounded_answer(body.transcript, ctx, proposal=proposal)

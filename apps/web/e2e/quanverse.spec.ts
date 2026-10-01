@@ -1,132 +1,149 @@
-import { expect, test, type Page } from "@playwright/test";
-import { disableWebgl, loginAs, resetExperienceState } from "./_helpers";
+import { expect, test } from "@playwright/test";
+import { disableWebgl, ensureDemoData, loginAs, resetExperienceState } from "./_helpers";
 
-/** QUANVERSE e2e — role projection, mode confirm, flavor, AR fallback. */
+/**
+ * QUÁNVERSE 2.0 — trung tâm điều hành AI.
+ *
+ * Chốt những gì KHÔNG được phép quay lại:
+ *  · không còn tab War Room / Cứu ca
+ *  · không còn bề mặt khách hàng (hành trình khách, hương vị, sở thích, AR)
+ *  · không còn 3D / <canvas> cho Quánverse
+ *  · không còn mock/scenario/role-buttons — chỉ dữ liệu thật
+ *  · bốn khối 2.0: verdict JEV · top3 · timeline+capacity · hỏi AI
+ *
+ * BẪY ĐÃ VẤP: `disableWebgl` được GIỮ trong beforeEach vì các bài khác cần nó,
+ * nhưng bài "không còn canvas" KHÔNG dựa vào nó — nó đếm `<canvas>` trên bản
+ * render thật, và bản render thật không được tạo canvas nào.
+ */
 
-test.describe("QUANVERSE", () => {
+test.describe("QUÁNVERSE — trung tâm điều hành", () => {
   test.beforeEach(async ({ page }) => {
     await disableWebgl(page);
     await loginAs(page);
-    // Dọn ở ĐẦU mỗi bài, không phải cuối: dọn ở cuối không bảo vệ được chính bài
-    // đó, và nếu bài trước rơi giữa chừng thì bước dọn không bao giờ chạy. Bài
-    // "manager walks mode propose -> confirm -> deactivate" kết thúc bằng cách
-    // BẬT mode `dem_nhac`; bài đó chạy lại sẽ không thấy nút propose (đã active)
-    // nên khẳng định `is-active` rơi vào trạng thái phụ thuộc thứ tự chạy.
     await resetExperienceState(page);
+    await ensureDemoData(page);
+  });
+
+  test("tải được và hiện bốn khối 2.0 (verdict · top3 · timeline/capacity · copilot)", async ({ page }) => {
     await page.goto("/quanverse");
-  });
 
-  test("living map renders zones and events", async ({ page }) => {
-    await expect(page.locator(".nq-living-map")).toBeVisible({ timeout: 15_000 });
-    await expect(page.getByTestId("zone-bar")).toBeVisible();
-    await expect(page.locator(".nq-quanverse__events")).toBeVisible();
-    // Chú giải mức tải nằm NGAY TRÊN mặt bằng — `nq-loadbar__key` (ô màu Nhẹ/Vừa/
-    // Tải cao) mới là thứ luôn hiện khi mở trang.
-    //
-    // KHÔNG assert `nq-loadbar__fill` ở đây: cột fill nằm trong `ZoneDetail`, chỉ
-    // mount SAU khi người dùng bấm một khu vực. Assert nó ngay sau khi mở trang
-    // là đòi một phần tử chưa tồn tại — và đã làm đỏ CI thật.
-    await expect(page.locator(".nq-loadbar__key").first()).toBeVisible();
-  });
-
-  test("events link to zones and store-wide events say so", async ({ page }) => {
-    await expect(page.getByTestId("quanverse-events")).toBeVisible({ timeout: 15_000 });
-    // Sự kiện gắn khu vực: bấm chip phải mở đúng bảng chi tiết khu vực đó.
-    const zoneChip = page.locator(".nq-zonechip").first();
-    await expect(zoneChip).toBeVisible();
-    await zoneChip.click();
-    await expect(page.locator(".nq-zone-detail")).toBeVisible({ timeout: 10_000 });
-    // Sự kiện không thuộc khu vực nào phải nói thẳng là toàn quán.
-    await expect(page.locator(".nq-zonechip--none").first()).toBeVisible();
-    await expect(page.locator(".nq-zonechip--none").first()).toContainText("Toàn quán");
-  });
-
-  test("role switch (replay) changes projection", async ({ page }) => {
-    await expect(page.locator(".nq-living-map")).toBeVisible({ timeout: 15_000 });
-    // Switch sang khách → không còn sự kiện staff.
-    await page.getByTestId("role-khach").click();
-    await expect(page.getByText(/Không có sự kiện vận hành cho bản chiếu này/)).toBeVisible({ timeout: 10_000 });
-  });
-
-  test("chọn khu vực mở bảng chi tiết", async ({ page }) => {
-    await expect(page.locator(".nq-living-map")).toBeVisible({ timeout: 15_000 });
-    await page.getByTestId("zone-bar").click();
-    const detail = page.locator(".nq-zone-detail");
-    await expect(detail).toBeVisible({ timeout: 10_000 });
-    await expect(page.getByTestId("zone-bar")).toHaveAttribute("aria-pressed", "true");
-    // Bấm lại khu vực khác thì bảng chi tiết đổi theo, không chồng hai bảng.
-    await page.getByTestId("zone-cashier").click();
-    await expect(page.locator(".nq-zone-detail")).toHaveCount(1);
-    await expect(page.getByTestId("zone-cashier")).toHaveAttribute("aria-pressed", "true");
-    // Nút đóng trả về trạng thái gợi ý chọn khu vực.
-    await page.locator(".nq-zdetail__close").click();
-    await expect(page.locator(".nq-zone-detail")).toHaveCount(0);
-  });
-
-  test("manager walks mode propose -> confirm -> deactivate", async ({ page }) => {
-    await expect(page.locator(".nq-moderail")).toBeVisible({ timeout: 15_000 });
-
-    // Bật một chế độ rồi phải TẮT được — trước đây vòng đời một chiều.
-    const mode = "dem_nhac";
-    const item = page.getByTestId(`mode-item-${mode}`);
-    await expect(item).toBeVisible();
-
-    const propose = page.getByTestId(`mode-propose-${mode}`);
-    if (await propose.isVisible().catch(() => false)) {
-      await propose.click();
-      await expect(page.getByTestId(`mode-confirm-${mode}`)).toBeVisible({ timeout: 10_000 });
+    await expect(page.getByTestId("quanverse-root")).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId("quanverse-header")).toBeVisible();
+    // S3 (trống) hoặc S1/S2 (đủ): một trong hai phải hiện.
+    const insufficient = await page.getByTestId("quanverse-insufficient").count();
+    if (insufficient > 0) {
+      await expect(page.getByTestId("insufficient-checklist")).toBeVisible();
+    } else {
+      await expect(page.getByTestId("quanverse-verdict")).toBeVisible();
+      await expect(page.getByTestId("quanverse-map")).toBeVisible();
+      await expect(page.getByTestId("quanverse-actions")).toBeVisible();
+      await expect(page.getByTestId("quanverse-timeline")).toBeVisible();
+      await expect(page.getByTestId("quanverse-capacity")).toBeVisible();
+      await expect(page.getByTestId("quanverse-copilot")).toBeVisible();
+      await expect(page.getByTestId("quanverse-zone-focus")).toBeVisible();
+      await expect(page.getByTestId("quanverse-modes")).toBeVisible();
     }
+  });
 
-    const confirm = page.getByTestId(`mode-confirm-${mode}`);
-    if (await confirm.isVisible().catch(() => false)) {
-      await confirm.click();
+  test("tiêu đề nói đây là trung tâm điều hành quán", async ({ page }) => {
+    await page.goto("/quanverse");
+    await expect(page.getByRole("heading", { name: "QUÁNVERSE" })).toBeVisible();
+    await expect(page.getByText("Trung tâm điều hành quán")).toBeVisible();
+  });
+
+  test("KHÔNG còn mock/scenario/role-buttons — chỉ dữ liệu thật", async ({ page }) => {
+    await page.goto("/quanverse");
+    await expect(page.getByTestId("quanverse-root")).toBeVisible({ timeout: 15_000 });
+
+    await expect(page.getByTestId("toggle-source")).toHaveCount(0);
+    await expect(page.getByTestId("source-scenario")).toHaveCount(0);
+    await expect(page.getByTestId("scenario-cao_diem")).toHaveCount(0);
+    await expect(page.getByTestId("role-quan_ly")).toHaveCount(0);
+    await expect(page.getByTestId("quanverse-capability")).toHaveCount(0);
+  });
+
+  test("KHÔNG còn tab War Room hay Cứu ca", async ({ page }) => {
+    await page.goto("/quanverse");
+    await expect(page.getByTestId("quanverse-root")).toBeVisible({ timeout: 15_000 });
+
+    await expect(page.getByTestId("qv-tab-war_room")).toHaveCount(0);
+    await expect(page.getByTestId("qv-tab-shift_rescue")).toHaveCount(0);
+    await expect(page.getByRole("tab", { name: /War Room/i })).toHaveCount(0);
+    await expect(page.getByRole("tab", { name: /Cứu ca/i })).toHaveCount(0);
+    await expect(page.getByRole("tab")).toHaveCount(0);
+  });
+
+  test("KHÔNG còn bề mặt khách hàng", async ({ page }) => {
+    await page.goto("/quanverse");
+    await expect(page.getByTestId("quanverse-root")).toBeVisible({ timeout: 15_000 });
+
+    for (const testId of [
+      "guest-journey",
+      "flavor-results",
+      "flavor-go",
+      "pref-input",
+      "pref-propose",
+      "ar-qr",
+      "ar-start",
+    ]) {
+      await expect(page.getByTestId(testId)).toHaveCount(0);
     }
-    await expect(item).toHaveClass(/is-active/, { timeout: 10_000 });
-    await expect(page.locator(".nq-switch.is-on").first()).toBeVisible();
-
-    await page.getByTestId(`mode-deactivate-${mode}`).click();
-    await expect(item).not.toHaveClass(/is-active/, { timeout: 10_000 });
+    await expect(page.locator(".nq-journey")).toHaveCount(0);
+    await expect(page.locator(".nq-flavor")).toHaveCount(0);
+    await expect(page.locator(".nq-pref")).toHaveCount(0);
+    await expect(page.locator(".nq-ar")).toHaveCount(0);
   });
 
-  test("flavor recommendation with reasons", async ({ page }) => {
-    await expect(page.locator(".nq-flavor")).toBeVisible({ timeout: 15_000 });
-    await page.getByTestId("flavor-ngot-it").click();
-    await page.getByTestId("flavor-sua").uncheck();
-    await page.getByTestId("flavor-go").click();
-    await expect(page.getByTestId("flavor-results").first()).toBeVisible({ timeout: 10_000 });
-    // Mỗi gợi ý có điểm số trực quan + lý do, không chỉ tên món.
-    await expect(page.locator(".nq-flavor__meter-fill").first()).toBeVisible();
-    await expect(page.locator(".nq-flavor__reasons li").first()).toBeVisible();
+  test("KHÔNG render <canvas> — Quánverse là 2D thuần", async ({ page }) => {
+    await page.goto("/quanverse");
+    await expect(page.getByTestId("quanverse-root")).toBeVisible({ timeout: 15_000 });
+    // Chờ khối bản đồ render xong trước khi đếm.
+    await expect(page.getByTestId("quanverse-map")).toBeVisible();
+
+    // KHÔNG gọi disableWebgl ở đây: nếu canvas tồn tại vì bất cứ lý do gì,
+    // bài này phải ĐỎ. (disableWebgl đã chạy ở beforeEach nhưng nó chỉ stub
+    // getContext — phần tử <canvas> vẫn được tạo nếu code còn vẽ nó.)
+    await expect(page.locator(".nq-living-map__canvas")).toHaveCount(0);
+    await expect(page.locator(".nq-viewtoggle")).toHaveCount(0);
   });
 
-  test("preference reaches stored via consent", async ({ page }) => {
-    // Bản trước chỉ có nhánh xoá — không có đường đồng ý, nên không lưu được.
-    await expect(page.locator(".nq-pref")).toBeVisible({ timeout: 15_000 });
-    await page.getByTestId("pref-input").fill("thích bàn cạnh cửa sổ yên tĩnh");
-    await page.getByTestId("pref-propose").click();
+  test("bản đồ khu vực 2D click được và đổi aria-pressed", async ({ page }) => {
+    await page.goto("/quanverse");
+    const zone = page.getByTestId("qv-zone-quay_pha");
+    await expect(zone).toBeVisible({ timeout: 15_000 });
 
-    const grant = page.getByTestId("pref-grant");
-    await expect(grant).toBeVisible({ timeout: 10_000 });
-    await grant.click();
-
-    await expect(page.getByTestId("pref-stored")).toBeVisible({ timeout: 10_000 });
-    await expect(page.getByTestId("pref-stored")).toContainText("thích bàn cạnh cửa sổ yên tĩnh");
-
-    // Không cần dọn ở đây: `beforeEach` gọi `resetExperienceState` ở ĐẦU mỗi bài,
-    // nên bài sau luôn bắt đầu từ trạng thái fixture dù bài này có rơi giữa chừng.
-    // Bản trước dọn ở cuối — cách đó không bảo vệ được bài đang chạy, và đã để lại
-    // 8 bản sở thích trùng trong kv qua nhiều lần chạy.
+    await expect(zone).toHaveAttribute("aria-pressed", "false");
+    await zone.click();
+    await expect(zone).toHaveAttribute("aria-pressed", "true");
   });
 
-  test("ar-lite fallback path", async ({ page }) => {
-    await expect(page.locator(".nq-ar")).toBeVisible({ timeout: 15_000 });
-    await page.getByTestId("ar-qr").fill("blender-02");
-    await page.getByTestId("ar-start").click();
-    const result = page.getByTestId("ar-result");
-    await expect(result).toBeVisible({ timeout: 10_000 });
-    // Mã nội bộ không được in lên UI — vẫn truy vết được qua data-attribute.
-    await expect(result).toHaveAttribute("data-fallback", "map_or_qr_text");
-    await expect(result).not.toContainText("map_or_qr_text");
-    await expect(page.locator(".nq-ar__anchorbox")).toBeVisible();
+  test("bản đồ có legend trạng thái", async ({ page }) => {
+    await page.goto("/quanverse");
+    await expect(page.getByTestId("quanverse-map")).toBeVisible({ timeout: 15_000 });
+    await expect(page.locator(".nq-qvmap__legend")).toContainText("Ổn định");
+    await expect(page.locator(".nq-qvmap__legend")).toContainText("Quá tải");
+  });
+
+  test("AI Copilot hiện nguồn hậu thuẫn khi có dữ liệu", async ({ page }) => {
+    await page.goto("/quanverse");
+    await expect(page.getByTestId("quanverse-copilot")).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId("copilot-headline")).toBeVisible();
+
+    // Có căn cứ thì phải có citation; không có thì phải nói thẳng.
+    const citations = page.getByTestId("copilot-citations");
+    const noCitations = page.getByTestId("copilot-no-citations");
+    const coCitation = await citations.count();
+    if (coCitation > 0) {
+      await expect(citations).toBeVisible();
+    } else {
+      await expect(noCitations).toBeVisible();
+      await expect(noCitations).toContainText("Chưa có bản ghi hậu thuẫn");
+    }
+  });
+
+  test("nhãn nguồn dữ liệu luôn hiện", async ({ page }) => {
+    await page.goto("/quanverse");
+    await expect(page.getByTestId("quanverse-source")).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId("source-badge")).toContainText("Dữ liệu thật");
   });
 });

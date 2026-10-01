@@ -25,6 +25,15 @@ test.describe("AI Meeting OS — Rà soát Ngữ cảnh & Lịch ca Phân công"
     await page.goto("/cuoc-hop");
     await expect(page.getByRole("heading", { name: /Họp & giao ca/i })).toBeVisible();
 
+    // Pane Copilot mở sẵn ở góc phải dưới và có thể đè lên tab ở CI (font
+    // Ubuntu cao hơn làm layout dịch xuống — local Windows không tái hiện).
+    // UX thiết kế là "chạm vào phần trang thì pane tự thu nhỏ", nên chạm h1
+    // trước khi bấm tab; không vậy click bị `#nq-copilot-root` chặn mãi mãi
+    // (Playwright bỏ qua hit-target bị che, không dispatch pointerdown — khác
+    // người thật, click đầu tiên vẫn làm pane thu nhỏ).
+    await page.locator("h1").first().click();
+    await page.waitForTimeout(600);
+
     // 1. Chuyển sang tab Dán ghi chép
     await page.getByRole("button", { name: /Dán ghi chép/i }).click();
 

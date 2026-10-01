@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from datetime import date
 from typing import TYPE_CHECKING, Any
 
 from ca_agents.llm import complete, parse_json_object
@@ -27,6 +28,33 @@ _TIER1: list[tuple[str, tuple[str, ...]]] = [
     ("cap_nhat_tkb", ("tkb", "thời khoá", "thoi khoa", "học t", "hoc t", "cập nhật học")),
     ("xin_nghi", ("xin nghỉ", "xin nghi", "nghỉ ca", "nghi ca", "không đi làm", "khong di lam")),
 ]
+
+# Cách nói TỰ NHIÊN của nhân viên khi báo bận ("em bận ca sáng thứ 5") không
+# chứa cụm nào ở `_TIER1` — không có chữ "nghỉ". Trước đây những câu này rơi về
+# `khac` (conf 0.55) nên KHÔNG được ghi vào hộp thư, cũng không tới autopilot:
+# nhân viên báo bận xong vẫn bị xếp đúng ca đó mà không ai biết.
+#
+# Vì sao là REGEX có ràng buộc chứ không phải thêm từ khoá trần vào `_TIER1`:
+# câu "em bận học chiều mai, chiều đó đổi với Huy được không" là yêu cầu ĐỔI CA
+# (nhãn vàng `doi_ca` trong `data/golden/messages`). Nếu bắt trần chữ "bận" thì
+# câu đó bị đổi nhãn thành xin nghỉ — sai nghiệp vụ (người ta muốn đổi, không
+# phải nghỉ) và làm hỏng độ chính xác eval. Điều kiện dưới đây chỉ nhận khi
+# người nói báo bận GẮN VỚI CA/NGÀY CỤ THỂ và KHÔNG nhắc tới đổi/nhận ca.
+_BAO_BAN_REGEX = re.compile(
+    r"(?:"
+    r"b[ậa]n\s+(?:ca|bu[ổo]i)"          # "bận ca sáng", "bận buổi chiều"
+    r"|b[áa]o\s+b[ậa]n"                 # "báo bận"
+    r"|(?:ca|bu[ổo]i)\s+(?:s[áa]ng|chi[ềe]u|t[ốo]i)[^.]{0,20}?b[ậa]n"  # "ca tối mai em bận"
+    r")",
+    re.IGNORECASE,
+)
+
+# Nếu người nói đồng thời nhắc tới đổi/nhận ca thì đó là yêu cầu ĐỔI CA, không
+# phải báo bận — nhường cho nhánh `doi_ca`/`nhan_ca`.
+_DOI_CA_HINT_REGEX = re.compile(
+    r"(?:đ[ổo]i|doi|nh[ậa]n|nhan)\s*(?:ca|v[ớo]i|voi|gi[úu]p|giup)",
+    re.IGNORECASE,
+)
 
 
 @dataclass(frozen=True)
@@ -61,15 +89,30 @@ def _extract_tuan(t: str, base_iso_week: str | None = None) -> str:
     m = re.search(r"\b(?:202\d-w(\d{1,2})|w(\d{1,2}))\b", t, re.IGNORECASE)
     if m:
         w_num = int(m.group(1) or m.group(2))
-        return f"2026-W{w_num:02d}"
+        base_year = (base_iso_week or "2026-W01").split("-W")[0]
+        return f"{base_year}-W{w_num:02d}"
 
     base = base_iso_week or "2026-W01"
     base_m = re.search(r"(\d{4})-W(\d{1,2})", base)
     year = int(base_m.group(1)) if base_m else 2026
     current_w = int(base_m.group(2)) if base_m else 1
 
+    def _next_week(y: int, w: int) -> str:
+        """W+1 có xử lý tràn năm (W52/W53 → năm sau, W01).
+
+        Không xử lý tràn sẽ sinh "2026-W53" (không tồn tại) hoặc "2026-W54",
+        khiến ràng buộc ghi vào tuần vô nghĩa.
+        """
+        try:
+            last_week = date(y, 12, 28).isocalendar().week
+        except ValueError:
+            last_week = 52
+        if w >= last_week:
+            return f"{y + 1}-W01"
+        return f"{y}-W{w + 1:02d}"
+
     if any(k in t for k in ("tuần sau", "tuan sau", "tuần tới", "tuan toi")):
-        return f"{year}-W{current_w + 1:02d}"
+        return _next_week(year, current_w)
     if any(k in t for k in ("tuần này", "tuan nay")):
         return f"{year}-W{current_w:02d}"
     return base
@@ -160,6 +203,11 @@ def classify(
         if any(k in t for k in keys):
             matched_intent = intent
             break
+
+    # Báo bận nói tự nhiên ("em bận ca sáng thứ 5") — xem `_BAO_BAN_REGEX`.
+    # Xét SAU tier-1 nên câu có sẵn cụm "đổi ca"/"nhận ca" vẫn giữ nguyên nhãn.
+    if not matched_intent and _BAO_BAN_REGEX.search(t) and not _DOI_CA_HINT_REGEX.search(t):
+        matched_intent = "xin_nghi"
 
     if not matched_intent:
         if mode.strip().lower() == "live":

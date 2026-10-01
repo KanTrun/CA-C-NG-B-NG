@@ -20,6 +20,7 @@ from ca_agents.ag_gmail.oauth import (
     build_authorization_url,
     create_credentials,
     exchange_code_for_tokens,
+    new_pkce_verifier,
     refresh_access_token,
     revoke_token,
 )
@@ -38,6 +39,7 @@ __all__ = [
     "build_authorization_url",
     "create_credentials",
     "exchange_code_for_tokens",
+    "new_pkce_verifier",
     "refresh_access_token",
     "revoke_token",
 ]

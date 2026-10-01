@@ -1,0 +1,38 @@
+{
+  "properties": {
+    "id": {
+      "title": "Id",
+      "type": "string"
+    },
+    "account_id": {
+      "title": "Account Id",
+      "type": "string"
+    },
+    "criteria": {
+      "additionalProperties": true,
+      "title": "Criteria",
+      "type": "object"
+    },
+    "action": {
+      "additionalProperties": true,
+      "title": "Action",
+      "type": "object"
+    },
+    "created_at": {
+      "title": "Created At",
+      "type": "string"
+    },
+    "updated_at": {
+      "title": "Updated At",
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "account_id",
+    "created_at",
+    "updated_at"
+  ],
+  "title": "GmailFilter",
+  "type": "object"
+}

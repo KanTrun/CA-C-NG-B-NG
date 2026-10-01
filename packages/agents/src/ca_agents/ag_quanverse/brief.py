@@ -101,6 +101,9 @@ def brief_living_map(
     modes: list[dict[str, Any]],
     horizon: list[dict[str, Any]],
     data_quality: list[dict[str, Any]] | None = None,
+    thoi_tiet: dict[str, Any] | None = None,
+    stations: dict[str, Any] | None = None,
+    forecast: dict[str, Any] | None = None,
 ) -> PageFacts:
     """Tổng hợp `/quanverse` — khu vực quá tải, việc 15 phút tới, chế độ đang bật."""
     out = PageFacts(page=QuanversePage.LIVING_MAP)
@@ -109,6 +112,61 @@ def brief_living_map(
     hot = [z for z in zone_rows if (z.get("load_signal") or 0) >= 0.7]
     warm = [z for z in zone_rows if 0.4 <= (z.get("load_signal") or 0) < 0.7]
     active_modes = [m for m in modes if m.get("active")]
+
+    # Ưu tiên trạng thái tải từ stations thật (canh_bao) nếu có.
+    if isinstance(stations, dict) and stations.get("co_du_lieu"):
+        station_rows = [
+            s for s in (stations.get("stations") or []) if isinstance(s, dict)
+        ]
+        hot_live = [s for s in station_rows if s.get("canh_bao") == "qua_tai"]
+        warm_live = [s for s in station_rows if s.get("canh_bao") == "chu_y"]
+        if hot_live or warm_live or station_rows:
+            hot = [
+                {
+                    "zone_id": s.get("zone_id"),
+                    "label": s.get("ten") or s.get("zone_id"),
+                    "load_signal": 0.9 if s.get("canh_bao") == "qua_tai" else 0.5,
+                }
+                for s in hot_live
+            ]
+            warm = [
+                {
+                    "zone_id": s.get("zone_id"),
+                    "label": s.get("ten") or s.get("zone_id"),
+                    "load_signal": 0.5,
+                }
+                for s in warm_live
+            ]
+            chi = stations.get("chi_so") or {}
+            if chi.get("don_dang_xu_ly") is not None:
+                out.metrics.append(
+                    _metric(
+                        "orders_live",
+                        "Đơn đang xử lý",
+                        float(chi["don_dang_xu_ly"]),
+                        unit="đơn",
+                        tone="warn" if float(chi["don_dang_xu_ly"]) >= 4 else "default",
+                    )
+                )
+                out.grounded_refs.append("stations.chi_so.don_dang_xu_ly")
+
+    if isinstance(forecast, dict) and forecast.get("co_du_lieu"):
+        peaks = forecast.get("giao_dich_nhat") or []
+        days = forecast.get("so_ngay_du_lieu")
+        if peaks:
+            labels = ", ".join(f"{int(h):02d}:00" for h in peaks[:3])
+            out.facts.append(f"Giờ đông nhất theo lịch sử đơn: {labels}.")
+            out.grounded_refs.append("forecast.giao_dich_nhat")
+        if days is not None:
+            out.metrics.append(
+                _metric(
+                    "forecast_days",
+                    "Ngày dữ liệu dự báo",
+                    float(days),
+                    unit="ngày",
+                )
+            )
+            out.grounded_refs.append("forecast.so_ngay_du_lieu")
 
     out.headline = f"{len(zone_rows)} khu vực đang mở · {len(active_modes)} chế độ bật"
 
@@ -174,6 +232,51 @@ def brief_living_map(
             out.facts.append(f"Chế độ {code} đang bật.")
             out.grounded_refs.append(code)
 
+    # AI FORECAST — tín hiệu thời tiết (nếu có). Chỉ gắn fact/risk tất định,
+    # không bịa số nhu cầu. Mode Trời mưa vẫn cần người duyệt.
+    if isinstance(thoi_tiet, dict) and thoi_tiet.get("co_du_lieu"):
+        hien_tai_raw = thoi_tiet.get("hien_tai")
+        vi_tri_raw = thoi_tiet.get("vi_tri")
+        impact_raw = thoi_tiet.get("anh_huong_quan")
+        hien_tai: dict[str, Any] = hien_tai_raw if isinstance(hien_tai_raw, dict) else {}
+        vi_tri: dict[str, Any] = vi_tri_raw if isinstance(vi_tri_raw, dict) else {}
+        impact: dict[str, Any] = impact_raw if isinstance(impact_raw, dict) else {}
+        mo_ta = str(hien_tai.get("mo_ta") or "").strip()
+        nhiet = hien_tai.get("nhiet_do")
+        thanh = str(vi_tri.get("thanh_pho") or "").strip()
+        tinh = str(vi_tri.get("tinh") or "").strip()
+        noi = ", ".join(x for x in (thanh, tinh) if x)
+        if mo_ta:
+            temp_s = f", {nhiet:.0f}°C" if isinstance(nhiet, (int, float)) else ""
+            loc_s = f" tại {noi}" if noi else ""
+            out.facts.append(f"Thời tiết hiện tại{loc_s}: {mo_ta}{temp_s}.")
+            out.grounded_refs.append("thoi_tiet_hom_nay")
+        tom_tat = str(impact.get("tom_tat") or "").strip()
+        if tom_tat:
+            if impact.get("de_xuat_mode"):
+                out.risks.append(tom_tat)
+            else:
+                out.facts.append(tom_tat)
+        for yeu in list(impact.get("yeu_to") or [])[:3]:
+            text = str(yeu).strip()
+            if text:
+                out.facts.append(text)
+        mode_dx = str(impact.get("de_xuat_mode") or "").strip()
+        if mode_dx:
+            label = str(impact.get("de_xuat_mode_label") or mode_dx)
+            out.next_actions.append(
+                f"Cân nhắc đề xuất chế độ {label} (cần quản lý duyệt — không tự bật)."
+            )
+            out.grounded_refs.append(f"de_xuat_mode:{mode_dx}")
+    elif isinstance(thoi_tiet, dict) and thoi_tiet.get("can_cau_hinh"):
+        out.data_quality.append(
+            DataQualityNotice(
+                code="thoi_tiet_thieu_dia_chi",
+                level="info",
+                message="Chưa có vị trí quán (GPS hoặc địa chỉ) nên AI FORECAST chưa có tín hiệu thời tiết.",
+            )
+        )
+
     for dq in data_quality or []:
         try:
             out.data_quality.append(DataQualityNotice.model_validate(dq))
@@ -181,6 +284,19 @@ def brief_living_map(
             continue
     if not zone_rows:
         out.risks.append("Chưa đọc được khu vực nào của quán.")
+
+    # ── Dự báo NGÀY MAI + độ tin cậy (P1): phần mở rộng, không trùng khối
+    # giờ-đông-hôm-nay ở trên (giữ một metric `forecast_days` duy nhất).
+    if isinstance(forecast, dict) and forecast.get("co_du_lieu"):
+        so_ngay = forecast.get("so_ngay_du_lieu")
+        do_tin = str(forecast.get("do_tin_cay") or "")
+        dinh_mai = [p for p in (forecast.get("dinh_ngay_mai") or [])]
+        if dinh_mai:
+            txt_mai = ", ".join(f"{int(h):02d}:00" for h in dinh_mai[:4])
+            out.facts.append(f"Dự báo ngày mai đông nhất: {txt_mai}.")
+            out.grounded_refs.append("forecast:tomorrow")
+        if do_tin:
+            out.facts.append(f"Độ tin cậy dự báo: {do_tin} ({so_ngay} ngày dữ liệu).")
 
     return out
 

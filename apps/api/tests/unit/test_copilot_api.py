@@ -253,20 +253,20 @@ def test_copilot_voice_runs_pipeline_on_function_call(
     import ca_api.interfaces.http.copilot_voice as voice_module
 
     sent_responses: list[dict[str, object]] = []
+    # Shape THẬT của Gemini Live API: yêu cầu gọi hàm nằm ở field top-level
+    # `toolCall.functionCalls` (BidiGenerateContentServerMessage), KHÔNG phải
+    # `serverContent.modelTurn.parts[].functionCall`. Test cũ dùng shape sai nên
+    # không phát hiện được voice hỏng.
     upstream_events: list[dict[str, object]] = [
         {
-            "serverContent": {
-                "modelTurn": {
-                    "parts": [
-                        {
-                            "functionCall": {
-                                "id": "call_abc",
-                                "name": "run_copilot_pipeline",
-                                "args": {"message": "Báo cáo hao hụt sữa hôm nay"},
-                            }
-                        }
-                    ]
-                }
+            "toolCall": {
+                "functionCalls": [
+                    {
+                        "id": "call_abc",
+                        "name": "run_copilot_pipeline",
+                        "args": {"message": "Báo cáo hao hụt sữa hôm nay"},
+                    }
+                ]
             }
         },
     ]
@@ -321,6 +321,313 @@ def test_copilot_voice_runs_pipeline_on_function_call(
     assert len(sent_responses) == 1
     assert sent_responses[0]["call_id"] == "call_abc"
     assert sent_responses[0]["reply_text"]
+
+
+def test_copilot_voice_function_call_parsing_shapes() -> None:
+    """Parser phải đọc shape Live API thật (`toolCall.functionCalls`).
+
+    Đây là hồi quy cho lỗi voice "không truy cập được dữ liệu": parser cũ chỉ
+    đọc `serverContent.modelTurn.parts[].functionCall` — shape không tồn tại
+    trong Live API — nên tool call của Gemini bị bỏ qua hoàn toàn.
+    """
+    import ca_api.interfaces.http.copilot_voice as voice_module
+
+    # Shape THẬT của Live API.
+    real = voice_module._extract_pipeline_calls(
+        {
+            "toolCall": {
+                "functionCalls": [
+                    {
+                        "id": "call_1",
+                        "name": "run_copilot_pipeline",
+                        "args": {"message": "lịch tuần này"},
+                    }
+                ]
+            }
+        }
+    )
+    assert real == [("call_1", "lịch tuần này")]
+
+    # Shape dự phòng (modelTurn.parts) vẫn phải chạy để không vỡ nếu upstream đổi.
+    fallback = voice_module._extract_pipeline_calls(
+        {
+            "serverContent": {
+                "modelTurn": {
+                    "parts": [
+                        {
+                            "functionCall": {
+                                "id": "call_2",
+                                "name": "run_copilot_pipeline",
+                                "args": {"message": "hao hụt hôm nay"},
+                            }
+                        }
+                    ]
+                }
+            }
+        }
+    )
+    assert fallback == [("call_2", "hao hụt hôm nay")]
+
+    # Nhiều tool call song song trong cùng một message → xử lý hết.
+    parallel = voice_module._extract_pipeline_calls(
+        {
+            "toolCall": {
+                "functionCalls": [
+                    {"id": "a", "name": "run_copilot_pipeline", "args": {"message": "một"}},
+                    {"id": "b", "name": "run_copilot_pipeline", "args": {"message": "hai"}},
+                    {"id": "c", "name": "tool_khac", "args": {"message": "bỏ qua"}},
+                ]
+            }
+        }
+    )
+    assert parallel == [("a", "một"), ("b", "hai")]
+
+    # Message rỗng vẫn phải giữ call_id để trả lời, tránh Gemini treo chờ.
+    assert voice_module._extract_pipeline_calls(
+        {"toolCall": {"functionCalls": [{"id": "z", "name": "run_copilot_pipeline"}]}}
+    ) == [("z", "")]
+
+    # Không có tool call → không có gì.
+    assert voice_module._extract_pipeline_calls({"serverContent": {"turnComplete": True}}) == []
+
+    # Cancellation: id bị huỷ phải nhận diện được (cả snake_case).
+    assert voice_module._cancelled_call_ids({"toolCallCancellation": {"ids": ["x"]}}) == {"x"}
+    assert voice_module._cancelled_call_ids({"tool_call_cancellation": {"ids": ["y"]}}) == {"y"}
+    assert voice_module._cancelled_call_ids({"serverContent": {}}) == set()
+
+
+def test_copilot_voice_parsing_survives_malformed_upstream() -> None:
+    """Dữ liệu upstream sai kiểu KHÔNG được làm sập phiên voice.
+
+    Đây là JSON đi qua mạng: nếu code `.get()` thẳng lên giá trị sai kiểu thì
+    `AttributeError` sẽ giết luôn `_receive_upstream` → cả phiên voice chết.
+    Mọi trường hợp dưới đây phải trả kết quả rỗng thay vì ném lỗi.
+    """
+    import ca_api.interfaces.http.copilot_voice as voice_module
+
+    malformed: list[dict[str, object]] = [
+        {"toolCall": "không phải dict"},
+        {"toolCall": ["list"]},
+        {"toolCall": {"functionCalls": "không phải list"}},
+        {"toolCall": {"functionCalls": [None, 123, "str"]}},
+        {"toolCall": {"functionCalls": [{"id": "a", "name": "run_copilot_pipeline", "args": "str"}]}},
+        {"serverContent": "không phải dict"},
+        {"serverContent": {"modelTurn": "không phải dict"}},
+        {"serverContent": {"modelTurn": {"parts": "không phải list"}}},
+        {"serverContent": {"modelTurn": {"parts": [None, "str", 42]}}},
+        {"toolCallCancellation": "không phải dict"},
+        {"toolCallCancellation": {"ids": "không phải list"}},
+        {"toolCallCancellation": {"ids": [None, ""]}},
+    ]
+    for event in malformed:
+        # Không được ném lỗi.
+        calls = voice_module._extract_pipeline_calls(event)
+        cancelled = voice_module._cancelled_call_ids(event)
+        assert isinstance(calls, list), event
+        assert isinstance(cancelled, set), event
+
+    # `args` sai kiểu → coi như thiếu message nhưng VẪN giữ call_id để trả lời.
+    assert voice_module._extract_pipeline_calls(
+        {"toolCall": {"functionCalls": [{"id": "a", "name": "run_copilot_pipeline", "args": "str"}]}}
+    ) == [("a", "")]
+    # id rỗng/None trong cancellation bị bỏ qua (không tạo entry rác).
+    assert voice_module._cancelled_call_ids({"toolCallCancellation": {"ids": [None, ""]}}) == set()
+
+
+def test_copilot_voice_skips_cancelled_function_call(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Tool call đã bị server huỷ thì không được chạy pipeline nữa."""
+    import ca_api.interfaces.http.copilot_voice as voice_module
+
+    sent_responses: list[dict[str, object]] = []
+    upstream_events: list[dict[str, object]] = [
+        {"toolCallCancellation": {"ids": ["call_cancelled"]}},
+        {
+            "toolCall": {
+                "functionCalls": [
+                    {
+                        "id": "call_cancelled",
+                        "name": "run_copilot_pipeline",
+                        "args": {"message": "hao hụt hôm nay"},
+                    }
+                ]
+            }
+        },
+    ]
+
+    class FakeLiveSession:
+        def __init__(self, context: object) -> None:
+            self.context = context
+
+        async def open(self) -> None:
+            return None
+
+        async def receive(self) -> dict[str, object]:
+            if upstream_events:
+                return upstream_events.pop(0)
+            await asyncio.sleep(60)
+            return {}
+
+        async def send_audio(self, audio: bytes) -> None:
+            return None
+
+        async def send_text(self, text: str) -> None:
+            return None
+
+        async def send_function_response(
+            self, call_id: str, reply_text: str, proposal: object | None = None
+        ) -> None:
+            sent_responses.append({"call_id": call_id, "reply_text": reply_text})
+
+        async def close(self) -> None:
+            return None
+
+    monkeypatch.setattr(voice_module, "GeminiLiveSession", FakeLiveSession)
+    token = _login_manager()
+
+    with client.websocket_connect("/api/v1/copilot/voice") as ws:
+        ws.send_text(json.dumps({"event": "auth", "token": token}))
+        assert ws.receive_json()["event"] == "voice:ready"
+
+        # Hai upstream event (cancel + call) rồi không có voice:proposal nào.
+        assert ws.receive_json()["event"] == "voice:upstream"
+        assert ws.receive_json()["event"] == "voice:upstream"
+
+        ws.send_text(json.dumps({"event": "stop"}))
+
+    assert sent_responses == []
+
+
+def _call_serve_pipeline_directly(
+    monkeypatch: pytest.MonkeyPatch,
+    call_id: str,
+    message: str,
+) -> tuple[list[dict[str, object]], list[dict[str, object]], list[str]]:
+    """Gọi trực tiếp `_serve_pipeline_call` cho nhánh biên; trả (response, event, run_copilot_calls).
+
+    Cố ý KHÔNG đi qua WebSocket: cách đó phụ thuộc timing (client gửi `stop` sớm
+    làm task bị cancel giữa chừng → response chưa kịp ghi → test xanh giả).
+    Gọi trực tiếp thì tất định và nhanh.
+
+    `run_copilot` được thay bằng hàm ghi vết: mọi nhánh ở đây đều phải thoát
+    SỚM, nên nó KHÔNG được gọi lần nào.
+    """
+    import ca_api.interfaces.http.copilot_voice as voice_module
+    from ca_agents.ag_copilot.voice_session import VerifiedVoiceContext
+
+    run_copilot_calls: list[str] = []
+
+    def _forbidden_run_copilot(message: str, context: object) -> object:
+        run_copilot_calls.append(message)
+        raise AssertionError("run_copilot KHONG duoc goi o nhanh bien nay")
+
+    monkeypatch.setattr(voice_module, "run_copilot", _forbidden_run_copilot)
+
+    sent_responses: list[dict[str, object]] = []
+    client_events: list[dict[str, object]] = []
+
+    class FakeLive:
+        async def send_function_response(
+            self, cid: str, reply_text: str, proposal: object | None = None
+        ) -> None:
+            sent_responses.append(
+                {"call_id": cid, "reply_text": reply_text, "proposal": proposal}
+            )
+
+    class FakeWebSocket:
+        async def send_json(self, payload: dict[str, object]) -> None:
+            client_events.append(payload)
+
+    asyncio.run(
+        voice_module._serve_pipeline_call(
+            FakeWebSocket(),
+            FakeLive(),
+            VerifiedVoiceContext(
+                user_id="nv_01", user_role="quan_ly", store_id="quan_01"
+            ),
+            call_id,
+            message,
+        )
+    )
+    return sent_responses, client_events, run_copilot_calls
+
+
+def test_copilot_voice_replies_when_function_call_has_no_message(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Tool call THIẾU `message` vẫn phải được trả lời để Gemini không treo lượt.
+
+    Live API dừng sinh cho tới khi nhận `toolResponse` khớp `id`. Nếu nhánh này
+    im lặng thì lượt hội thoại treo vĩnh viễn — người dùng nói mà trợ lý không
+    bao giờ đáp. Vì vậy phải trả lời kể cả khi không có gì để chạy pipeline.
+    """
+    sent, events, run_calls = _call_serve_pipeline_directly(
+        monkeypatch, "call_empty", ""
+    )
+
+    assert len(sent) == 1, "phai tra dung MOT toolResponse"
+    assert sent[0]["call_id"] == "call_empty"
+    assert str(sent[0]["reply_text"]).strip()
+    assert events == [], "khong duoc gui voice:proposal khi pipeline khong chay"
+    assert run_calls == [], "khong duoc goi run_copilot khi thieu message"
+
+
+def test_copilot_voice_ignores_function_call_without_id(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Tool call không có `id` thì bỏ qua — KHÔNG được gửi toolResponse thiếu id.
+
+    `toolResponse` phải khớp `id` để Live API ghép cặp; gửi response rỗng id sẽ
+    làm hỏng lượt. Nhánh này phải thoát sớm, không chạy pipeline.
+    """
+    sent, events, run_calls = _call_serve_pipeline_directly(
+        monkeypatch, "", "hao hụt hôm nay"
+    )
+
+    assert sent == [], "KHONG duoc gui toolResponse khi thieu id"
+    assert events == []
+    assert run_calls == [], "khong duoc chay pipeline khi thieu id"
+
+
+def test_copilot_voice_whitespace_message_is_normalised_to_empty() -> None:
+    """`message` toàn khoảng trắng phải được CHUẨN HOÁ thành rỗng ngay tầng parse.
+
+    Tầng `_extract_pipeline_calls` chịu trách nhiệm `.strip()`. Nhờ đó
+    `_serve_pipeline_call` chỉ cần kiểm tra một điều kiện duy nhất (`not message`)
+    là đủ chặn mọi trường hợp "không có nội dung thật" — kể cả `"   "`.
+    """
+    import ca_api.interfaces.http.copilot_voice as voice_module
+
+    for raw in ("", "   ", "\n", "\t  \n"):
+        assert voice_module._extract_pipeline_calls(
+            {
+                "toolCall": {
+                    "functionCalls": [
+                        {
+                            "id": "c1",
+                            "name": "run_copilot_pipeline",
+                            "args": {"message": raw},
+                        }
+                    ]
+                }
+            }
+        ) == [("c1", "")], f"raw={raw!r} phai chuan hoa thanh chuoi rong"
+
+    # Chuỗi có nội dung thật vẫn giữ nguyên (không strip mất chữ).
+    assert voice_module._extract_pipeline_calls(
+        {
+            "toolCall": {
+                "functionCalls": [
+                    {
+                        "id": "c2",
+                        "name": "run_copilot_pipeline",
+                        "args": {"message": "  hao hụt hôm nay  "},
+                    }
+                ]
+            }
+        }
+    ) == [("c2", "hao hụt hôm nay")]
 
 
 def test_copilot_execution_receipt_lifecycle_and_isolation() -> None:
@@ -391,6 +698,7 @@ def test_internal_execution_rolls_back_all_kv_mutations_on_failure() -> None:
     assert copilot_draft_get(action_id)["status"] == "executing"
 
 
+@pytest.mark.slow  # fixture 13 register PBKDF2 — chạy ở job unit-slow
 def test_copilot_message_and_draft_creation(_du_nhan_vien_xep_lich: None) -> None:  # noqa: ANN001
     token = _login_manager()
     res = client.post(
@@ -414,6 +722,7 @@ def test_copilot_message_and_draft_creation(_du_nhan_vien_xep_lich: None) -> Non
     assert any(a["action_id"] == action_id and a["decision"] == "propose" for a in audits)
 
 
+@pytest.mark.slow  # fixture 13 register PBKDF2 — chạy ở job unit-slow
 def test_copilot_execute_action_approve_and_idempotency(_du_nhan_vien_xep_lich: None) -> None:  # noqa: ANN001
     token = _login_manager()
     # 1. Send message to create draft
@@ -459,6 +768,7 @@ def test_copilot_execute_action_approve_and_idempotency(_du_nhan_vien_xep_lich: 
     assert conflict.json()["detail"] == "idempotency_conflict"
 
 
+@pytest.mark.slow  # fixture 13 register PBKDF2 — chạy ở job unit-slow
 def test_copilot_hai_quan_ly_duyet_cung_de_xuat_mot_thanh_cong(_du_nhan_vien_xep_lich: None) -> None:  # noqa: ANN001
     """Hai người có quyền duyệt cùng một đề xuất: một 200, người kia 409.
 
@@ -503,6 +813,7 @@ def test_copilot_hai_quan_ly_duyet_cung_de_xuat_mot_thanh_cong(_du_nhan_vien_xep
     assert len(audits) == 1
 
 
+@pytest.mark.slow  # fixture 13 register PBKDF2 — chạy ở job unit-slow
 def test_copilot_execute_action_reject(_du_nhan_vien_xep_lich: None) -> None:  # noqa: ANN001
     token = _login_manager()
     res = client.post(
@@ -604,6 +915,7 @@ def test_copilot_executor_failure_is_terminal(monkeypatch: pytest.MonkeyPatch) -
     assert copilot_draft_get("act_failed_execution")["status"] == "execution_failed"
 
 
+@pytest.mark.slow  # fixture 13 register PBKDF2 — chạy ở job unit-slow
 def test_failed_internal_execution_can_retry_after_atomic_rollback(
     monkeypatch: pytest.MonkeyPatch,
     _du_nhan_vien_xep_lich: None,
@@ -844,6 +1156,7 @@ def test_copilot_execute_action_fails_closed_on_expiry(
     assert copilot_draft_get(action_id)["status"] == expected_status
 
 
+@pytest.mark.slow  # fixture 13 register PBKDF2 — chạy ở job unit-slow
 def test_copilot_vf_scope_insufficient_role(_du_nhan_vien_xep_lich: None) -> None:  # noqa: ANN001
     manager_token = _login_manager()
     staff_token = _login_staff()
@@ -866,6 +1179,7 @@ def test_copilot_vf_scope_insufficient_role(_du_nhan_vien_xep_lich: None) -> Non
     assert "insufficient_role" in staff_exec.json()["detail"]
 
 
+@pytest.mark.slow  # fixture 13 register PBKDF2 — chạy ở job unit-slow
 def test_copilot_action_and_audit_reads_require_tenant_scoped_auth(_du_nhan_vien_xep_lich: None) -> None:  # noqa: ANN001
     manager_token = _login_manager()
     response = client.post(
@@ -918,6 +1232,7 @@ def test_copilot_query_audit_staff_denied() -> None:
     assert "vượt phạm vi vai trò" in body["reply_text"]
 
 
+@pytest.mark.slow  # fixture 13 register PBKDF2 — chạy ở job unit-slow
 def test_copilot_vf_stale_detection(_du_nhan_vien_xep_lich: None) -> None:  # noqa: ANN001
     token = _login_manager()
     res = client.post(
@@ -971,6 +1286,7 @@ def test_inventory_proposal_rejects_live_source_change() -> None:
     assert "stale_rejected" in execute_response.json()["detail"]
 
 
+@pytest.mark.slow  # fixture 13 register PBKDF2 — chạy ở job unit-slow
 def test_schedule_proposal_rejects_live_assignment_change(_du_nhan_vien_xep_lich: None) -> None:  # noqa: ANN001
     from ca_api.persist import kv_set
 
@@ -1023,6 +1339,7 @@ def test_swap_proposal_rejects_live_swap_change() -> None:
     assert "stale_rejected" in execute.json()["detail"]
 
 
+@pytest.mark.slow  # fixture 13 register PBKDF2 — chạy ở job unit-slow
 def test_copilot_rejects_forbidden_correction_before_claim(_du_nhan_vien_xep_lich: None) -> None:  # noqa: ANN001
     token = _login_manager()
     proposal_response = client.post(
@@ -1047,6 +1364,7 @@ def test_copilot_rejects_forbidden_correction_before_claim(_du_nhan_vien_xep_lic
     assert copilot_draft_get(action_id)["status"] == "ready_for_approval"
 
 
+@pytest.mark.slow  # fixture 13 register PBKDF2 — chạy ở job unit-slow
 def test_copilot_amend_action_rejects_unsupported_schedule_correction(_du_nhan_vien_xep_lich: None) -> None:  # noqa: ANN001
     token = _login_manager()
     # 1. Propose & approve action
@@ -1269,6 +1587,7 @@ def test_copilot_message_stream_sse() -> None:
         assert meta.get("intent") == "SCHEDULE_SOLVE"
 
 
+@pytest.mark.slow  # fixture 13 register PBKDF2 — chạy ở job unit-slow
 def test_copilot_message_stream_persists_proposal_and_audit(_du_nhan_vien_xep_lich: None) -> None:
     """A streamed proposal must be saved before the UI can present approval controls."""
     token = _login_manager()
@@ -1513,6 +1832,20 @@ def test_pr10_hanging_task_proposal_and_execute() -> None:
     assert item["copilot_created"] is True
 
 
+def test_hoi_ve_trai_nghiem_ai_duoc_tra_loi() -> None:
+    """Copilot hiểu câu hỏi về 4 mặt Trải nghiệm AI (Living Map/War Room/Cứu ca/Hồn quán)."""
+    token = _login_manager()
+    for cau in ("War Room mô phỏng kịch bản nào?", "Cứu ca tuần này thế nào?", "Hồn quán có gì?"):
+        res = client.post(
+            "/api/v1/copilot/message",
+            json={"message": cau, "channel": "web"},
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert res.status_code == 200
+        assert res.json()["intent"] == "QUERY_QUANVERSE"
+        assert res.json()["direct_answer"], "phải có câu trả lời đọc được"
+
+
 def test_time_off_bao_ban_tao_de_xuat_cho_duyet() -> None:
     """«Tôi bận thứ 5» → PROPOSE_TIME_OFF → duyệt → inbox xin_nghi chờ QL."""
     from ca_api.persist import kv_get
@@ -1540,6 +1873,177 @@ def test_time_off_bao_ban_tao_de_xuat_cho_duyet() -> None:
     assert item["y_dinh"] == "xin_nghi"
     assert item["trang_thai"] == "cho_duyet"
     assert item["rang_buoc"]["thu"] == "T5"
+    # Không nêu ca/khung giờ → đúng là bận CẢ NGÀY (giữ hành vi cũ ở mức ngày).
+    assert "start" not in item["rang_buoc"]
+
+
+def test_time_off_bao_ban_mot_ca_giu_dung_khung() -> None:
+    """«Tôi bận ca sáng thứ 5 vì …» → chỉ chặn ca sáng, KHÔNG nghỉ cả ngày.
+
+    Đây là lỗi gốc: trước đây mọi báo bận đều bị ép về 07:00–22:00 + xin_nghi
+    nên "bận ca sáng" xoá luôn ca chiều/tối cùng ngày.
+
+    Câu có kèm lý do vì copilot nay HỎI LẠI khi NV không nêu lý do (xem
+    `test_time_off_thieu_ly_do_khong_tao_de_xuat`) — test này kiểm khung giờ,
+    không kiểm lý do, nên thêm lý do để vẫn đi tới bước duyệt đơn.
+    """
+    from ca_api.persist import kv_get
+
+    token = _login_staff()
+    res = client.post(
+        "/api/v1/copilot/message",
+        json={"message": "Tôi bận ca sáng thứ 5 vì đi khám bệnh", "channel": "web"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert res.status_code == 200
+    data = res.json()
+    assert data["intent"] == "PROPOSE_TIME_OFF"
+    assert data["action_proposal"] is not None, data.get("reply_text")
+    action_id = data["action_proposal"]["action_id"]
+
+    exec_res = client.post(
+        "/api/v1/copilot/execute-action",
+        json={"action_id": action_id, "decision": "approve"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert exec_res.status_code == 200
+    item = next(t for t in kv_get("inbox_rang_buoc", []) if t.get("agent") == "ag_copilot")
+    assert item["y_dinh"] == "cap_nhat_tkb", "có ca phải là cập nhật TKB, không phải nghỉ cả ngày"
+    assert item["rang_buoc"]["thu"] == "T5"
+    assert item["rang_buoc"]["start"] == "06:30"
+    assert item["rang_buoc"]["end"] == "12:00"
+
+
+def test_time_off_thieu_ly_do_khong_tao_de_xuat() -> None:
+    """NV nói xin nghỉ mà KHÔNG nêu lý do → copilot hỏi lại, KHÔNG tạo đơn.
+
+    Lỗi gốc: parser điền sẵn `ly_do="bận"` nên đơn vẫn tạo được và quản lý duyệt
+    một đơn nghỉ không biết lý do — không ai biết phải hỏi NV điều gì.
+    """
+    token = _login_staff()
+    res = client.post(
+        "/api/v1/copilot/message",
+        json={"message": "Tôi bận buổi chiều thứ 5", "channel": "web"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert res.status_code == 200
+    data = res.json()
+    assert data["action_proposal"] is None, "Không được tạo đề xuất khi thiếu lý do"
+    assert "lý do" in data["reply_text"], f"Phải hỏi lý do: {data['reply_text']!r}"
+
+
+def test_time_off_ly_do_that_co_trong_don_cho_quan_ly() -> None:
+    """Lý do tới tay quản lý phải SẠCH: không lẫn ca/ngày, không phải "bận" mặc định.
+
+    Lỗi gốc: "xin nghỉ ca sáng thứ 3 vì con ốm" bị đưa vào đơn với lý do
+    "sang thứ 3 vì con ốm" — lý do thật bị chôn sau cụm ca/ngày.
+    """
+    from ca_api.persist import kv_get
+
+    token = _login_staff()
+    res = client.post(
+        "/api/v1/copilot/message",
+        json={"message": "Tôi xin nghỉ ca sáng thứ 3 vì con ốm", "channel": "web"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert res.status_code == 200
+    data = res.json()
+    assert data["intent"] == "PROPOSE_TIME_OFF"
+    proposal = data["action_proposal"]
+    assert proposal is not None
+    assert proposal["payload_diff"]["ly_do"] == "con ốm"
+
+    exec_res = client.post(
+        "/api/v1/copilot/execute-action",
+        json={"action_id": proposal["action_id"], "decision": "approve"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert exec_res.status_code == 200
+    item = next(t for t in kv_get("inbox_rang_buoc", []) if t.get("agent") == "ag_copilot")
+    assert "con ốm" in item["tom_tat"], f"Lý do thật không tới quản lý: {item['tom_tat']!r}"
+    for nhieu in ("ca sang", "ca sáng", "thứ 3", "thu 3"):
+        assert nhieu not in item["tom_tat"], f"Token ca/ngày lọt vào lý do: {item['tom_tat']!r}"
+
+
+def test_time_off_luot_hai_tra_loi_ly_do() -> None:
+    """Lượt 1 hỏi lý do → lượt 2 NV trả lời thì ra được đơn, giữ ngày lượt 1."""
+    from ca_api.persist import kv_get
+
+    token = _login_staff()
+    l1 = client.post(
+        "/api/v1/copilot/message",
+        json={"message": "Tôi bận buổi chiều thứ 5", "channel": "web"},
+        headers={"Authorization": f"Bearer {token}"},
+    ).json()
+    assert l1["action_proposal"] is None
+
+    l2 = client.post(
+        "/api/v1/copilot/message",
+        json={
+            "message": "đi khám bệnh",
+            "channel": "web",
+            "recent_messages": ["Tôi bận buổi chiều thứ 5"],
+            "cho_phep_noi_ly_do": True,
+        },
+        headers={"Authorization": f"Bearer {token}"},
+    ).json()
+    proposal = l2.get("action_proposal")
+    assert proposal is not None, f"Lượt 2 phải ra được đề xuất: {l2.get('reply_text')!r}"
+    diff = proposal["payload_diff"]
+    assert diff["ly_do"] == "đi khám bệnh"
+    assert diff["thu"] == "T5", "Phải giữ thứ của lượt 1"
+    assert (diff["start"], diff["end"]) == ("12:00", "17:30"), "Phải giữ khung giờ lượt 1"
+
+    exec_res = client.post(
+        "/api/v1/copilot/execute-action",
+        json={"action_id": proposal["action_id"], "decision": "approve"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert exec_res.status_code == 200
+    assert kv_get("inbox_rang_buoc", []), "Phải có đơn nghỉ trong inbox"
+
+
+def test_time_off_khong_hoi_ly_do_khi_khong_phai_luot_tra_loi() -> None:
+    """Không có cờ `cho_phep_noi_ly_do` → câu ngắn không bị bắt thành lý do."""
+    token = _login_staff()
+    res = client.post(
+        "/api/v1/copilot/message",
+        json={
+            "message": "đi khám bệnh",
+            "channel": "web",
+            "recent_messages": ["Tôi bận buổi chiều thứ 5"],
+        },
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    data = res.json()
+    assert data["action_proposal"] is None
+    assert data["intent"] == "OUT_OF_SCOPE"
+
+
+def test_time_off_ngay_tuong_doi_khong_bi_bo_rhoi() -> None:
+    """"Hôm nay"/"ngày mai" không có "thứ X" → vẫn suy được thứ, không mất đơn."""
+    from ca_api.persist import kv_get
+
+    token = _login_staff()
+    res = client.post(
+        "/api/v1/copilot/message",
+        json={"message": "Tôi bận buổi chiều nay vì việc gia đình", "channel": "web"},
+        headers={"Authorization": f"Bearer {token}"},
+    ).json()
+    proposal = res.get("action_proposal")
+    assert proposal is not None, f"Không được bỏ rơi ngày tương đối: {res.get('reply_text')!r}"
+    assert proposal["payload_diff"]["thu"] in {"T2", "T3", "T4", "T5", "T6", "T7", "CN"}
+    assert proposal["payload_diff"]["ly_do"] == "việc gia đình"
+
+    exec_res = client.post(
+        "/api/v1/copilot/execute-action",
+        json={"action_id": proposal["action_id"], "decision": "approve"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert exec_res.status_code == 200
+    item = next(t for t in kv_get("inbox_rang_buoc", []) if t.get("agent") == "ag_copilot")
+    assert "nay" not in item["tom_tat"], f"Token ngày tương đối lọt vào lý do: {item['tom_tat']!r}"
+
 
 def test_pr10_task_complete_proposal_and_execute() -> None:
     """Đánh dấu xong việc treo qua chat: propose -> approve -> trang_thai='xong'."""

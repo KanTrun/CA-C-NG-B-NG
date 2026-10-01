@@ -105,11 +105,15 @@ def run_solver(
     confirmed_availability: dict[str, dict[str, list[str]]] | None = None,
     store_id: str = "quan_01",
     time_limit_s: float | None = None,
+    nguon_nhat_ky: str = "xep_tu_dong",
 ) -> dict[str, Any]:
     """Build the authoritative input, solve it, and persist the result.
 
     This function intentionally has no dependency on an HTTP router. Legacy
     routes may keep a thin compatibility wrapper around this entrypoint.
+
+    `nguon_nhat_ky` gắn vào bản nhật ký thay đổi: xếp tự động / TKB / gap —
+    UI lọc được theo nguồn thay vì mọi dòng đều hiện "Xếp tự động".
     """
     input_data = build_lich_input(nhan_vien_ngoai=list_nhan_vien_ops())
     week = tuan_iso or _current_week()
@@ -201,14 +205,20 @@ def run_solver(
         day = str(constraint.get("thu") or effective.get("thu") or "")
         if not nv_id or nv_id == "unknown" or not day:
             continue
-        if item.get("y_dinh") == "xin_nghi":
+        # Khung giờ bận (nếu có) — quyết định bận 1 ca hay cả ngày. "Xin nghỉ
+        # ca sáng" giờ đi kèm start/end nên KHÔNG được ép về nghỉ cả ngày.
+        c_start = str(constraint.get("start") or effective.get("start") or "")
+        c_end = str(constraint.get("end") or effective.get("end") or "")
+        co_khung = bool(c_start and c_end)
+        if item.get("y_dinh") == "xin_nghi" and not co_khung:
             pair = (nv_id, day)
             if pair not in added_leave:
                 added_leave.add(pair)
                 input_data.nghi_phep.add(pair)
-        elif item.get("y_dinh") in {"cap_nhat_tkb", "bao_tre"}:
-            start = str(constraint.get("start") or effective.get("start") or "07:00")
-            end = str(constraint.get("end") or effective.get("end") or "12:00")
+        elif item.get("y_dinh") in {"cap_nhat_tkb", "bao_tre", "xin_nghi"}:
+            # xin_nghi CÓ khung giờ rơi vào đây: chặn đúng khung, giữ ca khác.
+            start = c_start or "07:00"
+            end = c_end or "12:00"
             key = (nv_id, day, start, end)
             if key not in added_tkb:
                 added_tkb.add(key)
@@ -271,7 +281,12 @@ def run_solver(
         # không phải nhớ thêm ở từng router. Bọc try để nhật ký hỏng KHÔNG được
         # làm hỏng việc xếp lịch.
         try:
-            _ghi_nhat_ky_thay_doi(week, result.phan_cong, input_data.ca_meta)
+            ghi_nhat_ky_thay_doi(
+                week,
+                result.phan_cong,
+                input_data.ca_meta,
+                nguon=nguon_nhat_ky or "xep_tu_dong",
+            )
         except Exception:
             pass
         _week_store("phan_cong_by_week", week, result.phan_cong)
@@ -283,23 +298,61 @@ def run_solver(
 
 NHAT_KY_TOI_DA = 20
 
+# Nguồn nhật ký hợp lệ — UI map nhãn tiếng Việt theo các khoá này.
+NGUON_NHAT_KY = frozenset({"xep_tu_dong", "tkb", "doi_ca", "gap", "cu_bi"})
 
-def _ghi_nhat_ky_thay_doi(week: str, sau: dict[str, list[str]], ca_meta: Any) -> None:
-    """Lưu diff trước/sau của MỘT lần xếp lịch vào kv `lich_thay_doi_by_week`.
 
-    Giữ tối đa `NHAT_KY_TOI_DA` bản gần nhất mỗi tuần: nhật ký là để ĐỌC LẠI
-    ("ai đổi ca với ai lúc nào"), không phải kho lịch sử vô hạn. Không giới hạn
-    thì mỗi lần bấm xếp lịch lại nối thêm một khối vào một giá trị kv duy nhất —
-    giá trị đó phình theo thời gian và mọi lần đọc đều phải parse toàn bộ.
+def ghi_nhat_ky_thay_doi(
+    week: str,
+    sau: dict[str, list[str]],
+    ca_meta: Any = None,
+    *,
+    nguon: str = "xep_tu_dong",
+    truoc: dict[str, list[str]] | None = None,
+    nhan_vien: dict[str, Any] | None = None,
+) -> dict[str, Any] | None:
+    """Lưu diff trước/sau vào kv `lich_thay_doi_by_week` — đường ghi CHUNG.
+
+    Dùng cho xếp tự động, TKB xếp lại, resolve gap, và duyệt đổi ca. Tag `nguon`
+    để panel `/lich-tuan` lọc được "ai thay ai vì đâu", không còn luôn hiện
+    "Xếp tự động". Giữ tối đa `NHAT_KY_TOI_DA` bản/tuần.
+
+    Trả bản ghi vừa thêm, hoặc `None` khi không có gì đổi (tránh nhiễu).
     """
     from ca_api.services.schedule_diff import so_sanh_phan_cong, tom_tat_thay_doi
 
-    truoc_doc = kv_get("phan_cong_by_week", {})
-    truoc = truoc_doc.get(week, {}) if isinstance(truoc_doc, dict) else {}
-    if not isinstance(truoc, dict):
-        truoc = {}
+    if truoc is None:
+        truoc_doc = kv_get("phan_cong_by_week", {})
+        truoc_raw = truoc_doc.get(week, {}) if isinstance(truoc_doc, dict) else {}
+        truoc = truoc_raw if isinstance(truoc_raw, dict) else {}
 
-    diff = so_sanh_phan_cong(truoc, sau, ca_meta=ca_meta if isinstance(ca_meta, dict) else {})
+    meta = ca_meta if isinstance(ca_meta, dict) else {}
+    if not meta:
+        # Swap/gap có thể không mang ca_meta — lấy meta ca từ seed nếu có để
+        # nhật ký vẫn hiện thứ + khung giờ thay vì chỉ ca_id.
+        try:
+            from ca_solver import build_lich_input
+
+            meta = cast(dict[str, Any], build_lich_input().ca_meta or {})
+        except Exception:
+            meta = {}
+
+    if nhan_vien is None:
+        try:
+            nhan_vien = {
+                str(n.get("id") or n.get("nv_id")): n
+                for n in list_nhan_vien_ops()
+                if isinstance(n, dict) and (n.get("id") or n.get("nv_id"))
+            }
+        except Exception:
+            nhan_vien = {}
+
+    diff = so_sanh_phan_cong(
+        truoc,
+        sau,
+        ca_meta=meta,
+        nhan_vien=nhan_vien or {},
+    )
     if (
         not diff["them"]
         and not diff["bot"]
@@ -307,11 +360,12 @@ def _ghi_nhat_ky_thay_doi(week: str, sau: dict[str, list[str]], ca_meta: Any) ->
         and not diff["doi_giua_hai_ca"]
     ):
         # Không đổi gì thì không ghi — nhật ký toàn dòng "không đổi" là nhiễu.
-        return
+        return None
 
+    nguon_tag = nguon if nguon in NGUON_NHAT_KY else "xep_tu_dong"
     ban_ghi = {
         "luc": datetime.now(UTC).isoformat(),
-        "nguon": "xep_tu_dong",
+        "nguon": nguon_tag,
         "tuan_iso": week,
         "diff": diff,
         "tom_tat": tom_tat_thay_doi(diff),
@@ -328,6 +382,11 @@ def _ghi_nhat_ky_thay_doi(week: str, sau: dict[str, list[str]], ca_meta: Any) ->
         return raw
 
     kv_mutate("lich_thay_doi_by_week", mutate, {})
+    return ban_ghi
+
+
+# Alias cũ — test/import ngoài vẫn dùng được trong lúc chuyển.
+_ghi_nhat_ky_thay_doi = ghi_nhat_ky_thay_doi
 
 
 

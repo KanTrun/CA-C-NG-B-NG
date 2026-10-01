@@ -122,20 +122,23 @@ def main() -> None:
         schema = model.model_json_schema()
         schemas[name] = schema
         path = OUT / f"{name}.json"
-        path.write_text(json.dumps(schema, ensure_ascii=False, indent=2), encoding="utf-8")
+        # `newline="\n"` BẮT BUỘC: `write_text` mặc định dịch `\n` thành CRLF trên
+        # Windows, làm git tưởng 79 file đổi (thực ra chỉ khác xuống dòng) và gây
+        # nhiễu diff. CI chạy Linux nên không thấy, nhưng dev Windows thì có.
+        path.write_text(json.dumps(schema, ensure_ascii=False, indent=2), encoding="utf-8", newline="\n")
         index[name] = str(path.relative_to(ROOT)).replace("\\", "/")
     # Schema bổ sung nằm ngoài CONTRACTS (không vào TS bundle dùng chung).
     for name, model in EXTRA_SCHEMAS.items():
         schema = model.model_json_schema()
         path = OUT / f"{name}.json"
-        path.write_text(json.dumps(schema, ensure_ascii=False, indent=2), encoding="utf-8")
+        path.write_text(json.dumps(schema, ensure_ascii=False, indent=2), encoding="utf-8", newline="\n")
         index[name] = str(path.relative_to(ROOT)).replace("\\", "/")
     (OUT / "index.json").write_text(
-        json.dumps(index, ensure_ascii=False, indent=2), encoding="utf-8"
+        json.dumps(index, ensure_ascii=False, indent=2), encoding="utf-8", newline="\n"
     )
     ts = ROOT / "packages" / "contracts" / "ts" / "contracts.ts"
     ts.parent.mkdir(parents=True, exist_ok=True)
-    ts.write_text(ts_types_from_schemas(schemas), encoding="utf-8")
+    ts.write_text(ts_types_from_schemas(schemas), encoding="utf-8", newline="\n")
     print("wrote", len(CONTRACTS) + len(EXTRA_SCHEMAS), "schemas + ts types")
 
 

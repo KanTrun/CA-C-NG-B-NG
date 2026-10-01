@@ -22,6 +22,18 @@
   background: color-mix(in srgb, var(--nq-accent) 12%, transparent);
 }
 
+.nq-workflow-hint {
+  flex-basis: 100%;
+  margin: 0.35rem 0 0;
+  padding: 0.5rem 0.65rem;
+  border-left: 2px solid var(--nq-accent);
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--nq-accent) 8%, transparent);
+  color: var(--nq-ink);
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+
 .nq-constraint-panel {
   border: 1px solid var(--nq-border);
   border-radius: 6px;
@@ -29,7 +41,7 @@
   background: var(--nq-panel);
 }
 
-.nq-constraint-panel > summary {
+.nq-constraint-panel>summary {
   cursor: pointer;
   font-weight: 700;
   color: var(--nq-ink);
@@ -55,16 +67,71 @@
   width: 100%;
 }
 
-/* Dãy avatar trong ô lịch.
-   Ô lịch rộng ~110px; một ca bar thường có 3–6 người. Bản cũ in tên đầy đủ rồi
-   cắt bằng `-webkit-line-clamp: 3`, nên từ người thứ ba trở đi biến mất sau dấu
-   "…" — người xếp lịch mất thông tin đúng lúc cần nhất. Viết tắt 2 ký tự luôn
-   vừa: 6 người vẫn đọc được, tên đầy đủ nằm ở tooltip và bảng chi tiết ngày. */
+/* Dãy chip nhân sự trong ô lịch.
+   Mỗi người là một chip có viền riêng (xem `.nq-roster-crew-chip`), nên khoảng
+   cách chỉ cần rất nhỏ — viền đã làm việc phân tách. Trước đây tên nằm trần và
+   khoảng cách 3px là ranh giới DUY NHẤT, nên chữ đọc ra như dính liền. */
 .nq-roster-slot-crew {
   display: flex;
   flex-wrap: wrap;
   gap: 3px;
+  width: 100%;
   margin-top: var(--nq-s1);
+}
+
+/* ── Tên nhân sự trong ô lịch: MỘT ô riêng cho mỗi người ──
+   Trước đây tên nằm trần, cạnh nhau, chỉ có dấu phân cách bằng khoảng trắng
+   nên chữ dính liền khi cột hẹp và người xếp lịch không đếm được ai với ai.
+   Nay mỗi người là một chip có viền + nền: ranh giới rõ, đếm được bằng mắt,
+   và tên dài được phép xuống dòng BÊN TRONG chip (`overflow-wrap: anywhere`)
+   thay vì bị `nowrap` đẩy tràn cột. */
+.nq-roster-crew-chip {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.05rem;
+  max-width: 100%;
+  padding: 0.15rem 0.4rem;
+  border: 1px solid color-mix(in srgb, var(--nq-line-strong) 70%, var(--nq-line));
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--nq-bg) 55%, var(--nq-surface-hi));
+  line-height: 1.2;
+}
+
+.nq-roster-crew-chip__who {
+  font-size: 0.76rem;
+  font-weight: 600;
+  color: var(--nq-ink);
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.nq-roster-crew-chip__role {
+  font-family: var(--nq-font-mono);
+  font-size: 0.6rem;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--nq-ink-muted);
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+/* Ghim ca là quyết định của quản lý — đánh dấu bằng accent, không bằng đỏ/vàng. */
+.nq-roster-crew-chip[data-pinned="1"] {
+  border-color: var(--nq-accent);
+  background: color-mix(in srgb, var(--nq-accent) 14%, transparent);
+}
+
+.nq-roster-crew-chip[data-pinned="1"] .nq-roster-crew-chip__who {
+  color: var(--nq-accent-ink-text);
+}
+
+.nq-roster-crew-chip--more {
+  background: transparent;
+  border-style: dashed;
+  color: var(--nq-ink-muted);
+  font-family: var(--nq-font-mono);
+  font-size: 0.68rem;
 }
 
 .nq-avatar {
@@ -110,6 +177,7 @@
   color: var(--nq-st-warn);
   flex: none;
 }
+
 /* NHỊP QUÁN v3 Premium Ops — docs/design-guidelines.md */
 @tailwind base;
 @tailwind components;
@@ -120,25 +188,35 @@
      Ba trục: nền lạnh có chiều sâu, accent gold tiết chế cho "bấm được /
      thuộc về quán", màu trạng thái riêng cho "đang có chuyện gì".
      Nền KHÔNG phẳng: `--nq-bg` là mốc đáy; chiều sâu = gradient body + grain. */
-  --nq-bg: #070d12;                /* xanh đen trầm — mốc đáy */
-  --nq-bg-elevated: #0b141b;       /* vùng chuyển giữa nền và bề mặt */
-  --nq-surface: #0e1b22;           /* panel/card */
-  --nq-surface-2: #101f27;         /* ô trong panel, hàng hover */
-  --nq-surface-3: #142833;         /* overlay nội bộ / toolbar nổi trong panel */
-  --nq-panel: var(--nq-surface);   /* alias — mã cũ dùng --nq-panel */
+  --nq-bg: #070d12;
+  /* xanh đen trầm — mốc đáy */
+  --nq-bg-elevated: #0b141b;
+  /* vùng chuyển giữa nền và bề mặt */
+  --nq-surface: #0e1b22;
+  /* panel/card */
+  --nq-surface-2: #101f27;
+  /* ô trong panel, hàng hover */
+  --nq-surface-3: #142833;
+  /* overlay nội bộ / toolbar nổi trong panel */
+  --nq-panel: var(--nq-surface);
+  /* alias — mã cũ dùng --nq-panel */
   --nq-glass: rgba(14, 27, 34, 0.62);
-  --nq-ink: #e8eef4;               /* chữ chính — nâng nhẹ để AA trên surface */
+  --nq-ink: #e8eef4;
+  /* chữ chính — nâng nhẹ để AA trên surface */
   --nq-ink-muted: rgba(232, 238, 244, 0.64);
   --nq-line: rgba(232, 238, 244, 0.11);
-  --nq-border: var(--nq-line);     /* alias — mã cũ dùng --nq-border */
-  --nq-line-strong: rgba(196, 162, 58, 0.38); /* gold hairline — bớt chói */
+  --nq-border: var(--nq-line);
+  /* alias — mã cũ dùng --nq-border */
+  --nq-line-strong: rgba(196, 162, 58, 0.38);
+  /* gold hairline — bớt chói */
   /* Thang gold 50–900: CTA dùng 500, viền/chữ nhỏ dùng 300–400, hover 400 */
   --nq-accent-50: #faf6e8;
   --nq-accent-100: #f3e9c4;
   --nq-accent-200: #e8d48a;
   --nq-accent-300: #dcc56a;
   --nq-accent-400: #c9a84a;
-  --nq-accent-500: #b8942f;        /* gold đậm hơn — CTA bớt chói hơn #d4af37 cũ */
+  --nq-accent-500: #b8942f;
+  /* gold đậm hơn — CTA bớt chói hơn #d4af37 cũ */
   --nq-accent-600: #9a7a26;
   --nq-accent-700: #7a601e;
   --nq-accent-800: #574416;
@@ -154,7 +232,8 @@
   --nq-danger: #ef4444;
   --nq-ok: #22c55e;
   --nq-warn: #f59e0b;
-  --nq-focus: #e8d48a;             /* vòng tiêu điểm — phải thấy rõ trên nền kính */
+  --nq-focus: #e8d48a;
+  /* vòng tiêu điểm — phải thấy rõ trên nền kính */
   /* Alias dùng bởi redesign Awwwards (class Tailwind arbitrary values) */
   --nq-fg: var(--nq-ink);
   --nq-dim: var(--nq-ink-muted);
@@ -207,13 +286,20 @@
      `--nq-t-num-lg` KHÔNG phải bậc thứ bảy: nó là alias có `clamp()` của bậc
      `display` (cùng vai "con số lớn nhất trên màn hình"), giữ tên cũ để mã đang
      tham chiếu không vỡ. Alias không tính vào sáu bậc. */
-  --nq-t-display: clamp(1.9rem, 3.4vw, 2.6rem); /* mặt tiền — 1 lần/trang */
-  --nq-t-h1: clamp(1.5rem, 2.2vw, 1.85rem);     /* tiêu đề trang — 1 lần/trang */
-  --nq-t-h2: 1.25rem;                           /* tiêu đề khối */
-  --nq-t-h3: 1.0625rem;                         /* tiêu đề mục trong khối */
-  --nq-t-body: 0.9375rem;                       /* chữ đọc chính */
-  --nq-t-small: 0.84rem;                        /* phụ chú, dòng thứ hai */
-  --nq-t-caption: 0.75rem;                      /* nhãn, meta, đơn vị — nhỏ nhất */
+  --nq-t-display: clamp(1.9rem, 3.4vw, 2.6rem);
+  /* mặt tiền — 1 lần/trang */
+  --nq-t-h1: clamp(1.5rem, 2.2vw, 1.85rem);
+  /* tiêu đề trang — 1 lần/trang */
+  --nq-t-h2: 1.25rem;
+  /* tiêu đề khối */
+  --nq-t-h3: 1.0625rem;
+  /* tiêu đề mục trong khối */
+  --nq-t-body: 0.9375rem;
+  /* chữ đọc chính */
+  --nq-t-small: 0.84rem;
+  /* phụ chú, dòng thứ hai */
+  --nq-t-caption: 0.75rem;
+  /* nhãn, meta, đơn vị — nhỏ nhất */
   /* Alias tương thích — CÙNG giá trị với bậc ở trên, không phải bậc mới.
      `--nq-t-micro` gộp vào `caption` (lý do ở trên). `--nq-t-num-lg` gộp vào
      `display`; `--nq-t-num` gộp vào `h3` (số trong bảng đọc như tiêu đề mục). */
@@ -249,11 +335,16 @@
      thể quan trọng hơn — thứ tự ưu tiên thể hiện bằng vị trí và kích thước, không
      bằng độ chói. Vàng cảnh báo ở đây là vàng CAM (#f59e0b), tách hẳn khỏi bảng
      đồng đã gỡ — không còn chỗ nào đọc thành "màu thương hiệu". */
-  --nq-st-ok: var(--nq-ok);          /* đủ người, đúng hạn, đã xong */
-  --nq-st-warn: var(--nq-warn);      /* thiếu người, sắp hạn, chờ xử lý */
-  --nq-st-danger: var(--nq-danger);  /* trống ca, quá hạn, lỗi */
-  --nq-st-info: var(--nq-accent-2);  /* chờ xác nhận, đang xử lý — chưa xấu */
-  --nq-st-idle: var(--nq-ink-muted); /* chưa có gì, không tính là vấn đề */
+  --nq-st-ok: var(--nq-ok);
+  /* đủ người, đúng hạn, đã xong */
+  --nq-st-warn: var(--nq-warn);
+  /* thiếu người, sắp hạn, chờ xử lý */
+  --nq-st-danger: var(--nq-danger);
+  /* trống ca, quá hạn, lỗi */
+  --nq-st-info: var(--nq-accent-2);
+  /* chờ xác nhận, đang xử lý — chưa xấu */
+  --nq-st-idle: var(--nq-ink-muted);
+  /* chưa có gì, không tính là vấn đề */
   --nq-st-ok-soft: rgba(34, 197, 94, 0.14);
   --nq-st-warn-soft: rgba(245, 158, 11, 0.14);
   --nq-st-danger-soft: rgba(239, 68, 68, 0.14);
@@ -448,7 +539,7 @@ button.nq-ink-on-solid,
   color: var(--nq-accent-ink);
 }
 
-.nq-ink-on-solid > * {
+.nq-ink-on-solid>* {
   color: inherit;
 }
 
@@ -576,7 +667,8 @@ h4,
   font-weight: 700;
   font-size: var(--nq-t-micro);
   line-height: 1.4;
-  letter-spacing: 0.14em; /* chữ hoa cần giãn chữ; dấu tiếng Việt không chồng */
+  letter-spacing: 0.14em;
+  /* chữ hoa cần giãn chữ; dấu tiếng Việt không chồng */
   text-transform: uppercase;
   margin: 0 0 var(--nq-s2);
 }
@@ -1411,6 +1503,7 @@ a:focus-visible {
 }
 
 @media (prefers-reduced-motion: reduce) {
+
   .nq-confirm-overlay,
   .nq-confirm-panel {
     animation: none;
@@ -1653,22 +1746,34 @@ a:focus-visible {
   }
 }
 
-.nq-pos-menu {
-  display: flex;
-  flex-direction: column;
-  gap: var(--nq-s3);
-}
+/* `.nq-pos-menu` chuyển sang pos.css (lưới ngang). Nguồn bố cục của khối quầy
+   nằm ở `pos.css` — file được nạp SAU globals.css — để phần quầy có vùng riêng.
+   Không khai lại `display: flex` ở đây, tránh hai nguồn sự thật chọi nhau. */
 
+/* Thẻ món ở quầy: HAI TẦNG, không phải ba cột nằm ngang.
+   Ba cột (ảnh ┃ tên+giá ┃ stepper) chỉ vừa khi ô rộng ≥ 300px. Trong lưới
+   nhiều cột, ô hẹp lại, và bố cục ngang lập tức vỡ: tên bị cắt ("Cà ph…"),
+   giá đè lên nút "−". Hai tầng thì bề rộng ô KHÔNG còn quyết định sự vỡ:
+   tầng trên là ảnh + tên + giá, tầng dưới là stepper căn trái. */
 .nq-pos-row {
   display: flex;
-  align-items: center;
-  gap: 1rem;
-  padding: 0.85rem 1rem;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.7rem 0.8rem;
   border: 1px solid var(--nq-line);
   border-radius: var(--nq-radius-bubble);
   background: color-mix(in srgb, var(--nq-bg-elevated) 88%, transparent);
   box-shadow: var(--nq-shadow-bubble), var(--nq-inner-hi);
   transition: border-color var(--nq-dur-t0);
+}
+
+/* Tầng trên: ảnh bên trái, tên + giá bên phải. `align-items: center` để ảnh và
+   khối chữ cân nhau khi tên món xuống 2 dòng. */
+.nq-pos-row__top {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  min-width: 0;
 }
 
 .nq-pos-row--on {
@@ -1683,14 +1788,24 @@ a:focus-visible {
 .nq-pos-row__name {
   display: block;
   font-weight: 700;
+  font-size: 0.92rem;
   line-height: 1.3;
+  /* Tên tiếng Việt dài được xuống dòng trong ô, không cắt bằng dấu "…" —
+     nhân viên đọc tên món để gọi, cắt tên là mất thông tin. */
+  overflow-wrap: anywhere;
 }
 
 .nq-pos-row__price {
   margin: 0.15rem 0 0;
   font-family: var(--nq-font-mono);
-  font-size: 0.82rem;
+  font-size: 0.8rem;
   color: var(--nq-ink-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Tầng dưới: stepper căn trái, vạch mảnh ngăn với phần thông tin. */
+.nq-pos-row .nq-stepper {
+  justify-content: flex-start;
 }
 
 .nq-pos-cart {
@@ -2151,6 +2266,25 @@ a:focus-visible {
   overflow: hidden;
 }
 
+/* Cắt 2 dòng cho tiêu đề việc treo.
+   Vì sao cắt ở CSS chứ không `substring` ở JS: `/api/v1/hom-nay` đã cắt sẵn
+   `noi_dung[:120]` — cắt theo KÝ TỰ, nên tiêu đề dài bị đứt giữa từ ("…sữa tươi
+   hết hạn 3 hộp — đã tách riê"), đọc ra như lỗi chứ không như "còn nữa". Cắt theo
+   DÒNG thì luôn dừng ở ranh giới từ và có dấu "…" của trình duyệt.
+   `title=` giữ nguyên văn đầy đủ để rê chuột xem hết — cắt bằng JS thì thông tin
+   mất hẳn khỏi DOM, còn ở đây nó vẫn nằm trong `title` và trong trình đọc màn
+   hình (line-clamp chỉ ảnh hưởng hiển thị, không bỏ chữ khỏi DOM). */
+.nq-item-title.nq-clamp-2 {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  /* `overflow-wrap`: tiêu đề tiếng Việt có thể chứa số điện thoại hoặc mã dài
+     không có khoảng trắng — không có dòng này thì cả tiêu đề tràn ngang thay vì
+     xuống dòng, và line-clamp không cắt được gì. */
+  overflow-wrap: anywhere;
+}
+
 .nq-roster-table th,
 .nq-roster-table td {
   padding: 0.45rem 0.55rem;
@@ -2347,6 +2481,7 @@ a:focus-visible {
 }
 
 @media (prefers-reduced-motion: reduce) {
+
   .nq-roster-dialog-panel,
   .nq-inbox-dialog-panel {
     animation: none;
@@ -2443,7 +2578,7 @@ a:focus-visible {
 
 .nq-booking-legend span,
 .nq-booking-table-meta span,
-.nq-booking-reservation-title > span,
+.nq-booking-reservation-title>span,
 .nq-booking-reservation-meta span,
 .nq-booking-assignee,
 .nq-booking-ai {
@@ -2463,11 +2598,19 @@ a:focus-visible {
 }
 
 .nq-booking-legend i[data-tone="ready"],
-.nq-booking-table[data-tone="ready"]::before { background: var(--nq-green); }
+.nq-booking-table[data-tone="ready"]::before {
+  background: var(--nq-green);
+}
+
 .nq-booking-legend i[data-tone="reserved"],
-.nq-booking-table[data-tone="reserved"]::before { background: var(--nq-accent); }
+.nq-booking-table[data-tone="reserved"]::before {
+  background: var(--nq-accent);
+}
+
 .nq-booking-legend i[data-tone="seated"],
-.nq-booking-table[data-tone="seated"]::before { background: var(--nq-red); }
+.nq-booking-table[data-tone="seated"]::before {
+  background: var(--nq-red);
+}
 
 .nq-booking-table-grid {
   display: grid;
@@ -2509,7 +2652,7 @@ a:focus-visible {
   font-size: 1.05rem;
 }
 
-.nq-booking-table-head > span {
+.nq-booking-table-head>span {
   padding: 0.25rem 0.45rem;
   border: 1px solid var(--nq-line);
   border-radius: var(--nq-radius-pill);
@@ -2655,7 +2798,7 @@ a:focus-visible {
   gap: var(--nq-s2);
 }
 
-.nq-booking-reservation-title > span,
+.nq-booking-reservation-title>span,
 .nq-booking-reservation-meta,
 .nq-booking-assignee {
   color: var(--nq-dim);
@@ -2670,7 +2813,9 @@ a:focus-visible {
 
 .nq-booking-reservation-meta .nq-icon,
 .nq-booking-assignee .nq-icon,
-.nq-booking-table-meta .nq-icon { color: var(--nq-accent); }
+.nq-booking-table-meta .nq-icon {
+  color: var(--nq-accent);
+}
 
 .nq-booking-assignee {
   margin-top: var(--nq-s2);
@@ -2689,6 +2834,7 @@ a:focus-visible {
 }
 
 @media (max-width: 720px) {
+
   .nq-booking-section-head,
   .nq-booking-reservation {
     align-items: flex-start;
@@ -2732,6 +2878,7 @@ a:focus-visible {
     opacity: 0;
     transform: translateY(12px);
   }
+
   to {
     opacity: 1;
     transform: translateY(0);
@@ -2784,13 +2931,11 @@ a:focus-visible {
   inset: 0;
   background:
     radial-gradient(circle at 85% 20%, var(--nq-accent-soft) 0%, transparent 45%),
-    repeating-linear-gradient(
-      105deg,
+    repeating-linear-gradient(105deg,
       transparent,
       transparent 48px,
       color-mix(in srgb, var(--nq-accent) 3%, transparent) 48px,
-      color-mix(in srgb, var(--nq-accent) 3%, transparent) 49px
-    );
+      color-mix(in srgb, var(--nq-accent) 3%, transparent) 49px);
   pointer-events: none;
   /* KHÔNG còn `animation: nq-glow-pulse ... infinite`. Quầng sáng này là nền tĩnh:
      nó không biểu diễn trạng thái nào của quán, nên nhịp thở 9 giây chỉ làm mắt
@@ -2803,6 +2948,7 @@ a:focus-visible {
     opacity: 0;
     transform: translateY(-10px);
   }
+
   to {
     opacity: 1;
     transform: translateY(0);
@@ -2998,12 +3144,280 @@ a:focus-visible {
   min-height: 5.5rem;
 }
 
+/* Hoạ tiết nền hero: hạt cà phê + đường nhịp tim, rất nhạt.
+   Vì sao cần: hero trước chỉ có chữ trên một orb gradient — đúng khuôn "dashboard
+   AI chung chung" mà bất kỳ sản phẩm nào cũng dán được. Hoạ tiết này là thứ chỉ
+   quán cà phê mới có, nên nó nói được "đây là NHỊP QUÁN" mà không cần thêm chữ.
+
+   Ràng buộc để nó KHÔNG phá phần chữ:
+     - `position: absolute` + `z-index: 0` + `pointer-events: none`: nằm dưới,
+       không chắn cú bấm của thẻ KPI/ops-pulse.
+     - Màu lấy từ `--nq-accent` (gold của hệ), `opacity` rất thấp: hoạ tiết là
+       CHẤT LIỆU, không phải nội dung. Nhìn thấy khi để ý, không tranh chữ khi đọc.
+     - Không `animation`: đây là nền của trang mở đầu sau đăng nhập, mở cả ngày.
+       Nền động ở chỗ này là thứ người dùng không tắt được.
+     - `mask-image` làm mờ dần về phía phải để hoạ tiết không đụng vùng chữ của
+       dải trạng thái (dải nằm bên trái, ops-pulse bên phải). */
+.nq-dash-hero__motif {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  opacity: 0.5;
+  color: var(--nq-accent);
+  -webkit-mask-image: linear-gradient(105deg, transparent 0%, #000 22%, #000 62%, transparent 88%);
+  mask-image: linear-gradient(105deg, transparent 0%, #000 22%, #000 62%, transparent 88%);
+}
+
+.nq-dash-hero__motif svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* Ở màn hẹp hoạ tiết bị chữ đè gần hết; giữ lại chỉ tốn pixel mà không đọc ra. */
+@media (max-width: 767px) {
+  .nq-dash-hero__motif {
+    display: none;
+  }
+}
+
+.nq-dash-hero>*:not(.nq-dash-hero__motif) {
+  position: relative;
+  z-index: 1;
+}
+
 @media (min-width: 1024px) {
   .nq-dash-hero {
     grid-template-columns: minmax(0, 1fr) minmax(280px, 38%);
     align-items: stretch;
     min-height: 7rem;
   }
+}
+
+/* ── AI FORECAST (/hom-nay) ── */
+.nq-aiforecast {
+  --aif-accent: var(--nq-accent);
+  --aif-soft: color-mix(in srgb, var(--aif-accent) 12%, transparent);
+  margin: 0 0 var(--nq-s6);
+  padding: var(--nq-s4) var(--nq-s5);
+  border: 1px solid var(--nq-line);
+  border-radius: var(--nq-radius-bubble);
+  background:
+    radial-gradient(120% 80% at 100% 0%, var(--aif-soft), transparent 55%),
+    linear-gradient(180deg, color-mix(in srgb, var(--nq-surface) 92%, white), var(--nq-surface));
+  overflow: hidden;
+}
+.nq-aiforecast--nang { --aif-accent: #d97706; }
+.nq-aiforecast--may { --aif-accent: #64748b; }
+.nq-aiforecast--mua,
+.nq-aiforecast--mua_to { --aif-accent: #0284c7; }
+.nq-aiforecast--bao { --aif-accent: #7c3aed; }
+.nq-aiforecast--suong { --aif-accent: #78716c; }
+.nq-aiforecast--empty,
+.nq-aiforecast--loading {
+  --aif-accent: var(--nq-dim);
+}
+.nq-aiforecast__hint {
+  margin: var(--nq-s2) 0 var(--nq-s3);
+  color: var(--nq-dim);
+  font-size: var(--nq-t-body);
+}
+.nq-aiforecast__setup {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--nq-s3);
+  margin-top: var(--nq-s2);
+}
+.nq-aiforecast__linkbtn {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--nq-accent);
+  padding: 0;
+  font: inherit;
+  font-size: var(--nq-t-small);
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.nq-aiforecast__addr {
+  display: flex;
+  flex-direction: column;
+  gap: var(--nq-s2);
+  width: min(100%, 28rem);
+}
+.nq-aiforecast__addr-label {
+  font-size: var(--nq-t-small);
+  color: var(--nq-dim);
+}
+.nq-aiforecast__addr-input {
+  width: 100%;
+  border: 1px solid var(--nq-line);
+  border-radius: var(--nq-radius-bubble);
+  background: var(--nq-surface);
+  color: var(--nq-ink);
+  padding: 0.55rem 0.75rem;
+  font: inherit;
+}
+.nq-aiforecast__loc-msg {
+  margin: 0;
+  color: var(--nq-dim);
+  font-size: var(--nq-t-small);
+}
+.nq-aiforecast__retry {
+  appearance: none;
+  border: 1px solid var(--nq-line);
+  background: transparent;
+  color: var(--nq-ink);
+  border-radius: var(--nq-radius-pill);
+  padding: 0.35rem 0.9rem;
+  font: inherit;
+  cursor: pointer;
+}
+.nq-aiforecast__head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--nq-s4);
+  justify-content: space-between;
+  align-items: flex-end;
+}
+.nq-aiforecast__loc {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin: var(--nq-s2) 0 0;
+  color: var(--nq-dim);
+  font-size: var(--nq-t-small);
+}
+.nq-aiforecast__loc .nq-icon { color: var(--aif-accent); flex: none; }
+.nq-aiforecast__meta { opacity: 0.8; }
+.nq-aiforecast__now {
+  display: flex;
+  align-items: center;
+  gap: var(--nq-s3);
+  min-width: 10rem;
+}
+.nq-aiforecast__icon {
+  display: grid;
+  place-items: center;
+  width: 3.25rem;
+  height: 3.25rem;
+  border-radius: 999px;
+  color: var(--aif-accent);
+  background: var(--aif-soft);
+}
+@keyframes nq-aif-sun {
+  0%, 100% { transform: rotate(0deg); }
+  40% { transform: rotate(8deg); }
+  70% { transform: rotate(-6deg); }
+}
+@keyframes nq-aif-rain {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(2px); }
+}
+.nq-aiforecast__icon--live[data-nhom="nang"] {
+  animation: nq-aif-sun var(--nq-beat-chapter, 0.9s) ease-in-out infinite;
+}
+.nq-aiforecast__icon--live[data-nhom="mua"],
+.nq-aiforecast__icon--live[data-nhom="mua_to"],
+.nq-aiforecast__icon--live[data-nhom="bao"] {
+  animation: nq-aif-rain var(--nq-beat-focus, 0.42s) ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .nq-aiforecast__icon--live { animation: none; }
+}
+.nq-aiforecast__temp {
+  display: block;
+  font-family: var(--nq-font-display);
+  font-size: 1.75rem;
+  line-height: 1;
+  color: var(--nq-ink);
+}
+.nq-aiforecast__desc {
+  display: block;
+  margin-top: 0.2rem;
+  color: var(--nq-dim);
+  font-size: var(--nq-t-small);
+}
+.nq-aiforecast__hours {
+  display: flex;
+  gap: var(--nq-s2);
+  overflow-x: auto;
+  margin-top: var(--nq-s4);
+  padding-bottom: var(--nq-s1);
+  scrollbar-width: thin;
+}
+.nq-aiforecast__hour {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.25rem;
+  min-width: 2.75rem;
+  padding: 0.45rem 0.35rem;
+  border-radius: var(--nq-radius-bubble);
+  color: var(--nq-dim);
+  font-size: var(--nq-t-micro);
+}
+.nq-aiforecast__hour.is-now {
+  background: var(--aif-soft);
+  color: var(--nq-ink);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--aif-accent) 35%, transparent);
+}
+.nq-aiforecast__hour .nq-icon { color: var(--aif-accent); }
+.nq-aiforecast__hour-temp {
+  font-family: var(--nq-font-mono);
+  font-size: var(--nq-t-small);
+  color: var(--nq-ink);
+}
+.nq-aiforecast__impact {
+  margin-top: var(--nq-s4);
+  padding-top: var(--nq-s4);
+  border-top: 1px solid var(--nq-line);
+}
+.nq-aiforecast__impact-title {
+  margin: 0;
+  font-family: var(--nq-font-mono);
+  font-size: var(--nq-t-micro);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--aif-accent);
+}
+.nq-aiforecast__impact-sum {
+  margin: var(--nq-s2) 0;
+  color: var(--nq-ink);
+  font-size: var(--nq-t-body);
+}
+.nq-aiforecast__impact-list {
+  margin: 0 0 var(--nq-s3);
+  padding-left: 1.1rem;
+  color: var(--nq-dim);
+  font-size: var(--nq-t-small);
+}
+.nq-aiforecast__cta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--nq-s2);
+  align-items: center;
+}
+.nq-aiforecast__link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  color: var(--nq-accent-ink-text);
+  font-weight: 600;
+  text-decoration: none;
+}
+.nq-aiforecast__link:hover { text-decoration: underline; }
+.nq-aiforecast__mode-chip {
+  font-size: var(--nq-t-micro);
+  font-family: var(--nq-font-mono);
+  padding: 0.2rem 0.55rem;
+  border-radius: var(--nq-radius-pill);
+  background: color-mix(in srgb, var(--nq-warn) 14%, transparent);
+  color: var(--nq-warn);
 }
 
 .nq-dash-strip {
@@ -3157,6 +3571,7 @@ a:focus-visible {
   from {
     opacity: 0.45;
   }
+
   to {
     opacity: 0.85;
   }
@@ -3270,6 +3685,56 @@ a:focus-visible {
   }
 }
 
+/* Thẻ được AI đánh dấu là việc gấp nhất (`.nq-dash-kpi-cell--hi`) đổi KÍCH THƯỚC
+   chứ không chỉ hiệu ứng.
+   Vì sao: bốn thẻ span 3 đều tăm tắp thì "thẻ nào quan trọng" chỉ đọc ra được khi
+   rê chuột vào đúng nó — tức là người dùng phải đoán trước rồi mới thấy. Nay thẻ
+   quan trọng chiếm nửa lưới (span 6) và ba thẻ còn lại chia nửa kia (span 2), nên
+   phân cấp đọc được ngay từ hình dáng, kể cả khi chuyển động đã bị tắt.
+
+   Dùng `:has()` trên CHÍNH lưới, không dùng `~` (anh em đứng sau): thẻ được đánh
+   dấu có thể là thẻ thứ 1, 2 hay 3 tuỳ `computeOpsPulse` trả về. Với `~` mà thẻ
+   nổi nằm giữa, tổng span thành 3 + 6 + 2 + 2 = 13 > 12 và lưới nhảy hàng — đúng
+   lỗi chỉ lộ ra ở vài trạng thái dữ liệu. `:has()` chọn được mọi thẻ bất kể thứ tự.
+
+   Không hỗ trợ `:has()` thì rơi về nguyên trạng span 3 — mất phân cấp kích thước
+   nhưng không vỡ bố cục, nên đây là cải tiến có thoái hoá an toàn.
+
+   Đánh đổi đã cân nhắc: ba thẻ thường hẹp hơn (2/12 ≈ 190px ở màn 1440) — nhãn
+   viết hoa cỡ micro xuống 2 dòng, chấp nhận được vì chúng là thẻ phụ.
+   Khi quán yên ổn, `computeOpsPulse` trả `highlightKpi: "ok"` và KHÔNG thẻ nào
+   nhận `--hi`: cả bốn về span 3 như cũ. Trạng thái "yên" đọc ra từ chính việc
+   không có thẻ nào phình to — kích thước trở thành một kênh thông tin thật. */
+@media (min-width: 768px) {
+  .nq-dash-kpis:has(.nq-dash-kpi-cell--hi) .nq-dash-kpi-cell {
+    grid-column: span 2;
+  }
+
+  .nq-dash-kpis:has(.nq-dash-kpi-cell--hi) .nq-dash-kpi-cell--hi {
+    grid-column: span 6;
+  }
+}
+
+/* Dưới 768px giữ nguyên 2×2 (mỗi thẻ span 6) kể cả khi có thẻ nổi: màn hẹp thì
+   6 cột không đủ chỗ cho ba thẻ phụ, và lưới 3 cột ở 375px sẽ ngắt nhãn thành 3
+   dòng. Ở đây phân cấp do viền `--pulse-hi` + hiệu ứng nghiêng đảm nhiệm. */
+
+/* Viền của thẻ nổi viết ở TẦNG CELL, không ở tầng thẻ.
+   Vì sao: `.nq-dash-kpi` (định nghĩa thẻ) nằm SAU khối này trong tệp — nếu đặt
+   `box-shadow` cho `.nq-dash-kpi--pulse-hi` ở đây thì nó bị luật sau ghi đè, và
+   thẻ nổi chỉ còn cái viền mảnh, đúng lỗi đã đo được (`shadow` giống hệt ba thẻ
+   kia). Đặt ở tầng `.nq-dash-kpi-cell--hi` — một lớp mới, không cạnh tranh độ
+   đặc hiệu với `.nq-dash-kpi` — nên bậc nổi luôn thắng bất kể thứ tự khai báo.
+   Đây là bậc nổi CAO NHẤT trong trang (`--nq-shadow-float`), trên cả hero strip
+   và các khối chart (`--nq-elev-1`): thẻ AI chọn là việc gấp nhất, phải đứng
+   trước mọi thứ khác về thị giác. */
+.nq-dash-kpi-cell--hi {
+  outline: 2px solid color-mix(in srgb, var(--nq-accent) 55%, transparent);
+  outline-offset: 2px;
+  border-radius: var(--nq-radius-bubble);
+  box-shadow: var(--nq-shadow-float);
+}
+
 .nq-dash-kpi {
   display: flex;
   flex-direction: column;
@@ -3355,7 +3820,49 @@ a:focus-visible {
   border: 1px solid var(--nq-line);
   border-radius: var(--nq-radius-bubble);
   padding: var(--nq-s4) var(--nq-s5);
-  box-shadow: var(--nq-shadow-bubble);
+  /* Bậc nổi HẠ XUỐNG elev-1 (trước là `--nq-shadow-bubble` = elev-2).
+     Vì sao: hero strip, ops-pulse và thẻ KPI cũng đang ở elev-2. Ba bậc nổi bằng
+     nhau đứng cạnh nhau thì mắt không biết khối nào quan trọng hơn — mọi thứ nổi
+     như nhau nghĩa là không có gì nổi. Khối biểu đồ là khối ĐỂ ĐỌC, không phải
+     khối cần hành động ngay, nên hạ một bậc. */
+  box-shadow: var(--nq-elev-1);
+}
+
+/* Tiêu đề khối biểu đồ dùng cùng cấp với `.nq-block-title` của các khối khác.
+   Bản trước là `<h3 class="nq-dash-chart-title">` (cỡ 0.72rem, chữ hoa, màu
+   accent) — cấp bậc thị giác thấp hơn hẳn "Việc treo gần nhất" nằm ngay dưới, nên
+   trang đọc ra như thể biểu đồ là phụ lục của danh sách. Trang này chỉ có một
+   tầng khối, nên mọi tiêu đề khối phải cùng một dạng. */
+.nq-dash-chart-title.nq-block-title {
+  margin: 0 0 var(--nq-s3);
+}
+
+/* Dòng "Xem chi tiết →" của từng khối — nhất quán với khối "Việc treo gần nhất"
+   (đã làm đúng từ trước), thay vì mỗi khối một kiểu liên kết ngầm. */
+.nq-block-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--nq-s2);
+  margin-top: var(--nq-s3);
+  padding-top: var(--nq-s3);
+  border-top: 1px solid var(--nq-line);
+}
+
+.nq-block-foot a {
+  font-size: 0.75rem;
+  color: var(--nq-accent-ink-text);
+  text-decoration: none;
+}
+
+.nq-block-foot a:hover {
+  text-decoration: underline;
+}
+
+.nq-block-foot__note {
+  font-size: var(--nq-t-caption);
+  color: var(--nq-ink-muted);
 }
 
 .nq-dash-chart-title {
@@ -3565,6 +4072,41 @@ a:focus-visible {
   gap: var(--nq-s4);
 }
 
+/* Khối con trong cột phụ.
+   Vì sao cần: bản trước cột phải là một `<aside>` chứa ba thứ KHÁC CHỦ ĐỀ mà
+   không có tiêu đề nào — cảnh báo tồn, hao hụt, và nhật ký sửa lịch. Đọc ra ba
+   mẩu rời rạc, và mắt không có chỗ bám để biết khối nào bắt đầu ở đâu. Nay mỗi
+   nhóm có `<h2 class="nq-block-title">` riêng và vỏ riêng.
+   Bậc nổi elev-1 (cùng khối biểu đồ): cột phụ là nơi TRA CỨU, không phải nơi
+   quyết định — nó không được nổi hơn thẻ KPI. */
+.nq-dash-aside-block {
+  border: 1px solid var(--nq-line);
+  border-radius: var(--nq-radius-bubble);
+  background: color-mix(in srgb, var(--nq-bg-elevated) 75%, transparent);
+  padding: var(--nq-s4);
+  box-shadow: var(--nq-elev-1);
+}
+
+.nq-dash-aside-block>.nq-block-title {
+  margin: 0 0 var(--nq-s3);
+}
+
+.nq-dash-aside-block__body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--nq-s3);
+}
+
+/* Trạng thái "không có gì" của khối cảnh báo. Cố ý KHÔNG dùng `.nq-alert`: đây
+   là tin tốt ("không có cảnh báo nào"), mà `.nq-alert` là hình dáng dành cho
+   chuyện cần chú ý. Nói "mọi thứ ổn" bằng khung cảnh báo là dạy người dùng bỏ qua
+   khung cảnh báo. */
+.nq-dash-aside-clear {
+  margin: 0;
+  font-size: var(--nq-t-small);
+  color: var(--nq-ink-muted);
+}
+
 .nq-dash-aside-note {
   margin: 0;
   font-size: 0.85rem;
@@ -3572,7 +4114,56 @@ a:focus-visible {
 
 .nq-dash-aside-link {
   font-size: 0.75rem;
-  color: var(--nq-accent);
+  color: var(--nq-accent-ink-text);
+}
+
+/* ── Sparkline xu hướng việc treo ── */
+.nq-spark {
+  display: block;
+  width: 100%;
+  height: auto;
+  overflow: visible;
+}
+
+.nq-spark__bar {
+  transition: opacity var(--nq-beat-settle) var(--nq-ease-out);
+}
+
+.nq-spark-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--nq-s4);
+  margin-bottom: var(--nq-s2);
+}
+
+.nq-spark-key {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--nq-s2);
+  font-size: var(--nq-t-caption);
+  color: var(--nq-ink-muted);
+}
+
+.nq-spark-key__swatch {
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: 2px;
+  flex-shrink: 0;
+}
+
+.nq-spark-axis {
+  display: flex;
+  justify-content: space-between;
+  margin-top: var(--nq-s2);
+  font-family: var(--nq-font-mono);
+  font-size: 0.62rem;
+  color: var(--nq-ink-muted);
+}
+
+.nq-spark-empty {
+  margin: 0;
+  font-size: var(--nq-t-small);
+  color: var(--nq-ink-muted);
 }
 
 .nq-dash-timeline-list {
@@ -3667,7 +4258,7 @@ a:focus-visible {
   animation: nq-rise var(--nq-dur-t0) var(--nq-ease-out) both;
 }
 
-.nq-drawer-panel li + li {
+.nq-drawer-panel li+li {
   margin-top: 0.35rem;
 }
 
@@ -3715,7 +4306,7 @@ a:focus-visible {
   margin-bottom: var(--nq-s5);
 }
 
-.nq-field > span {
+.nq-field>span {
   display: block;
   margin-bottom: var(--nq-s2);
   font-size: 0.88rem;
@@ -3770,9 +4361,9 @@ a:focus-visible {
 }
 
 /* Mọi control trực tiếp trong Field đều full-width nếu chưa có class riêng */
-.nq-field > textarea,
-.nq-field > input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="hidden"]):not([type="range"]),
-.nq-field > select {
+.nq-field>textarea,
+.nq-field>input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="hidden"]):not([type="range"]),
+.nq-field>select {
   display: block;
   width: 100%;
   max-width: 100%;
@@ -3787,15 +4378,15 @@ a:focus-visible {
   line-height: 1.4;
 }
 
-.nq-field > textarea {
+.nq-field>textarea {
   min-height: 9rem;
   line-height: 1.55;
   resize: vertical;
 }
 
-.nq-field > textarea:focus,
-.nq-field > input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="hidden"]):not([type="range"]):focus,
-.nq-field > select:focus {
+.nq-field>textarea:focus,
+.nq-field>input:not([type="checkbox"]):not([type="radio"]):not([type="file"]):not([type="hidden"]):not([type="range"]):focus,
+.nq-field>select:focus {
   outline: none;
   border-color: var(--nq-accent);
   box-shadow: 0 0 0 2px var(--nq-accent-soft);
@@ -4048,12 +4639,10 @@ a:focus-visible {
 }
 
 .nq-skeleton {
-  background: linear-gradient(
-    90deg,
-    var(--nq-surface) 0%,
-    color-mix(in srgb, var(--nq-accent-soft) 50%, var(--nq-surface)) 50%,
-    var(--nq-surface) 100%
-  );
+  background: linear-gradient(90deg,
+      var(--nq-surface) 0%,
+      color-mix(in srgb, var(--nq-accent-soft) 50%, var(--nq-surface)) 50%,
+      var(--nq-surface) 100%);
   background-size: 200% 100%;
   animation: nq-shimmer 1.6s var(--nq-ease-out) infinite;
   border-radius: var(--nq-radius);
@@ -4063,6 +4652,7 @@ a:focus-visible {
   0% {
     background-position: 200% 0;
   }
+
   100% {
     background-position: -200% 0;
   }
@@ -4095,7 +4685,7 @@ a:focus-visible {
   position: relative;
 }
 
-.nq-more > button {
+.nq-more>button {
   min-height: 40px;
   padding: 0.4rem 0.65rem;
   background: transparent;
@@ -4167,12 +4757,12 @@ a:focus-visible {
   transform: scale(var(--nq-press));
 }
 
-.nq-more > button {
+.nq-more>button {
   border-radius: var(--nq-radius-pill);
   transition: transform var(--nq-dur-press) var(--nq-ease-spring);
 }
 
-.nq-more > button:active {
+.nq-more>button:active {
   transform: scale(var(--nq-press));
 }
 
@@ -4180,6 +4770,7 @@ a:focus-visible {
   .nq-nav {
     display: none;
   }
+
   .nq-bottom {
     display: flex;
   }
@@ -4202,9 +4793,11 @@ a:focus-visible {
 .will-change-transform {
   will-change: transform;
 }
+
 .will-change-opacity {
   will-change: opacity;
 }
+
 .will-change-transform-opacity {
   will-change: transform, opacity;
 }
@@ -4336,15 +4929,43 @@ a:focus-visible {
   animation: nq-pulse-beat 2.4s var(--nq-ease-inout) infinite;
 }
 
-.nq-pulse span:nth-child(1) { height: 22px; animation-delay: 0ms; }
-.nq-pulse span:nth-child(2) { height: 34px; animation-delay: 180ms; }
-.nq-pulse span:nth-child(3) { height: 48px; animation-delay: 360ms; }
-.nq-pulse span:nth-child(4) { height: 34px; animation-delay: 540ms; }
-.nq-pulse span:nth-child(5) { height: 22px; animation-delay: 720ms; }
+.nq-pulse span:nth-child(1) {
+  height: 22px;
+  animation-delay: 0ms;
+}
+
+.nq-pulse span:nth-child(2) {
+  height: 34px;
+  animation-delay: 180ms;
+}
+
+.nq-pulse span:nth-child(3) {
+  height: 48px;
+  animation-delay: 360ms;
+}
+
+.nq-pulse span:nth-child(4) {
+  height: 34px;
+  animation-delay: 540ms;
+}
+
+.nq-pulse span:nth-child(5) {
+  height: 22px;
+  animation-delay: 720ms;
+}
 
 @keyframes nq-pulse-beat {
-  0%, 100% { transform: scaleY(0.55); opacity: 0.55; }
-  45% { transform: scaleY(1); opacity: 1; }
+
+  0%,
+  100% {
+    transform: scaleY(0.55);
+    opacity: 0.55;
+  }
+
+  45% {
+    transform: scaleY(1);
+    opacity: 1;
+  }
 }
 
 /* Số liệu thật của quán — điểm nhấn thị giác chính, thay cho trang trí.
@@ -4416,7 +5037,7 @@ a:focus-visible {
   transition: background var(--nq-beat-settle) var(--nq-ease-out);
 }
 
-.nq-capability__row + .nq-capability__row {
+.nq-capability__row+.nq-capability__row {
   border-top: 1px solid var(--nq-line);
 }
 
@@ -4623,7 +5244,7 @@ a:focus-visible {
   background: color-mix(in srgb, var(--nq-bg-elevated) 60%, transparent);
 }
 
-.nq-demo > summary {
+.nq-demo>summary {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -4637,11 +5258,11 @@ a:focus-visible {
   transition: color var(--nq-beat-settle) var(--nq-ease-out);
 }
 
-.nq-demo > summary:hover {
+.nq-demo>summary:hover {
   color: var(--nq-ink);
 }
 
-.nq-demo > summary::marker {
+.nq-demo>summary::marker {
   color: var(--nq-accent);
 }
 
@@ -4713,13 +5334,26 @@ a:focus-visible {
 }
 
 @keyframes nq-spin {
-  to { transform: rotate(360deg); }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .nq-pulse span { animation: none; transform: scaleY(0.8); opacity: 0.8; }
-  .nq-demo__pending { animation: none; }
-  .nq-chapter[data-enter="pending"] { opacity: 1; transform: none; }
+  .nq-pulse span {
+    animation: none;
+    transform: scaleY(0.8);
+    opacity: 0.8;
+  }
+
+  .nq-demo__pending {
+    animation: none;
+  }
+
+  .nq-chapter[data-enter="pending"] {
+    opacity: 1;
+    transform: none;
+  }
 }
 
 /* Khối tính năng của mặt tiền: dùng đúng bề mặt và bậc nổi của hệ thống.
@@ -4884,6 +5518,61 @@ a:focus-visible {
     gap: var(--nq-s4);
   }
 
+  .nq-shiftlog__panel-head {
+    display: flex;
+    flex-direction: column;
+    gap: var(--nq-s2);
+  }
+
+  .nq-shiftlog__panel-title {
+    margin: 0;
+    font-size: 1rem;
+    font-weight: 700;
+    color: var(--nq-fg);
+  }
+
+  .nq-shiftlog__panel-hint {
+    margin: 0;
+    font-size: 0.82rem;
+    color: var(--nq-ink-muted);
+  }
+
+  .nq-shiftlog__filters {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--nq-s2);
+  }
+
+  .nq-shiftlog__filters select {
+    min-height: 2rem;
+    padding: 0.25rem 0.6rem;
+    border: 1px solid var(--nq-line);
+    border-radius: var(--nq-radius-sm, 8px);
+    background: var(--nq-bg);
+    color: var(--nq-fg);
+    font-size: 0.82rem;
+  }
+
+  .nq-shiftlog__flat-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--nq-s2);
+  }
+
+  .nq-shiftlog__flat-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--nq-s3);
+    padding: var(--nq-s2) var(--nq-s3);
+    border: 1px solid var(--nq-line);
+    border-radius: var(--nq-radius-sm, 8px);
+    background-color: var(--nq-bg-elevated);
+  }
+
   .nq-shiftlog__entry {
     display: flex;
     flex-direction: column;
@@ -4915,6 +5604,44 @@ a:focus-visible {
   .nq-shiftlog__more {
     font-size: 0.8rem;
     color: var(--nq-ink-muted);
+  }
+
+  .nq-week-status {
+    padding: var(--nq-s4);
+    border: 1px solid var(--nq-line);
+    border-radius: var(--nq-radius-bubble);
+    background-color: var(--nq-surface);
+  }
+
+  .nq-week-status__title {
+    margin: 0 0 var(--nq-s3);
+    font-size: 0.95rem;
+    font-weight: 700;
+  }
+
+  .nq-week-status__grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+    gap: var(--nq-s3);
+    margin: 0;
+  }
+
+  .nq-week-status__grid dt {
+    font-size: 0.7rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: var(--nq-dim);
+  }
+
+  .nq-week-status__grid dd {
+    margin: 0.15rem 0 0;
+    font-size: 0.88rem;
+    color: var(--nq-fg);
+  }
+
+  .nq-week-status__grid [data-tone="urgent"] dd {
+    color: var(--nq-st-warn-ink);
   }
 
   .nq-shiftdiff {
@@ -5047,11 +5774,13 @@ a:focus-visible {
   }
 
   @keyframes nq-pending-pulse {
+
     0%,
     100% {
       opacity: 0.35;
       transform: scale(0.85);
     }
+
     50% {
       opacity: 1;
       transform: scale(1);
@@ -5176,13 +5905,33 @@ a:focus-visible {
     animation: nq-fade-in var(--nq-beat-focus) var(--nq-ease-out) both;
   }
 
-  .nq-table tbody tr:nth-child(2) { animation-delay: 40ms; }
-  .nq-table tbody tr:nth-child(3) { animation-delay: 80ms; }
-  .nq-table tbody tr:nth-child(4) { animation-delay: 120ms; }
-  .nq-table tbody tr:nth-child(5) { animation-delay: 160ms; }
-  .nq-table tbody tr:nth-child(6) { animation-delay: 200ms; }
-  .nq-table tbody tr:nth-child(7) { animation-delay: 240ms; }
-  .nq-table tbody tr:nth-child(8) { animation-delay: 280ms; }
+  .nq-table tbody tr:nth-child(2) {
+    animation-delay: 40ms;
+  }
+
+  .nq-table tbody tr:nth-child(3) {
+    animation-delay: 80ms;
+  }
+
+  .nq-table tbody tr:nth-child(4) {
+    animation-delay: 120ms;
+  }
+
+  .nq-table tbody tr:nth-child(5) {
+    animation-delay: 160ms;
+  }
+
+  .nq-table tbody tr:nth-child(6) {
+    animation-delay: 200ms;
+  }
+
+  .nq-table tbody tr:nth-child(7) {
+    animation-delay: 240ms;
+  }
+
+  .nq-table tbody tr:nth-child(8) {
+    animation-delay: 280ms;
+  }
 
   .nq-table tbody tr:hover {
     background-color: var(--nq-accent-soft);
@@ -5361,6 +6110,12 @@ a:focus-visible {
   .nq-tip {
     position: absolute;
     z-index: 60;
+    /* KHÔNG bao giờ bắt sự kiện chuột: tooltip là lớp thông tin phủ trên nội
+       dung. Nếu nó nhận hover, di chuột vào tooltip có thể làm đổi trạng thái
+       hover của nút bên dưới (hiện → đẩy → ẩn → hiện…), gây giật màn hình —
+       đúng lỗi từng thấy ở nút Xoá trong bảng Gmail. Tiêu điểm bàn phím vẫn mở
+       được tooltip qua :focus-within của wrap. */
+    pointer-events: none;
     max-width: 22ch;
     padding: var(--nq-s2) var(--nq-s3);
     border: 1px solid var(--nq-line-strong);
@@ -5672,6 +6427,7 @@ a.nq-bento-surface:active {
     opacity: 0;
     transform: translateY(10px) scale(0.98);
   }
+
   to {
     opacity: 1;
     transform: none;
@@ -5720,8 +6476,12 @@ a.nq-bento-surface:active {
 }
 
 /* ── Ops register (T0) ── */
+/* Trang vận hành dùng bề rộng sẵn có. TRƯỚC ĐÂY cap ở `--nq-max-narrow`
+   (720px) → trên màn 1366px thừa hai dải trống rất lớn hai bên (user phàn nàn
+   "chừa hai khoảng trống 2 bên quá nhiều"). Nay chỉ giới hạn ở `--nq-max`
+   (1600px) để nội dung giãn rộng, vẫn không tràn trên màn siêu rộng. */
 .nq-page--run {
-  max-width: var(--nq-max-narrow);
+  max-width: var(--nq-max);
   margin: 0 auto;
 }
 
@@ -5890,7 +6650,7 @@ a.nq-bento-surface:active {
   bottom: calc(0.6rem + var(--nq-safe-b));
   left: calc(0.6rem + var(--nq-safe-l));
   right: calc(0.6rem + var(--nq-safe-r));
-  max-width: calc(var(--nq-max-narrow) + 1.2rem);
+  max-width: min(1100px, 100%);
   margin: 0 auto;
   background: var(--nq-glass-1);
   backdrop-filter: var(--nq-blur-glass);
@@ -6079,12 +6839,23 @@ a.nq-bento-surface:active {
 .nq-item-title {
   margin: 0;
   font-weight: 600;
+  /* Cắt tối đa 3 dòng cho tiêu đề trong danh sách. Bug QA đợt 5: một bản giao
+     ca dán 1.000 emoji làm thẻ cao 760px (85% màn hình) và che hết danh sách.
+     `line-clamp` chỉ ảnh hưởng hiển thị — chữ vẫn còn trong DOM cho screen
+     reader và cho thao tác copy. */
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 3;
+  line-clamp: 3;
+  overflow-wrap: anywhere;
 }
 
 .nq-item-sub {
   margin: 0.35rem 0 0;
   font-size: 0.82rem;
   color: var(--nq-ink-muted);
+  overflow-wrap: anywhere;
 }
 
 /* ── Việc treo: phân nhóm theo trạng thái ── */
@@ -6130,9 +6901,17 @@ a.nq-bento-surface:active {
   flex: none;
 }
 
-.nq-treo-section-dot--danger { background: var(--nq-danger); }
-.nq-treo-section-dot--warn { background: var(--nq-warn); }
-.nq-treo-section-dot--ok { background: var(--nq-ok); }
+.nq-treo-section-dot--danger {
+  background: var(--nq-danger);
+}
+
+.nq-treo-section-dot--warn {
+  background: var(--nq-warn);
+}
+
+.nq-treo-section-dot--ok {
+  background: var(--nq-ok);
+}
 
 .nq-treo-section-count {
   font-family: var(--nq-font-mono);
@@ -6314,13 +7093,21 @@ a.nq-bento-surface:active {
 }
 
 .nq-roster-wrap {
-  overflow-x: auto;
   border: 1px solid var(--nq-line);
   border-radius: var(--nq-radius);
   background: color-mix(in srgb, var(--nq-bg-elevated) 55%, transparent);
   animation: nq-rise var(--nq-dur-t0) var(--nq-ease-out) both;
-  max-height: min(70vh, 52rem);
-  overflow: auto;
+  /*
+    KHÔNG đặt `max-height`/`overflow: auto` ở đây (đã từng có
+    `max-height: min(70vh, 52rem)`). Mục tiêu của lưới tuần là đọc được TRỌN
+    tuần trong một khung: 3 ca × 7 ngày. Thanh cuộn dọc trong khung làm mất
+    đúng thứ người xếp lịch cần — thấy cả tuần cùng lúc.
+    Lưới co theo bề rộng (`table-layout: fixed`), và chiều cao chốt theo nội
+    dung nên 21 ô luôn nằm gọn trong khung ở màn hình vận hành (≥1280px).
+    `overflow-x: auto` chỉ còn là lưới an toàn cho màn hẹp, không phải cơ chế
+    chính.
+  */
+  overflow-x: auto;
 }
 
 .nq-roster-legend {
@@ -6333,20 +7120,34 @@ a.nq-bento-surface:active {
   font-size: var(--nq-t-caption);
   color: var(--nq-ink-muted);
 }
+
 .nq-roster-legend li {
   display: inline-flex;
   align-items: center;
   gap: var(--nq-s2);
 }
+
 .nq-roster-legend__swatch {
   width: 0.75rem;
   height: 0.75rem;
   border-radius: 2px;
   border: 1px solid var(--nq-line);
 }
-.nq-roster-legend__swatch--ok { background: var(--nq-st-ok-soft); border-color: var(--nq-st-ok); }
-.nq-roster-legend__swatch--warn { background: var(--nq-st-warn-soft); border-color: var(--nq-st-warn); }
-.nq-roster-legend__swatch--danger { background: var(--nq-st-danger-soft); border-color: var(--nq-st-danger); }
+
+.nq-roster-legend__swatch--ok {
+  background: var(--nq-st-ok-soft);
+  border-color: var(--nq-st-ok);
+}
+
+.nq-roster-legend__swatch--warn {
+  background: var(--nq-st-warn-soft);
+  border-color: var(--nq-st-warn);
+}
+
+.nq-roster-legend__swatch--danger {
+  background: var(--nq-st-danger-soft);
+  border-color: var(--nq-st-danger);
+}
 
 .nq-side__cmd {
   display: flex;
@@ -6362,16 +7163,19 @@ a.nq-bento-surface:active {
   cursor: pointer;
   font-size: var(--nq-t-caption);
 }
+
 .nq-side__cmd:hover {
   border-color: var(--nq-line-strong);
   color: var(--nq-accent-ink-text);
 }
+
 .nq-side__kbd {
   margin-left: auto;
   font-family: var(--nq-font-mono);
   font-size: 0.65rem;
   opacity: 0.7;
 }
+
 .nq-app[data-collapsed="1"] .nq-side__kbd,
 .nq-app[data-collapsed="1"] .nq-side__cmd .nq-side__label {
   display: none;
@@ -6381,6 +7185,152 @@ a.nq-bento-surface:active {
   border-collapse: collapse;
   width: 100%;
   font-size: 0.875rem;
+}
+
+/*
+  `table-layout: fixed` bắt 8 cột chia đều bề rộng khả dụng thay vì mỗi cột
+  tự đòi `min-width` của nội dung. Không có nó, 7 cột ngày × `min-width: 132px`
+  cộng cột Khung vượt cả màn 1440px → bảng tràn ngang và người dùng phải cuộn,
+  đúng lỗi "lịch phải scroll".
+*/
+.nq-roster-table--fit {
+  table-layout: fixed;
+  min-width: 46rem;
+}
+
+/* ── Khối "Ca còn thiếu người" ──
+   LƯỚI THẺ, không phải danh sách dọc. Bản cũ mỗi ca một hàng full-width
+   (nhãn ┃ select ┃ nút) cao ~90px, nên 5 ca là ~450px và đẩy cả trang dài quá
+   màn hình — đúng phản ánh "1 dãy dọc xuống, kéo dài tuốt cuối màn hình".
+
+   Lưới tự chia cột (2–3 cột ở màn phổ thông) nên số ca tăng theo BỀ NGANG,
+   không theo chiều dọc. `max-height` + cuộn NỘI BỘ chặn trường hợp xấu nhất:
+   ít ca vẫn gọn, nhiều ca thì khối tự cuộn chứ không kéo dài trang. */
+.nq-gap-panel {
+  border: 1px solid color-mix(in srgb, var(--nq-st-warn) 46%, var(--nq-line));
+  border-radius: var(--nq-radius-bubble);
+  background: var(--nq-st-warn-soft);
+  padding: var(--nq-s4) var(--nq-s5);
+  animation: nq-rise var(--nq-dur-t0) var(--nq-ease-out) both;
+}
+
+.nq-gap-panel__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--nq-s3);
+  cursor: pointer;
+  list-style: none;
+}
+
+.nq-gap-panel__head::-webkit-details-marker {
+  display: none;
+}
+
+.nq-gap-panel__head::after {
+  content: "";
+  flex: none;
+  width: 0.7rem;
+  height: 0.7rem;
+  margin-top: 0.25rem;
+  border-right: 2px solid var(--nq-st-warn-ink-strong, var(--nq-ink));
+  border-bottom: 2px solid var(--nq-st-warn-ink-strong, var(--nq-ink));
+  transform: rotate(45deg);
+  transition: transform var(--nq-beat-settle) var(--nq-ease-out);
+}
+
+.nq-gap-panel[open] .nq-gap-panel__head {
+  margin-bottom: var(--nq-s4);
+}
+
+.nq-gap-panel[open] .nq-gap-panel__head::after {
+  transform: rotate(-135deg);
+  margin-top: 0.5rem;
+}
+
+.nq-gap-panel__title {
+  display: flex;
+  align-items: center;
+  gap: var(--nq-s2);
+  margin: 0;
+  font-size: var(--nq-t-small);
+  font-weight: 700;
+  color: var(--nq-st-warn-ink-strong, var(--nq-ink));
+}
+
+.nq-gap-panel__count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 1.5rem;
+  padding: 0.05rem 0.4rem;
+  border-radius: var(--nq-radius-pill);
+  background: var(--nq-st-warn);
+  color: var(--nq-accent-ink);
+  font-family: var(--nq-font-mono);
+  font-size: var(--nq-t-micro);
+  font-variant-numeric: tabular-nums;
+}
+
+.nq-gap-panel__hint {
+  margin: 0.3rem 0 0;
+  font-size: var(--nq-t-caption);
+  line-height: 1.5;
+  color: var(--nq-ink-muted);
+  max-width: 60ch;
+}
+
+.nq-gap-grid {
+  display: grid;
+  gap: var(--nq-s3);
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 16rem), 1fr));
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  /* Chặn trường hợp xấu nhất: rất nhiều ca. Khối đã GẤP được nên chỉ khi mở
+     mới cuộn; 18rem đủ ~3 hàng thẻ, phần còn lại của trang vẫn thấy được. */
+  max-height: 18rem;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+}
+
+.nq-gap-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--nq-s2);
+  min-width: 0;
+  padding: var(--nq-s3);
+  border: 1px solid color-mix(in srgb, var(--nq-st-warn) 34%, var(--nq-line));
+  border-radius: var(--nq-radius);
+  background: var(--nq-surface);
+}
+
+.nq-gap-card__ten {
+  margin: 0;
+  font-size: var(--nq-t-small);
+  font-weight: 700;
+  line-height: 1.3;
+  color: var(--nq-ink);
+  overflow-wrap: anywhere;
+}
+
+.nq-gap-card__meta {
+  margin: 0;
+  font-size: var(--nq-t-micro);
+  line-height: 1.45;
+  color: var(--nq-ink-muted);
+}
+
+.nq-gap-card__select {
+  width: 100%;
+  min-height: 2.5rem;
+  padding: 0 var(--nq-s2);
+  border: 1px solid var(--nq-line-strong);
+  border-radius: var(--nq-radius);
+  background: var(--nq-bg);
+  color: var(--nq-ink);
+  font-size: var(--nq-t-caption);
 }
 
 .nq-roster-caption {
@@ -6397,7 +7347,10 @@ a.nq-bento-surface:active {
   border: 1px solid var(--nq-line);
   padding: 0.65rem 0.7rem;
   vertical-align: top;
-  min-width: 132px;
+  /* Ô lịch KHÔNG có `min-width` cứng: bề rộng do `table-layout: fixed` chia.
+     Giữ `min-width: 0` để nội dung dài (tên có dấu) được phép co và xuống
+     dòng bên trong ô thay vì đẩy cả bảng rộng ra. */
+  min-width: 0;
 }
 
 .nq-roster-table thead th {
@@ -6425,6 +7378,16 @@ a.nq-bento-surface:active {
   display: inline;
 }
 
+/* Hàng tiêu đề ngày: thứ + ngày tháng phải TÁCH nhau. Trước đây hai span nằm
+   inline trong một dòng nên "Thứ 2" dính liền "21/09" thành "Thứ 221/09". */
+.nq-roster-day-title-row {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.05rem;
+  line-height: 1.2;
+}
+
 .nq-roster-day-short {
   display: none;
   font-family: var(--nq-font-mono);
@@ -6437,6 +7400,7 @@ a.nq-bento-surface:active {
   .nq-roster-day-full {
     display: none;
   }
+
   .nq-roster-day-short {
     display: inline;
   }
@@ -6449,6 +7413,29 @@ a.nq-bento-surface:active {
   color: var(--nq-ink);
   white-space: nowrap;
   background: color-mix(in srgb, var(--nq-bg-elevated) 90%, transparent);
+  /* Xếp DỌC tên khung và giờ, KHÔNG viết cạnh nhau: trước đây hai span nằm
+     inline nên "Ca sáng" dính liền "07:00 – 12:00" thành "Ca sáng07:00 – 12:00".
+     Dọc + gap tách hẳn hai dòng thông tin khác loại (TÊN khung vs GIỜ). */
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 0.15rem;
+}
+
+.nq-roster-row-label__title {
+  display: block;
+  line-height: 1.2;
+}
+
+.nq-roster-row-label__time {
+  display: block;
+  font-family: var(--nq-font-mono);
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  color: var(--nq-ink-muted);
+  font-variant-numeric: tabular-nums;
 }
 
 .nq-roster-cell {
@@ -6567,7 +7554,7 @@ a.nq-bento-surface:active {
 
 /* ── Roster compact grid (Approach A) ── */
 .nq-roster-table--compact .nq-roster-corner {
-  min-width: 8.5rem;
+  min-width: 0;
 }
 
 .nq-roster-day-head {
@@ -6622,22 +7609,25 @@ a.nq-bento-surface:active {
 }
 
 .nq-roster-slot {
-  padding: 0.35rem;
-  vertical-align: middle;
+  padding: 0.3rem;
+  vertical-align: top;
 }
 
 .nq-roster-slot--spot {
   box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--nq-accent) 55%, transparent);
 }
 
+/* Cột "Khung" cố định 9.5rem qua colgroup; các cột ngày chia đều phần còn lại.
+   `table-layout: fixed` (xem `.nq-roster-table--fit`) mới làm colgroup có tác
+   dụng — không có nó, `min-width` nội dung sẽ thắng bề rộng khai báo. */
 .nq-roster-slot-btn {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 0.2rem;
+  gap: 0.25rem;
   width: 100%;
-  min-height: 3.25rem;
-  padding: 0.45rem 0.5rem;
+  min-height: 3rem;
+  padding: 0.4rem 0.45rem;
   border: 1px solid var(--nq-line);
   border-radius: var(--nq-radius);
   background: color-mix(in srgb, var(--nq-bg) 70%, var(--nq-bg-elevated));
@@ -6746,6 +7736,213 @@ a.nq-bento-surface:active {
   font-family: var(--nq-font-mono);
 }
 
+/* ══════════════════════════════════════════════════════════════════════════
+   /ai-learning — Học từ phản hồi (khối giao diện riêng của trang)
+
+   KHÔI PHỤC: khối này do commit `99f3cec` thêm vào, rồi bị commit `9262206`
+   (một thay đổi về quầy/menu, KHÔNG liên quan) xoá mất 930 dòng của
+   `globals.css` — trong đó có trọn 30 rule `nq-ai-*`. Hậu quả: `page.tsx` vẫn
+   gọi 31 lớp `nq-ai-*` nhưng CSS không còn rule nào, nên trang render KHÔNG có
+   kiểu: thẻ chỉ số, thẻ nội dung, phần bên phải... đều trôi tự do.
+
+   Đây là bẫy tái diễn trong repo này: một commit "redesign"/"dọn dẹp" xoá CSS
+   của trang khác mà không ai thấy, vì lớp vẫn còn nguyên trong TSX.
+
+   Bản khôi phục lấy nguyên văn từ `9262206^:apps/web/src/app/globals.css`.
+   ══════════════════════════════════════════════════════════════════════════ */
+.nq-page--ai-learning {
+  /* Chừa chỗ nút chat nổi + mép an toàn — tránh đè thẻ chỉ số / CTA. */
+  padding-bottom: calc(var(--nq-s8) + 6.5rem);
+}
+.nq-page--ai-learning .nq-surface-block {
+  margin-bottom: var(--nq-s5);
+}
+.nq-page--ai-learning .nq-ai-split .nq-surface-block {
+  margin-bottom: 0;
+}
+.nq-ai-metrics {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--nq-s4);
+  margin-bottom: var(--nq-s6);
+}
+@media (min-width: 900px) {
+  .nq-ai-metrics {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+.nq-ai-metric {
+  display: flex;
+  flex-direction: column;
+  gap: var(--nq-s2);
+  padding: var(--nq-s5);
+  border: 1px solid var(--nq-line);
+  border-radius: var(--nq-radius-bubble);
+  background: var(--nq-surface);
+  box-shadow: var(--nq-elev-1), var(--nq-inner-hi);
+  min-width: 0;
+  position: relative;
+  z-index: 0;
+  overflow: hidden;
+}
+.nq-ai-metric__label {
+  margin: 0;
+  font-family: var(--nq-font-mono);
+  font-size: var(--nq-t-caption);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--nq-ink-muted);
+}
+.nq-ai-metric__value {
+  margin: 0;
+  font-family: var(--nq-font-mono);
+  font-size: clamp(1.75rem, 3vw, 2.25rem);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--nq-accent-ink-text);
+  line-height: 1.1;
+}
+.nq-ai-copy {
+  margin: 0;
+  font-size: var(--nq-t-body);
+  color: var(--nq-ink-muted);
+  line-height: 1.55;
+  max-width: 62ch;
+}
+.nq-ai-copy--tight {
+  margin-top: var(--nq-s4);
+}
+.nq-ai-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--nq-s3);
+  margin-top: var(--nq-s4);
+}
+.nq-ai-section {
+  margin-bottom: var(--nq-s6);
+}
+.nq-ai-section__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: var(--nq-s3);
+  margin-bottom: var(--nq-s4);
+}
+.nq-ai-section__kicker {
+  margin: 0;
+  font-family: var(--nq-font-mono);
+  font-size: var(--nq-t-caption);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--nq-accent-ink-text);
+}
+.nq-ai-section__title {
+  margin: 0.2rem 0 0;
+  font-size: var(--nq-t-h2);
+  font-weight: 700;
+  color: var(--nq-ink);
+}
+.nq-ai-section__count,
+.nq-ai-meta {
+  font-family: var(--nq-font-mono);
+  font-size: var(--nq-t-caption);
+  color: var(--nq-ink-muted);
+}
+.nq-ai-list {
+  display: grid;
+  gap: var(--nq-s3);
+}
+.nq-ai-card,
+.nq-ai-gen {
+  padding: var(--nq-s4);
+  border: 1px solid var(--nq-line);
+  border-radius: var(--nq-radius-bubble);
+  background: var(--nq-surface-2);
+}
+.nq-ai-gen {
+  border-left: 3px solid var(--nq-accent);
+}
+.nq-ai-card__top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--nq-s3);
+}
+.nq-ai-card__tags,
+.nq-ai-card__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--nq-s2);
+  align-items: center;
+}
+.nq-ai-card__body,
+.nq-ai-gen__title {
+  margin: var(--nq-s3) 0 var(--nq-s2);
+  font-weight: 600;
+  color: var(--nq-ink);
+}
+.nq-ai-gen__body {
+  margin: 0 0 var(--nq-s2);
+  font-size: var(--nq-t-small);
+  color: var(--nq-ink-muted);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.nq-ai-split {
+  display: grid;
+  gap: var(--nq-s5);
+  margin-bottom: var(--nq-s6);
+}
+@media (min-width: 960px) {
+  .nq-ai-split {
+    grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr);
+    align-items: start;
+  }
+}
+.nq-ai-flags {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  width: 100%;
+  min-width: 0;
+}
+.nq-ai-flag {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--nq-s3);
+  padding: var(--nq-s3) 0;
+  border-bottom: 1px solid var(--nq-line);
+  font-size: var(--nq-t-small);
+  color: var(--nq-ink);
+  width: 100%;
+  min-width: 0;
+}
+.nq-ai-flag__label {
+  flex: 1 1 auto;
+  min-width: 0;
+  /* Không break-all: từng ký tự xuống dòng khi thẻ bị ép hẹp (lỗi production). */
+  overflow-wrap: anywhere;
+  word-break: normal;
+  line-height: 1.35;
+}
+.nq-ai-flag .nq-chip {
+  flex: none;
+}
+.nq-ai-flag:last-child {
+  border-bottom: none;
+}
+/* Chặn nhầm dùng nq-surface-row (flex ngang) làm thẻ nội dung trên trang học AI. */
+.nq-page--ai-learning .nq-surface-row {
+  display: block;
+  width: 100%;
+}
+
 .nq-sop-answer {
   margin-top: 0;
   animation: nq-rise var(--nq-dur-t0) var(--nq-ease-out) both;
@@ -6832,7 +8029,7 @@ a.nq-bento-surface:active {
   margin-bottom: 0;
 }
 
-.nq-sop-copilot__field .nq-field > span:first-child {
+.nq-sop-copilot__field .nq-field>span:first-child {
   font-size: 0.65rem;
   margin-bottom: 0.45rem;
 }
@@ -7092,6 +8289,7 @@ a.nq-bento-surface:active {
 }
 
 @media (max-width: 820px) {
+
   /* Trên máy nhỏ có cả thanh điều hướng pill ở đáy: nâng thanh hành động của
      phiếu lên trên nó, để hai thanh không đè nhau. */
   .nq-fixed-bottom {
@@ -7120,13 +8318,13 @@ a.nq-bento-surface:active {
   opacity: 1;
 }
 
-.nq-more > button {
+.nq-more>button {
   display: inline-flex;
   align-items: center;
   gap: 0.45rem;
 }
 
-.nq-more > button:hover .nq-icon {
+.nq-more>button:hover .nq-icon {
   opacity: 1;
 }
 
@@ -7308,7 +8506,7 @@ a.nq-bento-surface:active {
   margin: 0;
 }
 
-.nq-group + .nq-group {
+.nq-group+.nq-group {
   margin-top: var(--nq-s6);
 }
 
@@ -7398,57 +8596,70 @@ a.nq-bento-surface:active {
 
 /* ── Stagger: 6 dòng đầu vào lệch nhau 40ms ──
    Quá 6 dòng thì độ trễ cộng dồn thành cảm giác chậm, nên dừng ở đó. */
-.nq-rows > .nq-row-line:nth-child(1) {
+.nq-rows>.nq-row-line:nth-child(1) {
   animation-delay: 0ms;
 }
-.nq-rows > .nq-row-line:nth-child(2) {
+
+.nq-rows>.nq-row-line:nth-child(2) {
   animation-delay: 40ms;
 }
-.nq-rows > .nq-row-line:nth-child(3) {
+
+.nq-rows>.nq-row-line:nth-child(3) {
   animation-delay: 80ms;
 }
-.nq-rows > .nq-row-line:nth-child(4) {
+
+.nq-rows>.nq-row-line:nth-child(4) {
   animation-delay: 120ms;
 }
-.nq-rows > .nq-row-line:nth-child(5) {
+
+.nq-rows>.nq-row-line:nth-child(5) {
   animation-delay: 160ms;
 }
-.nq-rows > .nq-row-line:nth-child(6) {
+
+.nq-rows>.nq-row-line:nth-child(6) {
   animation-delay: 200ms;
 }
 
-.nq-list > .nq-item:nth-child(2) {
+.nq-list>.nq-item:nth-child(2) {
   animation-delay: 40ms;
 }
-.nq-list > .nq-item:nth-child(3) {
+
+.nq-list>.nq-item:nth-child(3) {
   animation-delay: 80ms;
 }
-.nq-list > .nq-item:nth-child(4) {
+
+.nq-list>.nq-item:nth-child(4) {
   animation-delay: 120ms;
 }
-.nq-list > .nq-item:nth-child(5) {
+
+.nq-list>.nq-item:nth-child(5) {
   animation-delay: 160ms;
 }
-.nq-list > .nq-item:nth-child(6) {
+
+.nq-list>.nq-item:nth-child(6) {
   animation-delay: 200ms;
 }
 
-.nq-list > .nq-item {
+.nq-list>.nq-item {
   animation: nq-fade-in var(--nq-dur-t1) var(--nq-ease-out) both;
 }
 
 .nq-stat:nth-child(2) {
   animation-delay: 40ms;
 }
+
 .nq-stat:nth-child(3) {
   animation-delay: 80ms;
 }
+
 .nq-stat:nth-child(4) {
   animation-delay: 120ms;
 }
+
 .nq-stat:nth-child(5) {
   animation-delay: 160ms;
 }
+
 .nq-stat:nth-child(6) {
   animation-delay: 200ms;
 }
@@ -7458,6 +8669,7 @@ a.nq-bento-surface:active {
     opacity: 0;
     transform: translateY(6px);
   }
+
   to {
     opacity: 1;
     transform: translateY(0);
@@ -7546,7 +8758,7 @@ a.nq-bento-surface:active {
   background: color-mix(in srgb, var(--nq-bg-elevated) 60%, transparent);
 }
 
-.nq-skel-card + .nq-skel-card {
+.nq-skel-card+.nq-skel-card {
   margin-top: var(--nq-s7);
 }
 
@@ -7614,6 +8826,7 @@ a.nq-bento-surface:active {
   from {
     opacity: 0;
   }
+
   to {
     opacity: 1;
   }
@@ -7655,6 +8868,7 @@ a.nq-bento-surface:active {
     opacity: 0;
     transform: translate(-50%, 14px);
   }
+
   to {
     opacity: 1;
     transform: translate(-50%, 0);
@@ -7782,7 +8996,7 @@ a.nq-bento-surface:active {
   counter-reset: nq-flow;
 }
 
-.nq-flow > li {
+.nq-flow>li {
   counter-increment: nq-flow;
   position: relative;
   padding: 0 0 var(--nq-s6) var(--nq-s6);
@@ -7790,12 +9004,12 @@ a.nq-bento-surface:active {
   margin-left: var(--nq-s3);
 }
 
-.nq-flow > li:last-child {
+.nq-flow>li:last-child {
   border-left-color: transparent;
   padding-bottom: 0;
 }
 
-.nq-flow > li::before {
+.nq-flow>li::before {
   content: counter(nq-flow);
   position: absolute;
   left: -15px;
@@ -7937,10 +9151,11 @@ a.nq-bento-surface:active {
     transform var(--nq-dur-press) var(--nq-ease-spring);
 }
 
-.nq-picks > .nq-pick:nth-child(2) {
+.nq-picks>.nq-pick:nth-child(2) {
   animation-delay: 40ms;
 }
-.nq-picks > .nq-pick:nth-child(3) {
+
+.nq-picks>.nq-pick:nth-child(3) {
   animation-delay: 80ms;
 }
 
@@ -8006,7 +9221,7 @@ a.nq-bento-surface:active {
   animation: nq-fade-in var(--nq-dur-t1) var(--nq-ease-out) both;
 }
 
-.nq-rule + .nq-rule {
+.nq-rule+.nq-rule {
   margin-top: var(--nq-s4);
 }
 
@@ -8087,7 +9302,7 @@ a.nq-bento-surface:active {
   margin-top: var(--nq-s4);
 }
 
-.nq-src > summary {
+.nq-src>summary {
   cursor: pointer;
   min-height: 44px;
   display: flex;
@@ -8098,11 +9313,11 @@ a.nq-bento-surface:active {
   border-radius: var(--nq-radius-pill);
 }
 
-.nq-src > summary:hover {
+.nq-src>summary:hover {
   color: var(--nq-accent-hover);
 }
 
-.nq-src[open] > summary {
+.nq-src[open]>summary {
   margin-bottom: var(--nq-s3);
 }
 
@@ -8259,7 +9474,7 @@ a.nq-bento-surface:active {
 }
 
 /* ── Nhóm luật: mỗi nhóm là một khối có tiêu đề, cách nhau s7 ── */
-.nq-rule-group + .nq-rule-group {
+.nq-rule-group+.nq-rule-group {
   margin-top: var(--nq-s7);
 }
 
@@ -8382,7 +9597,7 @@ a.nq-bento-surface:active {
   opacity: 0.45;
 }
 
-.nq-map-guide > *:not(.nq-map-ambient) {
+.nq-map-guide>*:not(.nq-map-ambient) {
   position: relative;
   z-index: 1;
 }
@@ -8715,7 +9930,7 @@ a.nq-bento-surface:active {
   align-items: center;
 }
 
-.nq-map-flow-marker > span:first-child {
+.nq-map-flow-marker>span:first-child {
   display: flex;
   align-items: center;
   justify-content: center;
@@ -8936,6 +10151,72 @@ a.nq-bento-surface:active {
   scrollbar-color: var(--nq-line-strong) transparent;
 }
 
+/* ── Tiêu đề nhóm: NÚT mở/thu ──
+   Trước đây là `<div>` tĩnh, nên 50 lối vào dàn hàng dọc không có cách nào
+   thu gọn. Nay là `<button>` thật: bấm để mở/thu nhóm đó, có `aria-expanded`
+   để trình đọc màn hình biết trạng thái. Nhóm chứa trang đang xem luôn mở. */
+.nq-side__group-btn {
+  display: flex;
+  align-items: center;
+  gap: var(--nq-s2);
+  width: 100%;
+  margin-top: var(--nq-s3);
+  padding: var(--nq-s2) var(--nq-s2) var(--nq-s1);
+  border: none;
+  background: transparent;
+  color: var(--nq-ink-muted);
+  cursor: pointer;
+  text-align: left;
+  font-family: var(--nq-font-mono);
+  font-size: var(--nq-t-micro);
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  transition: color var(--nq-beat-settle) var(--nq-ease-out);
+}
+
+.nq-side__group-btn:first-child {
+  margin-top: 0;
+}
+
+.nq-side__group-btn:hover {
+  color: var(--nq-ink);
+}
+
+.nq-side__group-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Mũi nhọn: xoay −90° khi nhóm đóng, về 0 khi mở. Chuyển động nhỏ, có chủ đích
+   — nó nói "nhóm này còn nội dung nữa" chứ không phải trang trí. */
+.nq-side__group-chevron {
+  flex: none;
+  margin-left: auto;
+  opacity: 0.7;
+  transform: rotate(-90deg);
+  transition: transform var(--nq-beat-settle) var(--nq-ease-out);
+}
+
+.nq-side__group-btn[data-open="1"] .nq-side__group-chevron {
+  transform: rotate(0deg);
+}
+
+/* Vùng chứa mục của một nhóm. `hidden` do React đặt theo trạng thái mở. */
+.nq-side__group-items {
+  display: flex;
+  flex-direction: column;
+  gap: var(--nq-s1);
+}
+
+.nq-side__group-items[hidden] {
+  display: none;
+}
+
+/* Giữ tương thích: nhãn nhóm cũ (`<div>` tĩnh) không còn được sinh ra, nhưng
+   vẫn khai báo để bản cũ trong cache không vỡ bố cục. */
 .nq-side__group {
   margin-top: var(--nq-s3);
   padding: var(--nq-s2) var(--nq-s2) var(--nq-s1);
@@ -9033,6 +10314,26 @@ a.nq-bento-surface:active {
   white-space: nowrap;
 }
 
+/* Nhãn thương hiệu trong đầu sidebar ("NHỊP QUÁN" + "Digital System").
+   Lỗi cũ: Logo đã gắn lớp `nq-side__brand-text` cho khối này nhưng
+   KHÔNG CÓ rule CSS nào dùng nó → khi thu gọn sidebar, `data-collapsed=1`
+   ẩn được `.nq-side__label` mà quên khối nhãn này, nên chữ thương hiệu vẫn
+   hiện chình ình cạnh logo trong khi sidebar chỉ rộng 68px. */
+.nq-side__brand-text {
+  min-width: 0;
+}
+
+.nq-side[data-collapsed="1"] .nq-side__brand-text {
+  display: none;
+}
+
+/* Đầu sidebar khi thu gọn: logo + nút mở rộng nằm chung một cột hẹp — canh
+   giữa để hai phần tử không bị đẩy lệch về hai mép. */
+.nq-side[data-collapsed="1"] .nq-side__head {
+  justify-content: center;
+  padding-inline: 0;
+}
+
 /* Vai trò đi kèm tên, tô accent để tách khỏi tên người — cùng quy ước với
    nhãn vai trò ở nơi khác trong hệ. */
 .nq-side__user-role {
@@ -9057,7 +10358,8 @@ a.nq-bento-surface:active {
   display: none;
 }
 
-.nq-side[data-collapsed="1"] .nq-side__group {
+.nq-side[data-collapsed="1"] .nq-side__group,
+.nq-side[data-collapsed="1"] .nq-side__group-btn {
   height: 1px;
   margin: var(--nq-s2) var(--nq-s3);
   padding: 0;
@@ -9065,6 +10367,21 @@ a.nq-bento-surface:active {
   font-size: 0;
   background: var(--nq-line);
   color: transparent;
+  cursor: default;
+  pointer-events: none;
+}
+
+/* Thu gọn thì accordion vô nghĩa (chỉ còn icon, không có chỗ bấm tiêu đề) —
+   ép mọi nhóm HIỆN, và vì `hidden` là thuộc tính DOM nên phải ghi đè bằng
+   `display` có độ ưu tiên cao hơn rule `[hidden]` ở trên. */
+.nq-side[data-collapsed="1"] .nq-side__group-items,
+.nq-side[data-collapsed="1"] .nq-side__group-items[hidden] {
+  display: flex;
+}
+
+.nq-side[data-collapsed="1"] .nq-side__group-chevron,
+.nq-side[data-collapsed="1"] .nq-side__group-label {
+  display: none;
 }
 
 .nq-side[data-collapsed="1"] .nq-side__link {
@@ -9179,7 +10496,8 @@ a.nq-bento-surface:active {
     display: revert;
   }
 
-  .nq-side[data-collapsed="1"] .nq-side__group {
+  .nq-side[data-collapsed="1"] .nq-side__group,
+  .nq-side[data-collapsed="1"] .nq-side__group-btn {
     height: auto;
     margin: var(--nq-s3) 0 0;
     padding: var(--nq-s2) var(--nq-s2) var(--nq-s1);
@@ -9187,6 +10505,16 @@ a.nq-bento-surface:active {
     font-size: var(--nq-t-micro);
     background: transparent;
     color: var(--nq-ink-muted);
+    cursor: pointer;
+    pointer-events: auto;
+  }
+
+  .nq-side[data-collapsed="1"] .nq-side__group-chevron {
+    display: revert;
+  }
+
+  .nq-side[data-collapsed="1"] .nq-side__group-label {
+    display: revert;
   }
 
   .nq-side[data-collapsed="1"] .nq-side__link {
@@ -9223,11 +10551,13 @@ a.nq-bento-surface:active {
   color: var(--nq-accent-ink-text);
   border: 1px solid var(--nq-line-strong);
 }
+
 .nq-btn-secondary:hover:not(:disabled) {
   background: var(--nq-accent-soft);
   border-color: var(--nq-accent);
   color: var(--nq-accent-hover);
 }
+
 .nq-btn-icon {
   width: 2.5rem;
   height: 2.5rem;
@@ -9236,12 +10566,14 @@ a.nq-bento-surface:active {
   display: inline-grid;
   place-items: center;
 }
+
 .nq-btn-sm {
   min-height: 2.25rem;
   padding: 0.35rem 0.9rem;
   font-size: var(--nq-t-caption);
   letter-spacing: 0.06em;
 }
+
 .nq-btn-icon.nq-btn-sm {
   width: 2.25rem;
   height: 2.25rem;
@@ -9259,16 +10591,19 @@ a.nq-bento-surface:active {
   -webkit-backdrop-filter: var(--nq-blur-2);
   animation: nq-fade-in var(--nq-beat-settle) var(--nq-ease-out) both;
 }
+
 .nq-dialog-overlay {
   display: grid;
   place-items: center;
   padding: var(--nq-s5);
 }
+
 .nq-drawer-overlay {
   z-index: var(--nq-z-drawer);
   display: flex;
   justify-content: flex-end;
 }
+
 .nq-dialog-panel {
   width: min(100%, 32rem);
   max-height: min(88vh, 40rem);
@@ -9280,6 +10615,7 @@ a.nq-bento-surface:active {
   box-shadow: var(--nq-elev-4), var(--nq-inner-hi);
   animation: nq-rise var(--nq-beat-focus) var(--nq-ease-out) both;
 }
+
 .nq-drawer-panel {
   width: min(100%, 26rem);
   height: 100%;
@@ -9290,6 +10626,7 @@ a.nq-bento-surface:active {
   box-shadow: var(--nq-elev-4);
   animation: nq-slide-in-right var(--nq-beat-focus) var(--nq-ease-out) both;
 }
+
 .nq-dialog-head,
 .nq-drawer-head {
   display: flex;
@@ -9299,6 +10636,7 @@ a.nq-bento-surface:active {
   padding: var(--nq-s4) var(--nq-s5);
   border-bottom: 1px solid var(--nq-line);
 }
+
 .nq-dialog-title,
 .nq-drawer-title {
   margin: 0;
@@ -9308,12 +10646,14 @@ a.nq-bento-surface:active {
   letter-spacing: 0.02em;
   color: var(--nq-ink);
 }
+
 .nq-dialog-body,
 .nq-drawer-body {
   padding: var(--nq-s5);
   overflow: auto;
   flex: 1;
 }
+
 .nq-dialog-footer {
   display: flex;
   justify-content: flex-end;
@@ -9327,6 +10667,7 @@ a.nq-bento-surface:active {
   gap: 0;
   margin: 0;
 }
+
 .nq-datalist__row {
   display: grid;
   grid-template-columns: minmax(7rem, 34%) 1fr;
@@ -9334,9 +10675,11 @@ a.nq-bento-surface:active {
   padding: var(--nq-s3) 0;
   border-bottom: 1px solid var(--nq-line);
 }
+
 .nq-datalist__row:last-child {
   border-bottom: none;
 }
+
 .nq-datalist__label {
   margin: 0;
   color: var(--nq-ink-muted);
@@ -9345,12 +10688,14 @@ a.nq-bento-surface:active {
   text-transform: uppercase;
   letter-spacing: 0.06em;
 }
+
 .nq-datalist__value {
   margin: 0;
   color: var(--nq-ink);
   font-size: var(--nq-t-body);
   word-break: break-word;
 }
+
 .nq-datalist .nq-datalist {
   margin-top: var(--nq-s2);
   padding-left: var(--nq-s3);
@@ -9372,6 +10717,7 @@ a.nq-bento-surface:active {
   border: 1px solid var(--nq-line);
   border-radius: var(--nq-radius);
 }
+
 .nq-prose-block--muted {
   color: var(--nq-ink-muted);
 }
@@ -9386,6 +10732,7 @@ a.nq-bento-surface:active {
   background: rgba(2, 6, 10, 0.55);
   backdrop-filter: var(--nq-blur-1);
 }
+
 .nq-cmdk {
   width: min(100%, 32rem);
   background: var(--nq-surface);
@@ -9394,6 +10741,7 @@ a.nq-bento-surface:active {
   box-shadow: var(--nq-elev-4);
   overflow: hidden;
 }
+
 .nq-cmdk__input {
   width: 100%;
   padding: var(--nq-s4) var(--nq-s5);
@@ -9404,6 +10752,7 @@ a.nq-bento-surface:active {
   font-size: var(--nq-t-body);
   outline: none;
 }
+
 .nq-cmdk__list {
   max-height: 20rem;
   overflow: auto;
@@ -9411,6 +10760,7 @@ a.nq-bento-surface:active {
   margin: 0;
   list-style: none;
 }
+
 .nq-cmdk__item {
   display: flex;
   align-items: center;
@@ -9425,11 +10775,13 @@ a.nq-bento-surface:active {
   cursor: pointer;
   font-size: var(--nq-t-small);
 }
+
 .nq-cmdk__item[data-active="1"],
 .nq-cmdk__item:hover {
   background: var(--nq-accent-soft);
   color: var(--nq-accent-ink-text);
 }
+
 .nq-cmdk__hint {
   margin-left: auto;
   color: var(--nq-ink-muted);
@@ -9438,9 +10790,57 @@ a.nq-bento-surface:active {
 }
 
 @keyframes nq-slide-in-right {
-  from { transform: translateX(12px); opacity: 0; }
-  to { transform: translateX(0); opacity: 1; }
+  from {
+    transform: translateX(12px);
+    opacity: 0;
+  }
+
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
 }
+
+@keyframes nq-fairy-float {
+  0%, 100% { transform: translate3d(0, 0, 0) rotate(0deg); }
+  25% { transform: translate3d(1px, -3.5px, 0) rotate(0.4deg); }
+  50% { transform: translate3d(0, -6px, 0) rotate(-0.3deg); }
+  75% { transform: translate3d(-1px, -2.5px, 0) rotate(0.2deg); }
+}
+@keyframes nq-fairy-shadow {
+  0%, 100% { transform: translateX(-50%) scale(1); opacity: 0.45; }
+  50% { transform: translateX(-50%) scale(0.72); opacity: 0.18; }
+}
+@keyframes nq-fairy-spin-cw { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+@keyframes nq-fairy-spin-ccw { from { transform: rotate(360deg); } to { transform: rotate(0deg); } }
+@keyframes nq-fairy-glow {
+  0%, 100% { opacity: 0.45; transform: scale(0.96); }
+  50% { opacity: 0.85; transform: scale(1.06); }
+}
+@keyframes nq-fairy-ripple {
+  0% { transform: scale(0.88); opacity: 0.8; }
+  100% { transform: scale(1.45); opacity: 0; }
+}
+@keyframes nq-fairy-mana-1 {
+  0%, 100% { transform: translate3d(0, 0, 0) scale(0.85); opacity: 0.35; }
+  50% { transform: translate3d(3px, -5px, 0) scale(1.2); opacity: 0.95; }
+}
+@keyframes nq-fairy-mana-2 {
+  0%, 100% { transform: translate3d(0, 0, 0) scale(1.1); opacity: 0.9; }
+  50% { transform: translate3d(-3px, -4px, 0) scale(0.65); opacity: 0.25; }
+}
+@keyframes nq-fairy-mana-3 {
+  0%, 100% { transform: translate3d(0, 0, 0) scale(0.9); opacity: 0.4; }
+  50% { transform: translate3d(2px, -6px, 0) scale(1.25); opacity: 1; }
+}
+/* Single source cho Avatar2D — thay <style jsx> cũ (mỗi instance 1 thẻ style). */
+.nq-fairy-container { animation: nq-fairy-float 3.4s ease-in-out infinite; will-change: transform; }
+.nq-fairy-shadow { animation: nq-fairy-shadow 3.4s ease-in-out infinite; }
+.nq-fairy-halo { animation: nq-fairy-glow 2.8s ease-in-out infinite; }
+.nq-fairy-ripple { animation: nq-fairy-ripple 1.8s cubic-bezier(0, 0.2, 0.8, 1) infinite; }
+.nq-fairy-mana-1 { animation: nq-fairy-mana-1 3.2s ease-in-out infinite; }
+.nq-fairy-mana-2 { animation: nq-fairy-mana-2 2.7s ease-in-out infinite 0.4s; }
+.nq-fairy-mana-3 { animation: nq-fairy-mana-3 3.6s ease-in-out infinite 0.8s; }
 
 /* ══════════════════════════════════════════════════════════════════════════
    prefers-reduced-motion — PHẢI là khối cuối file.
@@ -9449,6 +10849,7 @@ a.nq-bento-surface:active {
    với của bộ chọn `*` bên dưới, nên bật "giảm chuyển động" là trang đứng yên.
    ══════════════════════════════════════════════════════════════════════════ */
 @media (prefers-reduced-motion: reduce) {
+
   *,
   *::before,
   *::after {

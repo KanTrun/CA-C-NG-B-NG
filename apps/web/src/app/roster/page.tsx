@@ -6,9 +6,9 @@ import { Alert, AuthGate, Btn, Loading, Summary } from "../../ui/kit";
 import { canEdit, clearSession, getNvId, getRole, getToken, isManager, lifeLabel } from "../../lib/session";
 import { ApiError, apiGet, apiSend } from "../../lib/api";
 import { matchSearch } from "../../lib/list-filters";
-import { viError } from "../../lib/present";
-import type { KhungGio } from "../../lib/roster";
-import { shiftRowLabel } from "../../lib/roster";
+import { viError, khungLabel } from "../../lib/present";
+import type { KhungGio, RosterShift } from "../../lib/roster";
+import { shiftRowLabel, shiftRowParts } from "../../lib/roster";
 import { FilteredEmpty, ListToolbar } from "../../ui/list-filters";
 import { KhungConfigPanel } from "./KhungConfigPanel";
 import { RosterGrid } from "./RosterGrid";
@@ -125,9 +125,49 @@ const TRANG_THAI_NEXT: Record<string, { label: string; next: string }> = {
 const LIFECYCLE_CONFLICTS: Record<string, string> = {
   authoritative_schedule_run_required: "Tuần này chưa có kết quả xếp lịch chính thức. Bấm Xếp lịch tự động trước khi duyệt.",
   stale_schedule_run: "Dữ liệu lịch bận hoặc ràng buộc đã thay đổi sau lần xếp gần nhất. Hãy xếp lịch tự động lại rồi duyệt.",
+  stale_schedule_fingerprint: "Dữ liệu lịch bận/ràng buộc đã đổi sau lần xếp gần nhất. Xếp lịch tự động lại rồi duyệt.",
   schedule_has_unresolved_gaps: "Lịch còn ca thiếu người. Phân công hoặc xử lý các ca thiếu rồi chạy lại lịch.",
   invalid_schedule_run: "Kết quả xếp lịch chưa hợp lệ. Chạy lại lịch và xử lý các xung đột được hiển thị.",
   schedule_has_open_shifts: "Vẫn còn ca đang mở hoặc đã có người nhận nhưng chưa được quản lý xử lý. Hoàn tất các ca này rồi duyệt lại.",
+  mo_lai_phai_co_ly_do: "Mở lại lịch đã chốt cần ghi rõ lý do.",
+  idempotency_key_input_changed: "Lần xếp trước dùng dữ liệu khác. Bấm Xếp lịch tự động lại cho tuần đang xem.",
+};
+
+/** Khối "Tuần này đang ở đâu" — một chỗ cho trạng thái chốt vs bận gấp. */
+const WEEK_STATUS_GUIDE: Record<
+  string,
+  { y_nghia: string; ai_lam: string; log: string }
+> = {
+  nhap: {
+    y_nghia: "Đang xếp (nháp)",
+    ai_lam: "QL bấm «Xếp lịch tự động»",
+    log: "Nhật ký sau khi xếp xong",
+  },
+  dang_giai: {
+    y_nghia: "Đang xếp",
+    ai_lam: "Chờ máy phân công — không bấm lại",
+    log: "Nhật ký sau khi xếp xong",
+  },
+  cho_duyet: {
+    y_nghia: "Chờ duyệt",
+    ai_lam: "QL «Duyệt và công bố» hoặc «Về nháp»",
+    log: "Nhật ký phía dưới lưới",
+  },
+  da_duyet: {
+    y_nghia: "Đã chốt (duyệt)",
+    ai_lam: "NV nhả/đổi qua /doi-ca; QL duyệt swap",
+    log: "Nhật ký + chợ đổi ca",
+  },
+  da_cong_bo: {
+    y_nghia: "Đã chốt (công bố)",
+    ai_lam: "NV nhả/đổi qua /doi-ca; QL duyệt swap",
+    log: "Nhật ký + chợ đổi ca",
+  },
+  da_dong: {
+    y_nghia: "Đã đóng tuần",
+    ai_lam: "Chủ quán mở lại nếu cần chỉnh",
+    log: "Nhật ký lịch sử tuần",
+  },
 };
 
 function lifecycleError(error: unknown): string {
@@ -135,6 +175,26 @@ function lifecycleError(error: unknown): string {
     return LIFECYCLE_CONFLICTS[error.detail] ?? viError(error, { doing: "cập nhật trạng thái lịch" });
   }
   return viError(error, { doing: "cập nhật trạng thái lịch" });
+}
+
+function solverFailMessage(solver: unknown, weekIso: string): string | null {
+  if (!solver || typeof solver !== "object") return null;
+  const s = solver as {
+    ok?: boolean;
+    danh_sach_xung_dot?: string[];
+    status?: string;
+  };
+  if (s.ok) return null;
+  const gaps = Array.isArray(s.danh_sach_xung_dot) ? s.danh_sach_xung_dot : [];
+  if (gaps.length > 0) {
+    const preview = gaps.slice(0, 2).join(" ");
+    const them = gaps.length > 2 ? ` …(+${gaps.length - 2} ca khác)` : "";
+    return `Không xếp đủ người cho tuần ${weekIso}: ${preview}${them}. Kiểm tra lịch bận/TKB hoặc seed 4 NV demo, rồi xếp lại.`;
+  }
+  if (s.status && /INFEASIBLE|UNKNOWN/i.test(String(s.status))) {
+    return `Máy không tìm được phương án khả thi cho tuần ${weekIso} (${s.status}). Tuần trống hoặc quá ít người khả dụng — seed demo hoặc nới lịch bận rồi xếp lại.`;
+  }
+  return `Xếp lịch tuần ${weekIso} chưa thành công. Kiểm tra nhân sự khả dụng / lịch bận rồi bấm «Xếp lịch tự động» lại.`;
 }
 
 const TRANG_THAI_COLOR: Record<string, string> = {
@@ -236,6 +296,7 @@ export default function RosterPage() {
   const [showAllUnconfirmed, setShowAllUnconfirmed] = useState(false);
   const [copilotOpen, setCopilotOpen] = useState(false);
   const [scheduleNotifications, setScheduleNotifications] = useState<ScheduleNotification[]>([]);
+  const [journalRefreshKey, setJournalRefreshKey] = useState(0);
   const rosterDialogRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -468,22 +529,39 @@ export default function RosterPage() {
   async function runLifecycle(nextState: string, weekIso: string, reopenReason: string | null) {
     setLifecycleBusy(true);
     setLifecycleMsg(null);
+    setError(null);
     try {
+      let resp: Record<string, unknown> | null = null;
       if (reopenReason) {
-        await apiSend(
+        resp = (await apiSend(
           "/api/v1/lich/lifecycle",
           { to: nextState, ly_do: reopenReason, tuan_iso: weekIso },
           "POST",
-        );
+        )) as Record<string, unknown>;
       } else {
-        await apiSend(
+        resp = (await apiSend(
           "/api/v1/lich-tuan/lifecycle",
           { trang_thai: nextState, tuan_iso: weekIso },
           "PATCH",
-        );
+        )) as Record<string, unknown>;
       }
-      setLifecycleMsg(nextState === "da_duyet" ? "Đã duyệt, công bố lịch và gửi thông báo cho nhân viên." : "Đã cập nhật trạng thái lịch.");
+      // Xếp tự động (dang_giai) có thể trả ok HTTP nhưng solver thất bại —
+      // trước đây UI nói "đã cập nhật" rồi im, đúng lỗi W41 "không biết vì sao".
+      const fail =
+        nextState === "dang_giai" ? solverFailMessage(resp?.solver, weekIso) : null;
+      setJournalRefreshKey((k) => k + 1);
       await loadLich(baseWeek, soTuan);
+      // loadLich xoá lifecycleMsg — đặt lại SAU khi tải xong.
+      if (fail) {
+        setError(fail);
+        setLifecycleMsg(null);
+      } else if (nextState === "dang_giai") {
+        setLifecycleMsg(`Đã xếp lịch tuần ${weekIso}. Xem nhật ký «ai đổi ca với ai» bên dưới.`);
+      } else if (nextState === "da_duyet") {
+        setLifecycleMsg("Đã duyệt, công bố lịch và gửi thông báo cho nhân viên.");
+      } else {
+        setLifecycleMsg("Đã cập nhật trạng thái lịch.");
+      }
     } catch (e) {
       setError(lifecycleError(e));
     } finally {
@@ -520,8 +598,9 @@ export default function RosterPage() {
         ca_id: openShift.ca_id,
         nv_id: nvId,
       });
-      setLifecycleMsg("Đã ghim nhân sự và chạy lại lịch. Kiểm tra các ca còn thiếu trước khi duyệt.");
+      setJournalRefreshKey((k) => k + 1);
       await loadLich(baseWeek, soTuan);
+      setLifecycleMsg("Đã ghim nhân sự và chạy lại lịch. Kiểm tra các ca còn thiếu trước khi duyệt.");
     } catch (e) {
       setError(viError(e, { doing: "xử lý ca còn thiếu" }));
     } finally {
@@ -537,6 +616,9 @@ export default function RosterPage() {
 
   const shiftsEarly = data?.ca ?? [];
   const nhanVienEarly = data?.nhan_vien ?? [];
+  // `matchCell` (dùng cho ô tìm kiếm) khai báo TRƯỚC `khungGio` bên dưới, nên cần
+  // bản "early" giống `nhanVienEarly` để dựng nhãn ca + giờ khi tìm kiếm.
+  const khungGioEarly = data?.khung_gio ?? DEFAULT_KHUNG_GIO;
 
   const viTriOptions = useMemo(() => {
     const set = new Set<string>();
@@ -550,36 +632,54 @@ export default function RosterPage() {
   }, [shiftsEarly]);
 
   const matchCell = useCallback(
-    (assigned: string[], shift: { khung?: string; vi_tri?: string; thu?: string }) => {
+    (assigned: string[], shift: RosterShift) => {
       if (filterKhung !== "all" && shift.khung !== filterKhung) return false;
       if (filterViTri !== "all" && (shift.vi_tri ?? "") !== filterViTri) return false;
       if (!search.trim()) return true;
-      const hay = [
+      // QA 2026-10-01 LỖI 10: trước đây đối chiếu `shift.khung` — đó là MÃ ca
+      // ("sang"/"chieu"/"toi"), không phải chữ người dùng đọc trên ô lưới. Gõ
+      // "ca sáng" (đúng chữ đang hiển thị) làm MỜ cả 21 ô kể cả ô Ca sáng.
+      // Nay đối chiếu cả nhãn hiển thị và giờ, nên gõ đúng những gì thấy là khớp.
+      const khoa = [
         ...assigned.map((id) => nhanVienEarly.find((x) => x.id === id)?.ten ?? id),
         viTriLabel(shift.vi_tri),
-        shift.khung,
-        shift.thu,
+        khungLabel(shift.khung) || shift.khung || "",
+        shiftRowParts(shift, shift.khung ?? "", khungGioEarly).title,
+        shiftRowParts(shift, shift.khung ?? "", khungGioEarly).time,
+        shift.thu ?? "",
       ].join(" ");
-      return matchSearch(hay, search);
+      return matchSearch(khoa, search);
     },
-    [filterKhung, filterViTri, search, nhanVienEarly],
+    [filterKhung, filterViTri, search, nhanVienEarly, khungGioEarly],
   );
 
+  /**
+   * Thống kê lịch để hiển thị 4 ô đếm.
+   *
+   * ĐẾM THEO TỪNG CA (`ca`), KHÔNG theo ô lưới `(thu, khung)`.
+   *
+   * Vì sao: một ô lưới gộp nhiều ca (một buổi có thể có ca pha chế, ca phục vụ,
+   * ca kho…). Bản cũ cộng `so_nguoi_toi_thieu` của MỌI ca trong ô rồi so với
+   * tổng người được phân, nên một ca THIẾU NGƯỜI vẫn có thể nằm trong ô báo
+   * "Đủ · 4/4" — và người dùng thấy màn hình tự mâu thuẫn: lưới nói đủ người
+   * nhưng khối "Ca còn thiếu người" lại liệt kê ca thiếu (khối đó tính theo ca).
+   *
+   * Nay hai chỗ dùng CÙNG một đơn vị đếm là ca, nên không thể lệch nhau nữa.
+   */
   const rosterStats = useMemo(() => {
     const phanCongEarly = data?.phan_cong ?? {};
-    const cells = new Map<string, { assigned: Set<string>; required: number }>();
+    let thieuDinhBien = 0;
+    let caCoNguoi = 0;
     for (const s of shiftsEarly) {
-      const key = `${s.thu}|${s.khung}`;
-      const cell = cells.get(key) ?? { assigned: new Set<string>(), required: 0 };
-      for (const id of phanCongEarly[s.id] ?? []) cell.assigned.add(id);
-      cell.required += Number(s.so_nguoi_toi_thieu ?? 1);
-      cells.set(key, cell);
+      const assigned = new Set(phanCongEarly[s.id] ?? []).size;
+      const required = Number(s.so_nguoi_toi_thieu ?? 1);
+      if (assigned < required) thieuDinhBien += 1;
+      if (assigned > 0) caCoNguoi += 1;
     }
-    const values = [...cells.values()];
     return {
-      slots: values.length,
-      staffed: values.filter((cell) => cell.assigned.size >= cell.required).length,
-      thin: values.filter((cell) => cell.assigned.size < cell.required).length,
+      slots: shiftsEarly.length,
+      staffed: caCoNguoi,
+      thin: thieuDinhBien,
     };
   }, [shiftsEarly, data?.phan_cong]);
 
@@ -625,9 +725,13 @@ export default function RosterPage() {
     if (byDay[dayKey]) byDay[dayKey].push({ ...s, thu: dayKey });
   }
 
+  /** Tên nhân sự theo id. KHÔNG bao giờ trả về mã thô (`nv_01`) cho người dùng:
+   *  tầng API đã lọc tham chiếu chết, nhưng nếu vì lý do nào đó còn sót thì trả
+   *  chuỗi rỗng để nơi gọi tự bỏ qua, thay vì in `nv_26` lên lịch. */
   function nvName(id: string): string {
     const found = (data?.nhan_vien ?? []).find((x) => x.id === id);
-    return found ? found.ten : id;
+    if (found) return found.ten;
+    return /^nv_\w+$/i.test(id) ? "" : id;
   }
 
   // Resolve employee ID from session (e.g. nv_03 for Minh, nv_01 for Lan...)
@@ -745,6 +849,16 @@ export default function RosterPage() {
             Tuần {currentDisplayWeek}
           </span>
         </div>
+
+        {/* Gợi ý tuần luyện: tuần CHƯA xếp bao giờ ở trạng thái "nháp" — an toàn
+            để chạy thử trọn luồng (xếp tự động → ghim → xử lý ca thiếu) mà
+            không đụng tuần thật đã công bố. */}
+        {canWrite && (
+          <p className="nq-muted text-xs">
+            Muốn luyện thử mà không đụng lịch thật? Bấm <strong>Sau →</strong> sang một tuần
+            chưa xếp (mặc định là <strong>nháp</strong>) để chạy thử toàn bộ luồng.
+          </p>
+        )}
       </header>
 
       {scheduleNotifications.length > 0 && (
@@ -784,16 +898,64 @@ export default function RosterPage() {
           ].map(([state, label]) => (
             <span
               key={state}
-              className={`nq-workflow-step ${trangThai === state ? "nq-workflow-step--active" : ""}`}
+              className={`nq-workflow-step ${
+                trangThai === state ||
+                (state === "cho_duyet" && trangThai === "da_duyet") ||
+                (state === "da_cong_bo" && trangThai === "da_dong")
+                  ? "nq-workflow-step--active"
+                  : ""
+              }`}
             >
               {label}
             </span>
           ))}
+          {/* Chỉ đường rõ "việc kế tiếp": người dùng phàn nàn không biết bấm gì
+              để test. Mỗi trạng thái có ĐÚNG một hành động kế tiếp. */}
+          <p className="nq-workflow-hint">
+            <strong>Việc kế tiếp:</strong>{" "}
+            {trangThai === "nhap"
+              ? "bấm «Xếp lịch tự động» để máy phân công theo lịch bận."
+              : trangThai === "dang_giai"
+                ? "đang xếp lịch, chờ trong giây lát."
+                : trangThai === "cho_duyet"
+                  ? "xử lý hết «Ca còn thiếu người» rồi bấm «Duyệt và công bố»."
+                  : "lịch đã công bố. Muốn test lại, bấm «Mở lại để điều chỉnh» và ghi lý do — lịch trở về bước 1 để chạy lại từ đầu."}
+          </p>
           <p className="nq-muted text-xs basis-full">
             Duyệt cuối sẽ tự công bố và gửi thông báo. Muốn sửa lịch đã công bố, quản lý phải mở lại và ghi rõ lý do.
           </p>
         </section>
       )}
+
+      {/* Một chỗ: chốt vs bận gấp — trả lời "tuần này đang ở đâu / ai làm gì". */}
+      {canWrite && !loading ? (
+        <section className="nq-week-status mb-4" aria-label="Tuần này đang ở đâu" data-panel="tuan-dang-o-dau">
+          <h3 className="nq-week-status__title">Tuần {currentDisplayWeek} đang ở đâu</h3>
+          <dl className="nq-week-status__grid">
+            <div>
+              <dt>Trạng thái</dt>
+              <dd>{(WEEK_STATUS_GUIDE[trangThai] ?? WEEK_STATUS_GUIDE.nhap).y_nghia}</dd>
+            </div>
+            <div>
+              <dt>Ai làm gì</dt>
+              <dd>{(WEEK_STATUS_GUIDE[trangThai] ?? WEEK_STATUS_GUIDE.nhap).ai_lam}</dd>
+            </div>
+            <div>
+              <dt>Nhật ký ở đâu</dt>
+              <dd>{(WEEK_STATUS_GUIDE[trangThai] ?? WEEK_STATUS_GUIDE.nhap).log}</dd>
+            </div>
+            {(data?.open_shifts?.length ?? 0) > 0 ? (
+              <div data-tone="urgent">
+                <dt>Bận gấp / thiếu người</dt>
+                <dd>
+                  {data!.open_shifts!.length} ca mở — NV claim ở /doi-ca; QL xử lý «Ca còn thiếu»
+                  (nhật ký nguồn gap/TKB).
+                </dd>
+              </div>
+            ) : null}
+          </dl>
+        </section>
+      ) : null}
 
       {/* Trạng thái & nút duyệt của quản lý */}
       {canWrite && (
@@ -812,9 +974,33 @@ export default function RosterPage() {
                 type="button"
                 className={`nq-btn px-3 py-1 text-sm ${trangThai === "cho_duyet" ? "nq-btn-primary" : ""}`}
                 disabled={lifecycleBusy}
+                /* Cảnh báo TRƯỚC khi bấm: duyệt cần một lần xếp lịch chính thức
+                   (`schedule_runs`) khớp dữ liệu hiện tại. Không có thì API trả
+                   409 — nhưng nói trước vẫn hơn để người dùng bấm rồi mới biết.
+                   Không `disabled` để vẫn bấm được (đường duyệt hợp lệ khi có
+                   run), chỉ đổi nhãn cho đúng việc sắp xảy ra. */
+                title={
+                  trangThai === "cho_duyet" && !data?.schedule_run
+                    ? "Chưa có lần xếp lịch chính thức cho tuần này — bấm 'Xếp lịch tự động' trước."
+                    : undefined
+                }
                 onClick={() => void handleLifecycle(nextAction.next, currentDisplayWeek)}
               >
                 {lifecycleBusy ? "Đang lưu…" : nextAction.label}
+              </button>
+            )}
+            {/* Trạng thái "Chờ duyệt" trước đây chỉ có MỘT nút (Duyệt và công bố),
+                không có đường lùi — user bị "kẹt" phải công bố mới thoát. Cho
+                phép về nháp để chỉnh/xếp lại mà không phải công bố. */}
+            {trangThai === "cho_duyet" && (
+              <button
+                type="button"
+                className="nq-btn-outline px-3 py-1 text-sm"
+                disabled={lifecycleBusy}
+                title="Quay về nháp để chỉnh phân công hoặc xếp lại, không công bố."
+                onClick={() => void runLifecycle("nhap", currentDisplayWeek, null)}
+              >
+                Về nháp để xếp lại
               </button>
             )}
             <details className="relative">
@@ -1005,16 +1191,12 @@ export default function RosterPage() {
       {error ? <Alert kind="err">{error}</Alert> : null}
       {loading ? <Loading skeleton="table" rows={3}>Đang tải lịch tuần…</Loading> : null}
 
-      {/* Bằng chứng đổi ca: trả lời "ai bị đổi ca với ai" sau mỗi lần xếp lịch.
-          Trước đây solver ghi đè phân công im lặng — người dùng thấy lịch khác đi
-          mà không có gì giải thích. Panel này chỉ hiện khi CÓ thay đổi. */}
-      {!loading ? (
-        <details className="nq-constraint-panel mb-4" data-panel="nhat-ky-doi-ca">
-          <summary>Ai đổi ca với ai — nhật ký thay đổi tuần {currentDisplayWeek}</summary>
-          <div className="mt-3">
-            <ShiftChangeLog tuanIso={currentDisplayWeek} />
-          </div>
-        </details>
+      {/* Nhật ký mở sẵn — không chôn trong <details>. Sau xếp/duyệt/swap phải
+          thấy A→B ngay, không cần người dùng đoán có panel nào để mở. */}
+      {!loading && canWrite ? (
+        <div className="nq-constraint-panel mb-4">
+          <ShiftChangeLog tuanIso={currentDisplayWeek} refreshKey={journalRefreshKey} />
+        </div>
       ) : null}
 
       {!loading && viewMode === "all" && (
@@ -1152,56 +1334,75 @@ export default function RosterPage() {
         <div className="space-y-4">
           <Summary
             cells={[
-              { n: rosterStats.slots, k: "Ô ca tuần" },
-              { n: rosterStats.staffed, k: "Đã có người", tone: "ok" },
-              { n: rosterStats.thin, k: "Thiếu định biên", tone: rosterStats.thin > 0 ? "warn" : "default" },
+              { n: rosterStats.slots, k: "Ca trong tuần" },
+              { n: rosterStats.staffed, k: "Ca đã có người", tone: "ok" },
+              { n: rosterStats.thin, k: "Ca thiếu người", tone: rosterStats.thin > 0 ? "warn" : "default" },
               { n: lifeLabel(trangThai), k: "Trạng thái lịch" },
             ]}
           />
 
           {canWrite && (data?.open_shifts?.length ?? 0) > 0 ? (
-            <section className="border border-[color-mix(in_srgb,var(--nq-st-warn)_46%,var(--nq-line))] bg-[var(--nq-st-warn-soft)] p-4">
-              <div className="mb-3">
-                <h3 className="text-sm font-bold text-[var(--nq-st-warn-ink)]">Ca còn thiếu người</h3>
-                <p className="mt-1 text-xs text-[var(--nq-ink-muted)]">
-                  Lịch chưa thể duyệt khi còn ca mở. Chọn một nhân sự phù hợp để ghim và chạy lại lịch.
-                </p>
-              </div>
-              <div className="space-y-2">
+            /* Khối "ca thiếu người": <details> GẤP ĐƯỢC.
+               - Ít ca (≤6) thì mở sẵn để xử lý ngay.
+               - Nhiều ca thì mặc định GẤP để không chiếm cả màn hình; bấm mở
+                 mới cuộn trong khối (max-height) — trang không bị kéo dài.
+               Số ca nay chỉ là ca thiếu của LẦN XẾP GẦN NHẤT (backend đã lọc),
+               nên không còn hiện bản ghi cũ khi lịch đã đủ người. */
+            <details className="nq-gap-panel" open={(data?.open_shifts?.length ?? 0) <= 6}>
+              <summary className="nq-gap-panel__head">
+                <div>
+                  <h3 className="nq-gap-panel__title">
+                    Ca còn thiếu người
+                    <span className="nq-gap-panel__count">{data?.open_shifts?.length}</span>
+                  </h3>
+                  <p className="nq-gap-panel__hint">
+                    Máy không tự bịa ra người khi ai cũng bận/kẹt ca. Bấm mở để chọn người cho
+                    từng ca rồi ghim — xử lý hết mới duyệt được.
+                  </p>
+                </div>
+              </summary>
+              <ul className="nq-gap-grid">
                 {data?.open_shifts?.map((openShift) => {
                   const shift = shifts.find((item) => item.id === openShift.ca_id);
+                  const chon = gapStaff[openShift.id] ?? openShift.claimed_by ?? "";
                   return (
-                    <div key={openShift.id} className="grid gap-2 border-t border-[color-mix(in_srgb,var(--nq-st-warn)_46%,var(--nq-line))] pt-3 sm:grid-cols-[1fr_minmax(12rem,18rem)_auto] sm:items-center">
-                      <div>
-                        <p className="text-sm font-semibold text-[var(--nq-ink)]">
-                          {shift ? shiftRowLabel(shift, shift.khung, khungGio) : openShift.ca_id}
-                        </p>
-                        <p className="text-xs text-[var(--nq-ink-muted)]">Hạn nhận: {new Date(openShift.deadline_at).toLocaleString("vi-VN")}</p>
-                      </div>
+                    <li key={openShift.id} className="nq-gap-card">
+                      <p className="nq-gap-card__ten">
+                        {shift ? shiftRowLabel(shift, shift.khung, khungGio) : openShift.ca_id}
+                      </p>
+                      <p className="nq-gap-card__meta">
+                        {openShift.claimed_by
+                          ? "Đã có người nhận — chờ quản lý duyệt"
+                          : `Hạn nhận: ${new Date(openShift.deadline_at).toLocaleString("vi-VN")}`}
+                      </p>
                       <select
                         aria-label={`Nhân sự cho ${openShift.ca_id}`}
-                        value={gapStaff[openShift.id] ?? openShift.claimed_by ?? ""}
-                        onChange={(event) => setGapStaff((current) => ({ ...current, [openShift.id]: event.target.value }))}
-                        className="min-h-10 border border-[var(--nq-line)] bg-[var(--nq-bg)] px-3 text-sm text-[var(--nq-ink)]"
+                        value={chon}
+                        onChange={(event) =>
+                          setGapStaff((current) => ({ ...current, [openShift.id]: event.target.value }))
+                        }
+                        className="nq-gap-card__select"
                       >
                         <option value="">Chọn nhân sự</option>
                         {data?.nhan_vien?.map((employee) => (
-                          <option key={employee.id} value={employee.id}>{employee.ten}</option>
+                          <option key={employee.id} value={employee.id}>
+                            {employee.ten}
+                          </option>
                         ))}
                       </select>
-                      <button
-                        type="button"
-                        disabled={gapBusy !== null || !(gapStaff[openShift.id] ?? openShift.claimed_by) || !data?.schedule_run}
+                      <Btn
                         onClick={() => void resolveGap(openShift)}
-                        className="min-h-10 bg-[var(--nq-st-warn)] px-4 text-xs font-bold text-[var(--nq-accent-ink)] hover:bg-[var(--nq-st-warn)] disabled:opacity-50"
+                        busy={gapBusy === openShift.id}
+                        disabled={gapBusy !== null || !chon || !data?.schedule_run}
+                        block
                       >
-                        {gapBusy === openShift.id ? "Đang chạy…" : openShift.claimed_by ? "Duyệt và chạy lại" : "Ghim và chạy lại"}
-                      </button>
-                    </div>
+                        {openShift.claimed_by ? "Duyệt và chạy lại" : "Ghim và chạy lại"}
+                      </Btn>
+                    </li>
                   );
                 })}
-              </div>
-            </section>
+              </ul>
+            </details>
           ) : null}
 
           {canWrite ? (
@@ -1510,6 +1711,11 @@ export default function RosterPage() {
               <p className="text-sm text-[var(--nq-ink)]">
                 Lịch đã được duyệt/công bố. Để mở lại và chỉnh sửa, vui lòng ghi rõ lý do.
                 Thao tác này sẽ được ghi lại trong nhật ký hệ thống.
+              </p>
+              <p className="rounded-lg border border-[color-mix(in_srgb,var(--nq-st-warn)_40%,var(--nq-line))] bg-[color-mix(in_srgb,var(--nq-st-warn)_10%,transparent)] p-3 text-xs text-[var(--nq-ink)]">
+                Lịch sẽ trở về <strong>bước 1 (Chuẩn bị lịch)</strong>. Từ đó bạn bấm lại
+                «Xếp lịch tự động» để chạy lại toàn bộ luồng — đây chính là cách test lại
+                xếp lịch, ghim ca và xử lý ca thiếu.
               </p>
               <label className="block">
                 <span className="mb-1.5 block text-xs font-bold uppercase tracking-wide text-[var(--nq-ink-muted)]">

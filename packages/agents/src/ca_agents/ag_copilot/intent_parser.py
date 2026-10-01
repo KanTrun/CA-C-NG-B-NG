@@ -1,6 +1,15 @@
-"""Intent Parser & Prompt Injection Guard for AG-COPILOT.
+"""Intent Parser & Prompt Injection Guard cho AG-COPILOT.
 
-Classifies natural language input into 7 whitelisted intents with confidence scoring.
+Phân loại câu tiếng Việt thành intent trong danh sách whitelist, kèm trích tham số
+và chống prompt injection.
+
+Cơ chế nhận diện: `_INTENT_KEYWORDS` là tầng TẤT ĐỊNH (35 intent / 611 từ khóa,
+khớp bằng `kw in lower`) — đường này chạy ở mọi chế độ, kể cả replay/CI nên
+test tất định. Đổi lại nó không nhận diện được cách nói không nằm trong từ khóa;
+xem `docs`/ghi chú về đường LLM để mở rộng.
+
+Ghi chú: số "7 intent" trong docstring cũ đã lệch — hiện có 35 intent whitelist
+cộng `OUT_OF_SCOPE`.
 """
 
 from __future__ import annotations
@@ -8,6 +17,14 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 from typing import Any
+
+from ca_agents.ag_copilot.timeoff_parse import (
+    CA_RANGE,
+    parse_ca_range,
+    parse_thu,
+    parse_thu_tuong_doi,
+    trich_ly_do,
+)
 
 # Intent enum string constants
 SCHEDULE_SOLVE = "SCHEDULE_SOLVE"
@@ -54,6 +71,8 @@ GET_SERPAPI_QUOTA = "GET_SERPAPI_QUOTA"
 GET_SURVEY_RESULT = "GET_SURVEY_RESULT"
 # Audit / vết hệ thống — chỉ quản lý & chủ quán (R0_READ, tenant-scoped)
 QUERY_AUDIT = "QUERY_AUDIT"
+# Hỏi về 4 mặt Trải nghiệm AI (Living Map / War Room / Cứu ca / Hồn quán)
+QUERY_QUANVERSE = "QUERY_QUANVERSE"
 OUT_OF_SCOPE = "OUT_OF_SCOPE"
 # Patterns detecting attempts to bypass two-phase approval
 _BYPASS_PATTERNS = [
@@ -145,6 +164,20 @@ _INTENT_KEYWORDS: list[tuple[str, list[str], float]] = [
         ],
         0.9,
     ),
+    # QUERY_QUANVERSE — hỏi về 4 mặt Trải nghiệm AI (Living Map / War Room / Cứu ca /
+    # Hồn quán). Đặt TRƯỚC các intent đọc khác để câu hỏi về các trang này không
+    # rơi nhầm vào lịch/tồn kho.
+    (
+        QUERY_QUANVERSE,
+        [
+            "quanverse", "quán vũ trụ", "quan vu tru", "trải nghiệm ai", "trai nghiem ai",
+            "living map", "bản đồ sống", "ban do song", "war room", "phòng chiến", "phong chien",
+            "cứu ca", "cuu ca", "ca vắng", "ca vang", "thiếu người", "thieu nguoi",
+            "hồn quán", "hon quan", "ký ức quán", "ky uc quan", "tour quán", "tour quan",
+            "mô phỏng kịch bản", "mo phong kich ban", "kịch bản nào", "kich ban nao",
+        ],
+        0.88,
+    ),
     (
         GET_SHIFT_SWAPS,
         [
@@ -221,7 +254,7 @@ _INTENT_KEYWORDS: list[tuple[str, list[str], float]] = [
     ),
     (
         PROPOSE_PIN,
-        ["ghim ca", "ghim ca", "pin ca", "ghim lịch", "ghim lich"],
+        ["ghim ca", "pin ca", "ghim lịch", "ghim lich"],
         0.9,
     ),    # PR12 external channels
     (
@@ -298,7 +331,7 @@ _INTENT_KEYWORDS: list[tuple[str, list[str], float]] = [
             "ràng buộc chờ duyệt", "rang buoc cho duyet", "ràng buộc nào", "rang buoc nao",
             "xin nghỉ chờ", "xin nghi cho", "inbox ràng buộc", "inbox rang buoc",
             "danh sách ràng buộc", "danh sach rang buoc", "ràng buộc chưa duyệt", "rang buoc chua duyet",
-            "ai có thể thay ca", "ai co the thay ca", "ai thay ca", "ai thay ca",
+            "ai có thể thay ca", "ai co the thay ca", "ai thay ca",
             "ai có thể thay", "ai co the thay", "ai thay được ca", "ai thay duoc ca",
             "ai thay ca tối nay", "ai thay ca toi nay", "ai có thể thay ca tối nay", "ai co the thay ca toi nay",
             "ai thay ca tuần này", "ai thay ca tuan nay", "ai có thể thay ca tuần này", "ai co the thay ca tuan nay",
@@ -510,6 +543,10 @@ class IntentParseResult:
     clarification_needed: bool = False
     clarification_question: str | None = None
     security_flag: str | None = None
+    # Tên tham số đang thiếu khiến phải hỏi lại (vd "thieu_ly_do"). Để client
+    # biết lượt sau có cần coi câu của người dùng là câu TRẢ LỜI hay không,
+    # thay vì so chuỗi trong câu hỏi.
+    clarification_kind: str | None = None
 
 
 def _iso_week(d: Any) -> str:
@@ -529,41 +566,99 @@ def _add_week(d: Any, n: int = 1) -> Any:
     if not isinstance(d, date):
         d = date.today()
     return d + timedelta(weeks=n)
-_THU_CAN = {
-    # Dạng dài — match bằng substring an toàn (không bị ambiguity)
-    "thứ 2": "T2", "thứ hai": "T2", "thu 2": "T2", "thu hai": "T2",
-    "thứ 3": "T3", "thứ ba": "T3", "thu 3": "T3", "thu ba": "T3",
-    "thứ 4": "T4", "thứ tư": "T4", "thu 4": "T4", "thu tu": "T4",
-    "thứ 5": "T5", "thứ năm": "T5", "thu 5": "T5", "thu nam": "T5",
-    "thứ 6": "T6", "thứ sáu": "T6", "thu 6": "T6", "thu sau": "T6",
-    "thứ 7": "T7", "thứ bảy": "T7", "thu 7": "T7", "thu bay": "T7",
-    "chủ nhật": "CN", "chu nhat": "CN",
-}
-
-# Viết tắt ngắn (t2..t7, cn) dùng regex word-boundary để tránh false positive.
-# BUG2 fix: pattern này match cả đầu câu lẫn giữa câu.
-# BUG3 fix: cn chỉ match khi là từ riêng, không phải prefix/suffix của từ khác.
-_THU_ABBREV: list[tuple[str, str]] = [
-    (r"\bt2\b", "T2"), (r"\bt3\b", "T3"), (r"\bt4\b", "T4"),
-    (r"\bt5\b", "T5"), (r"\bt6\b", "T6"), (r"\bt7\b", "T7"),
-    # Không có 'cn': quá mơ hồ (viết tắt 'công nhân', 'chi nhánh'...).
-    # 'chu nhat' / 'chủ nhật' trong _THU_CAN đã bao phủ đủ.
-]
-_THU_ABBREV_COMPILED = [(re.compile(pat, re.IGNORECASE), val) for pat, val in _THU_ABBREV]
 
 
-def _parse_thu(text_lower: str) -> str:
-    """Trích thứ trong tuần (T2..CN) từ câu tiếng Việt thường."""
-    t = " ".join(str(text_lower or "").split())
-    # Ưu tiên dạng dài (không bị ambiguity) — dùng substring match
-    for cu, thu in _THU_CAN.items():
-        if cu in t:
-            return thu
-    # Dạng viết tắt — dùng regex word-boundary để tránh false positive
-    for pat, thu in _THU_ABBREV_COMPILED:
-        if pat.search(t):
-            return thu
-    return ""
+def _ngay_hom_nay_vn(active_date: Any | None = None) -> str:
+    """Ngày hôm nay theo giờ VN (UTC+7) — hoặc active_date nếu context gắn sẵn.
+
+    Tự tính UTC+7 tại chỗ: không import `ag_waste` (kiến trúc agent không gọi agent).
+    """
+    from datetime import date, datetime, timedelta, timezone
+
+    if isinstance(active_date, date) and not isinstance(active_date, datetime):
+        # Context test gắn active_date tường minh → tôn trọng, không lệch TZ.
+        return active_date.isoformat()
+    vn = timezone(timedelta(hours=7))
+    return datetime.now(vn).date().isoformat()
+
+
+def _tuan_tuong_doi(lower: str, active_date: Any) -> dict[str, Any] | None:
+    """Nhận diện tuần tương đối trên MỘT câu — không lẫn lịch sử chat."""
+    from datetime import date
+
+    if any(k in lower for k in ("hôm nay", "hom nay")):
+        ngay = _ngay_hom_nay_vn(active_date)
+        try:
+            d = date.fromisoformat(ngay)
+            tuan = _iso_week(d)
+        except ValueError:
+            tuan = _iso_week(active_date)
+        return {"tuan": tuan, "ngay_hom_nay": ngay}
+    if any(k in lower for k in ("tuần sau", "tuan sau", "tuần tới", "tuan toi")):
+        return {"tuan": _iso_week(_add_week(active_date, 1))}
+    if any(k in lower for k in ("tuần này", "tuan nay")):
+        return {"tuan": _iso_week(active_date)}
+    return None
+
+
+def _tuan_tuong_minh(lower: str, active_date: Any) -> dict[str, Any] | None:
+    """Nhận diện `2026-W41` / `W41` / `tuần 41`."""
+    m_iso = re.search(r"\b(\d{4})-w(\d{1,2})\b", lower)
+    if m_iso:
+        return {"tuan": f"{int(m_iso.group(1)):04d}-W{int(m_iso.group(2)):02d}"}
+    m_w = re.search(r"\bw(\d{1,2})\b", lower)
+    if m_w:
+        return {"tuan": f"{active_date.year}-W{int(m_w.group(1)):02d}"}
+    m_tuan_so = re.search(r"\btu[aầ]n\s*(\d{1,2})\b", lower)
+    if m_tuan_so:
+        return {"tuan": f"{active_date.year}-W{int(m_tuan_so.group(1)):02d}"}
+    return None
+
+
+def parse_tuan_tu_van_ban(
+    text: str,
+    *,
+    active_date: Any | None = None,
+    mac_dinh_tuan_sau: bool = False,
+    uu_tien: str | None = None,
+) -> dict[str, Any]:
+    """Parser tuần thống nhất cho SCHEDULE_SOLVE / GET_SCHEDULE / TIME_OFF.
+
+    Nhận: `tuần sau` · `tuần này` · `hôm nay` · `2026-W41` · `W41` · `tuần 41`.
+    `uu_tien` = câu hiện tại (ưu tiên tương đối trước khi đọc lịch sử chat trong
+    `text`, tránh «tuần sau nhé» bị dính W41 của tin trước).
+    """
+    from datetime import date
+
+    if not isinstance(active_date, date):
+        active_date = _active_date({})
+    current = (uu_tien or "").lower()
+    combined = (text or "").lower()
+
+    for blob in (current, combined):
+        if not blob:
+            continue
+        hit = _tuan_tuong_doi(blob, active_date)
+        if hit:
+            return hit
+        hit = _tuan_tuong_minh(blob, active_date)
+        if hit:
+            return hit
+
+    if mac_dinh_tuan_sau:
+        return {"tuan": _iso_week(_add_week(active_date, 1))}
+    return {"tuan": _iso_week(active_date)}
+
+
+# ── Parse xin nghỉ / báo bận ────────────────────────────────────────────────
+# Logic nằm trong `timeoff_parse` để `tool_registry` dùng CHUNG — trước đây có
+# hai bản `_parse_thu`/`_parse_ca_range` copy-paste, lệch nhau theo thời gian nên
+# cùng một câu có thể ra hai kết quả tuỳ chỗ gọi. Các tên bên dưới giữ lại để
+# không phá vỡ import cũ (test + `tool_registry`).
+_parse_thu = parse_thu
+_parse_ca_range = parse_ca_range
+_parse_thu_tuong_doi = parse_thu_tuong_doi
+_CA_RANGE_INTENT = CA_RANGE
 
 
 
@@ -676,6 +771,117 @@ def _extract_survey_params(text: str) -> tuple[dict[str, Any], str | None]:
         "channel_mode": channel_mode,
         "include_substitutes": True,
     }, None
+
+
+# ── Làm rõ (clarification) khi thiếu tham số bắt buộc ────────────────────────
+# Các intent mutating đã từ lâu set cờ `thieu_*` trong `params` (thieu_noi_dung,
+# thieu_treo_id, thieu_thong_tin, thieu_khoang_ban, thieu_swap_id…) nhưng KHÔNG
+# có bước nào đọc chúng: `clarification_needed` chỉ bật qua ngưỡng confidence.
+# Hệ quả là khi thiếu thông tin, copilot vẫn chạy tool, tool fail-closed rồi
+# người dùng nhận câu "chưa tạo được đề xuất" — vòng vo, không biết phải bổ
+# sung gì. Nay có bước chung: thấy cờ thiếu thì hỏi lại đúng thứ đang thiếu.
+
+CAU_HOI_TIME_OFF_LY_DO = (
+    "Dạ cho em xin lý do xin nghỉ với ạ? Anh/chị nói giúp em cụ thể "
+    "(vd: «vì đi khám bệnh», «vì việc gia đình») để em lập đề xuất cho quản lý duyệt ạ."
+)
+CAU_HOI_TIME_OFF_NGAY = (
+    "Dạ anh/chị cho em biết cụ thể ngày nào bận ạ "
+    "(vd: «thứ 5», «buổi chiều thứ 5», «ngày mai») ạ?"
+)
+CAU_HOI_TIME_OFF_CA_NHAY = (
+    "Dạ anh/chị cho em biết ngày nào bận và lý do xin nghỉ với ạ? "
+    "Anh/chị nói một câu tự nhiên là được, vd: «thứ 5 buổi chiều, vì đi khám bệnh» ạ."
+)
+
+_CAU_HOI_LAM_RO: dict[str, dict[str, str]] = {
+    PROPOSE_HANGING_TASK: {
+        "thieu_noi_dung": "Dạ anh/chị treo việc gì ạ? Anh/chị mô tả ngắn nội dung việc để em ghi lại ạ.",
+    },
+    PROPOSE_HANDOVER: {
+        "thieu_noi_dung": "Dạ anh/chị gửi nội dung bàn giao ca giúp em ạ.",
+    },
+    PROPOSE_TASK_COMPLETE: {
+        "thieu_treo_id": "Dạ việc treo cần đánh dấu xong có mã (vd: «treo_a1b2») — anh/chị gửi em mã nhé ạ?",
+    },
+    PROPOSE_MENU_UPDATE: {
+        "thieu_thong_tin": (
+            "Dạ anh/chị muốn làm gì với món nào ạ? "
+            "Vd: «sửa giá bún bò thành 35000», «ẩn món cà phê», «thêm món bạc xỉu giá 45000» ạ."
+        ),
+    },
+    PROPOSE_ORDER_TRANSITION: {
+        "thieu_thong_tin": (
+            "Dạ anh/chị cho em mã đơn và muốn chuyển sang trạng thái nào ạ "
+            "(vd: «đơn dq_a1b2 chuyển sang đang pha» hoặc «hủy đơn dq_a1b2» vì khách đổi ý) ạ?"
+        ),
+    },
+    PROPOSE_PIN: {
+        "thieu_thong_tin": "Dạ anh/chị muốn ghim ca nào cho nhân viên nào ạ? (vd: «ghim ca w1_c01 cho Minh»)",
+    },
+    PROPOSE_TKB_CONFIRM: {
+        "thieu_khoang_ban": (
+            "Dạ anh/chị cho em khoảng bận cụ thể ạ? "
+            "Vd: «T2 07:00-12:00, T4 18:00-22:00» hoặc gửi ảnh thời khóa biểu ạ."
+        ),
+    },
+    PROPOSE_SWAP_CONSENT: {
+        "thieu_swap_id": "Dạ anh/chị cho em mã yêu cầu đổi ca cần đồng ý (vd: «sw_a1b2c3») ạ?",
+    },
+    PROPOSE_CONSUMPTION_RECORD: {
+        "thieu_so_luong": (
+            "Dạ anh/chị ghi giúp em số lượng và tên hàng ạ? "
+            "Vd: «3 khay sữa tươi», «còn 2 hộp bánh mì» ạ."
+        ),
+    },
+}
+
+
+def copilot_dang_hoi_ly_do(reply_text: str) -> bool:
+    """`reply_text` của copilot có phải câu hỏi xin lý do nghỉ không?
+
+    Cổng `cho_phep_noi_ly_do` cần biết chính xác lượt trước copilot có đang
+    hỏi lý do không — nếu bật hời, mọi câu ngắn sau một lượt xin nghỉ đều bị
+    bắt thành lý do ("hieu roi", "ok"…) và copilot tự bịa đơn nghỉ.
+    """
+    t = " ".join(str(reply_text or "").lower().split())
+    return bool(t) and t == _chuan_hoa_cau_hoi(CAU_HOI_TIME_OFF_LY_DO)
+
+
+def _chuan_hoa_cau_hoi(text: str) -> str:
+    return " ".join(str(text or "").lower().split())
+
+
+def _cau_hoi_lam_ro(intent: str, params: dict[str, Any]) -> tuple[str, str] | None:
+    """`(loại_thiếu, câu_hỏi)` cho intent khi `params` còn thiếu thông tin bắt buộc."""
+    if intent == PROPOSE_TIME_OFF:
+        thieu_ngay = bool(params.get("thieu_thu"))
+        thieu_ly_do = bool(params.get("thieu_ly_do"))
+        if thieu_ngay and thieu_ly_do:
+            return "thieu_ly_do", CAU_HOI_TIME_OFF_CA_NHAY
+        if thieu_ngay:
+            return "thieu_thu", CAU_HOI_TIME_OFF_NGAY
+        if thieu_ly_do:
+            return "thieu_ly_do", CAU_HOI_TIME_OFF_LY_DO
+        return None
+    for flag, question in _CAU_HOI_LAM_RO.get(intent, {}).items():
+        if params.get(flag):
+            return flag, question
+    return None
+
+
+# Gộp lý do giữa hai lượt khi NV trả lời câu hỏi làm rõ.
+def _trich_ly_do_time_off(text: str, recent_text: str) -> str:
+    """Lý do nghỉ của lượt này, có tính tới lượt trước khi NV chỉ trả lời.
+
+    `recent_text` rỗng = không được phép mượn lượt trước. Nối hai lượt bằng
+    DẤU PHẨY để `trich_ly_do` lấy đúng đoạn sau dấu phẩy làm lý do (đoạn trước
+    là lệnh xin nghỉ + ngày đã nói ở lượt trước).
+    """
+    ly_do = trich_ly_do(text)
+    if ly_do or not recent_text.strip():
+        return ly_do
+    return trich_ly_do(f"{recent_text}, {text}")
 
 
 def parse_intent(message: str, context: dict[str, Any] | None = None) -> IntentParseResult:
@@ -825,6 +1031,23 @@ def parse_intent(message: str, context: dict[str, Any] | None = None) -> IntentP
             matched_intent = SEND_MAIL
             matched_conf = 0.88
             inferred_from_context = True
+        elif (
+            context.get("cho_phep_noi_ly_do")
+            and any(
+                kw in recent_text
+                for iname, keywords, _ in _INTENT_KEYWORDS
+                if iname == PROPOSE_TIME_OFF
+                for kw in keywords
+            )
+            and "?" not in lower
+        ):
+            # NV đang TRẢ LỜI câu hỏi "lý do nghỉ là gì ạ?" của lượt trước.
+            # Cổng `cho_phep_noi_ly_do` do API/đồng UI bật khi lượt trước copilot
+            # thực sự hỏi lý do — không bật thì câu này rơi vào OUT_OF_SCOPE và
+            # lý do NV vừa cung cấp bị bỏ rơi.
+            matched_intent = PROPOSE_TIME_OFF
+            matched_conf = 0.88
+            inferred_from_context = True
 
     # Nếu có đính kèm ảnh và người dùng hỏi về lịch/TKB hoặc chỉ gửi ảnh
     attachments = list(context.get("attachments") or [])
@@ -840,17 +1063,17 @@ def parse_intent(message: str, context: dict[str, Any] | None = None) -> IntentP
 
     # Extract common parameters
     if matched_intent == SCHEDULE_SOLVE:
-        # Week detection (ISO week thực tế — không hardcode).
+        # Week detection thống nhất với GET_SCHEDULE (W41 / tuần sau / hôm nay).
         active_date = _active_date(context)
         combined_lower = f"{recent_text} {lower}"
-        tuan = _iso_week(active_date)
-        if "tuần sau" in combined_lower or "tuan sau" in combined_lower:
-            params["tuan"] = _iso_week(_add_week(active_date, 1))
-        elif "tuần này" in combined_lower or "tuan nay" in combined_lower:
-            params["tuan"] = tuan
-        else:
-            # Mặc định tuần sau (nhu cầu lập lịch phổ biến).
-            params["tuan"] = _iso_week(_add_week(active_date, 1))
+        params.update(
+            parse_tuan_tu_van_ban(
+                combined_lower,
+                active_date=active_date,
+                mac_dinh_tuan_sau=True,
+                uu_tien=lower,
+            )
+        )
         # Preference detection
         lan_match = re.search(r"ưu\s*tiên\s*(\w+)\s*ca\s*(\w+)", lower)
         if lan_match:
@@ -863,58 +1086,60 @@ def parse_intent(message: str, context: dict[str, Any] | None = None) -> IntentP
     elif matched_intent == GET_SCHEDULE:
         active_date = _active_date(context)
         combined_lower = f"{recent_text} {lower}"
-        tuan = _iso_week(active_date)
-        if "tuần sau" in combined_lower or "tuan sau" in combined_lower:
-            params["tuan"] = _iso_week(_add_week(active_date, 1))
-        elif "tuần này" in combined_lower or "tuan nay" in combined_lower:
-            params["tuan"] = tuan
-        else:
-            m_iso = re.search(r"(\d{4}-w\d{2})", combined_lower)
-            if m_iso:
-                params["tuan"] = m_iso.group(1).upper()
-            else:
-                m_t = re.search(r"\btuần\s*(\d{1,2})\b", combined_lower)
-                if m_t:
-                    params["tuan"] = f"{active_date.year}-W{int(m_t.group(1)):02d}"
-                else:
-                    params["tuan"] = tuan
+        params.update(
+            parse_tuan_tu_van_ban(
+                combined_lower,
+                active_date=active_date,
+                mac_dinh_tuan_sau=False,
+                uu_tien=lower,
+            )
+        )
 
     elif matched_intent == QUERY_SOP:
         params["cau_hoi"] = text
 
+    elif matched_intent == QUERY_QUANVERSE:
+        params["cau_hoi"] = text
+
     elif matched_intent == PROPOSE_TIME_OFF:
-        # Trích thứ + lý do từ chính câu nói ("tôi bận thứ 5, có thi").
-        thu = _parse_thu(lower)
+        # Trích thứ + khung giờ + lý do từ chính câu nói ("tôi bận thứ 5, có thi").
+        active_date = _active_date(context)
+        # Lượt này đã nêu ngày/ca thì lấy ngay lượt này — KHÔNG đụng lịch sử, để
+        # "xin nghỉ thứ 7" không bị lượt trước nhắc "thứ 5" kéo theo. Chỉ khi
+        # lượt này KHÔNG có gì (NV đang trả lời câu hỏi "lý do là gì?") mới
+        # mượn ngày/ca từ lượt trước qua `recent_text`.
+        if _parse_thu(lower) or _parse_ca_range(lower):
+            nguon = lower
+        else:
+            nguon = f"{recent_text} {lower}"
+        thu = _parse_thu(nguon)
+        # "xin nghỉ buổi chiều nay" không có "thứ X" → suy thứ từ ngày quán.
+        if not thu:
+            thu = _parse_thu_tuong_doi(nguon, active_date)
         if thu:
             params["thu"] = thu
-        ly_do_raw = text.strip()
-        # BUG7 fix: trích phần lý do sau dấu ',' hoặc ':' đầu tiên nếu có.
-        # Regex cũ dùng lazy {0,40}? → match 0 ký tự → không strip được gì.
-        m_comma = re.search(r"[,:](.+)$", ly_do_raw)
-        if m_comma:
-            ly_do = m_comma.group(1).strip()
-        else:
-            # Không có dấu phẩy → bỏ cụm mở đầu ở đầu câu (anchor ^, count=1)
-            ly_do = re.sub(
-                r"^(?:tôi|toi|em|mình|minh)?\s*"
-                r"(?:xin nghỉ|xin nghi|nghỉ ca|nghi ca|xin nghi ca|bận|ban|không đi làm|khong di lam"
-                r"|không đi được|khong di duoc|không rảnh|khong ranh)"
-                r"(?:\s+(?:thứ\s*\d|thu\s*\d|thứ\s*[a-z]+|thu\s*[a-z]+|t[2-7]|chủ nhật|chu nhat))?"
-                r"(?:\s*(?:vì|vi|do|bởi|boi))?\s*",
-                "",
-                ly_do_raw,
-                count=1,
-                flags=re.IGNORECASE,
-            ).strip()
-            # Pass 2: nếu còn sót "thứ X" / "t2" ở đầu sau khi bỏ cụm mở đầu
-            ly_do = re.sub(
-                r"^(?:thứ\s*\d|thu\s*\d|thứ\s*[a-z]+|thu\s*[a-z]+|t[2-7]|chủ nhật|chu nhat)\s*(?:vì|vi|do|bởi|boi)?\s*",
-                "",
-                ly_do,
-                count=1,
-                flags=re.IGNORECASE,
-            ).strip()
-        params["ly_do"] = (ly_do[:200] or "bận")
+        # Nêu ca/khung giờ → chỉ bận khung đó, KHÔNG nghỉ cả ngày.
+        ca_range = _parse_ca_range(nguon)
+        if ca_range:
+            params["start"], params["end"] = ca_range
+        # Gắn tuan_id — trước đây thiếu nên ràng buộc nghỉ rơi tuần sai.
+        tuan_params = parse_tuan_tu_van_ban(
+            f"{recent_text} {lower}",
+            active_date=active_date,
+            mac_dinh_tuan_sau=False,
+            uu_tien=lower,
+        )
+        params["tuan_id"] = tuan_params.get("tuan")
+        # Lý do: lấy đúng phần NV nói, KHÔNG tự điền "bận". Trước đây thiếu lý
+        # do thì điền "bận" → đơn tới tay quản lý mang lý do vô nghĩa, và cụm
+        # ca/ngày ("buổi chiều thứ 5") lọt vào lý do làm lý do thật bị chôn.
+        # Chỉ gộp lượt trước khi đang trả lời câu hỏi làm rõ — nếu gộp vô điều
+        # kiện thì "xin nghỉ thứ 7" sẽ mượn nhầm lý do của "thứ 5" ở lượt trước.
+        params["ly_do"] = _trich_ly_do_time_off(
+            text, recent_text if inferred_from_context else ""
+        )
+        params["thieu_ly_do"] = not params["ly_do"]
+        params["thieu_thu"] = not thu
 
     elif matched_intent == GENERATE_DAILY_BRIEF:
         params["ngay"] = _active_date(context).isoformat()
@@ -1173,7 +1398,22 @@ def parse_intent(message: str, context: dict[str, Any] | None = None) -> IntentP
     elif matched_intent == GET_SERPAPI_QUOTA:
         pass
 
-    # 4. Confidence thresholds:
+    # 4. Thiếu tham số bắt buộc → hỏi lại đúng thứ đang thiếu.
+    # Đặt TRƯỚC ngưỡng confidence: câu nhận diện intent chắc chắn (0.92) vẫn
+    # phải hỏi khi thiếu lý do/ngày — đây là chỗ cũ để lọt "tự điền bận".
+    cau_hoi = _cau_hoi_lam_ro(matched_intent, params)
+    if cau_hoi is not None:
+        loai, cau = cau_hoi
+        return IntentParseResult(
+            intent=matched_intent,
+            confidence=matched_conf,
+            params=params,
+            clarification_needed=True,
+            clarification_question=cau,
+            clarification_kind=loai,
+        )
+
+    # 5. Confidence thresholds:
     # >= 0.75: regular
     # 0.5 <= conf < 0.75: clarification
     # < 0.5: OUT_OF_SCOPE

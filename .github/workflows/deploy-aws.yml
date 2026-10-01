@@ -1,6 +1,10 @@
 name: Deploy production to AWS
 
 on:
+  # CHỈ deploy theo chuỗi ci → ghcr → deploy (workflow_run). KHÔNG trigger theo
+  # push: đã đỏ thật (2026-10-01) vì deploy chạy TRƯỚC khi image SHA được build
+  # xong trên GHCR → pull `not found`. Mọi đổi (kể cả infra/**) đều đi qua CI
+  # rồi mới tới đây, nên không mất đường deploy nào.
   workflow_run:
     workflows:
       - "Build & push images to GHCR"
@@ -8,13 +12,6 @@ on:
       - main
     types:
       - completed
-
-  push:
-    branches:
-      - main
-    paths:
-      - ".github/workflows/deploy-aws.yml"
-      - "infra/oracle/**"
 
   workflow_dispatch:
 
@@ -26,7 +23,6 @@ jobs:
   deploy:
     if: >
       github.event_name == 'workflow_dispatch' ||
-      github.event_name == 'push' ||
       github.event.workflow_run.conclusion == 'success'
 
     runs-on: ubuntu-latest
@@ -84,8 +80,26 @@ jobs:
             git fetch --depth 1 origin main
             main_sha="$(git rev-parse FETCH_HEAD)"
             if [ "$release_sha" != "$main_sha" ]; then
-              echo "Bỏ qua release $release_sha vì main hiện tại là $main_sha."
-              exit 0
+              # BỎ QUA ≠ THÀNH CÔNG. Đây là bẫy đã vấp thật (2026-09-29):
+              # một lần push thêm commit trong lúc deploy đang xếp hàng làm
+              # `release_sha != main_sha`, script `exit 0` ⇒ workflow XANH
+              # trong 13 giây mà KHÔNG deploy gì. Bốn route Quánverse vì thế
+              # vẫn phục vụ code cũ trên production mà không ai thấy báo động.
+              #
+              # Từ nay: in cảnh báo GitHub + ghi kết luận vào `$GITHUB_STEP_SUMMARY`
+              # rồi `exit 1`. Deploy bị bỏ là một SỰ KIỆN, không phải trạng thái
+              # bình thường — nó phải đỏ để người trực biết mà chạy lại.
+              echo "::warning::Bỏ qua deploy: release $release_sha không còn là main ($main_sha). Chạy lại deploy để phát hành bản mới nhất."
+              {
+                echo "## ⚠️ Deploy bị BỎ QUA (không phải thành công)"
+                echo ""
+                echo "- release_sha: \`$release_sha\`"
+                echo "- main hiện tại: \`$main_sha\`"
+                echo ""
+                echo "Commit đã được push trong lúc deploy đang xếp hàng, nên bản này"
+                echo "là bản cũ. **Chạy lại workflow này** để phát hành \`$main_sha\`."
+              } >> "$GITHUB_STEP_SUMMARY"
+              exit 1
             fi
             git checkout --detach "$release_sha"
             cd /opt/nhipquan
@@ -112,6 +126,9 @@ jobs:
             sudo cp repo/infra/oracle/compose.prod.yml compose.yml
             sudo cp repo/infra/oracle/Caddyfile Caddyfile
 
+            # Tag SHA bản sắp deploy — khai sớm để bước dọn image biết mà GIỮ.
+            target_tag="$release_sha"
+
             domain="$(awk -F= '/^DOMAIN=/{print $2; exit}' .env)"
             # Dọn dung lượng triệt để TRƯỚC khi pull image mới (ổ đĩa EC2 20GB):
             # 1. Tự động mở rộng phân vùng nếu volume AWS có dung lượng chưa cấp phát
@@ -124,9 +141,30 @@ jobs:
             sudo rm -rf /tmp/* 2>/dev/null || true
             # 4. Xóa bớt log container quá lớn nếu có
             sudo truncate -s 0 /var/lib/docker/containers/*/*-json.log 2>/dev/null || true
-            # 5. Xóa toàn bộ images cũ không còn container nào dùng (cờ -a để xóa cả tagged images)
-            sudo docker image prune -a -f || true
-            sudo docker builder prune -a -f || true
+            # 5. Dọn image THÔNG MINH (thay `prune -a` mù): giữ 3 thứ —
+            # image container đang dùng, tag `:rollback` cứu hộ, tag SHA bản sắp
+            # deploy (`$target_tag` đã khai ở trên). Xoá mọi tag SHA cũ khác:
+            # ổ 20GB + image ~800MB nên tag tích lũy từng bản là nguyên nhân
+            # hết disk (2026-09-30). `prune -a` mù từng xoá cả tag rollback —
+            # không dùng nữa.
+            giu_ids="$(sudo docker ps -q | xargs -r sudo docker inspect --format '{{.Image}}' 2>/dev/null | sort -u || true)"
+            for repo_img in nhipquan-api nhipquan-web; do
+              base="ghcr.io/kantrun/crew-operations/$repo_img"
+              sudo docker images --format '{{.Repository}}:{{.Tag}} {{.ID}}' 2>/dev/null \
+                | grep "^$base:" || true | while read -r ref iid; do
+                tag="${ref##*:}"
+                if [ "$tag" = "$target_tag" ] || [ "$tag" = "rollback" ]; then
+                  continue
+                fi
+                case " $giu_ids " in
+                  *" $iid "*) continue ;;
+                esac
+                echo "Xoá image cũ: $ref"
+                sudo docker image rm "$ref" || true
+              done
+            done
+            sudo docker image prune -f || true
+            sudo docker builder prune -f || true
             sudo docker system prune -f || true
             # 6. Dọn containerd snapshot cache dở dang từ các lần pull trước
             sudo ctr -n moby content prune 2>/dev/null || true
@@ -134,15 +172,26 @@ jobs:
 
             echo "=== Dung lượng đĩa trước khi pull ==="
             df -h /
+            sudo docker system df 2>/dev/null || true
+            sudo du -sh /var/lib/docker /var/lib/containerd /opt/nhipquan/backups 2>/dev/null || true
 
-            target_tag="$release_sha"
-            if ! sudo IMAGE_TAG="$target_tag" docker compose pull 2>/dev/null; then
-              echo "Image tag $release_sha chưa có trên GHCR; dùng tag :latest"
-              target_tag="latest"
-              sudo IMAGE_TAG="$target_tag" docker compose pull
-            fi
+            # Fail-closed: image đúng SHA phải tồn tại trên GHCR. Bỏ fallback
+            # `:latest` — đã có lần nó kéo bản KHÁC với release được duyệt mà
+            # workflow vẫn xanh (fail-open). Thiếu image là ĐỎ ngay tại đây.
+            # Pull TUẦN TỰ từng image (ổ EC2 20GB, thường còn trống ~2GB):
+            # `compose pull` mặc định tải song song api (~800MB) + web cùng lúc,
+            # đỉnh dùng đĩa vượt phần trống và chết giữa chừng với ENOSPC
+            # (2026-10-01: gãy ở ~325MB/787MB dù `df` báo còn 2.3G).
+            # api+worker chung một image nên gộp một lệnh; web và infra riêng.
+            sudo IMAGE_TAG="$target_tag" docker compose pull api worker
+            sudo IMAGE_TAG="$target_tag" docker compose pull web
+            sudo IMAGE_TAG="$target_tag" docker compose pull postgres redis caddy
 
             if sudo IMAGE_TAG="$target_tag" docker compose run --rm --no-deps api sh -c "cd /app/apps/api && alembic -c alembic/alembic.ini upgrade head" &&
+               # Khởi động theo thứ tự để giảm giật: api (+postgres/redis) lên
+               # và healthy trước, rồi worker/web/caddy mới lên theo. Nhanh hơn
+               # và ít 502 hơn kiểu recreate đồng loạt.
+               sudo IMAGE_TAG="$target_tag" docker compose up -d --remove-orphans --wait --wait-timeout 180 api &&
                sudo IMAGE_TAG="$target_tag" docker compose up -d --remove-orphans --wait --wait-timeout 180 &&
                # Caddyfile mount dạng bind `:ro` nên compose KHÔNG thấy config đổi →
                # không recreate container caddy → nó giữ Caddyfile cũ trong bộ nhớ.
@@ -152,9 +201,10 @@ jobs:
                ( sudo IMAGE_TAG="$target_tag" docker compose exec -T caddy caddy reload --config /etc/caddy/Caddyfile 2>/dev/null || sudo docker compose restart caddy ) &&
                test -n "$domain" &&
                curl -fsS --retry 12 --retry-delay 5 "https://${domain}/health" &&
-               curl -fsS --retry 12 --retry-delay 5 "https://${domain}/"; then
+               curl -fsS --retry 12 --retry-delay 5 "https://${domain}/";             then
               printf '%s\n' "$release_sha" | sudo tee .deployed_sha >/dev/null
-              sudo docker image prune -a -f || true
+              # Dọn nhẹ sau deploy (giữ nguyên tắc thông minh, không `-a` mù).
+              sudo docker image prune -f || true
               sudo IMAGE_TAG="$target_tag" docker compose ps
               echo "=== Dung lượng đĩa sau khi deploy ==="
               df -h /
@@ -167,3 +217,47 @@ jobs:
               sudo IMAGE_TAG=rollback docker compose up -d --remove-orphans --wait --wait-timeout 180 || true
               exit 1
             fi
+
+      # ── Cổng hậu-deploy: kiểm điều hướng Quánverse trên BẢN ĐANG CHẠY ──────
+      #
+      # Vì sao cần: `curl https://$domain/` chỉ chứng minh trang chủ trả 200. Nó
+      # KHÔNG chứng minh bốn route phụ đã bị rút — và đúng loại lỗi đó đã lọt ra
+      # production một lần (deploy bị bỏ qua trong im lặng, 2026-09-29). Cổng này
+      # chạy trên runner GitHub (không phải trên VM) nên nó kiểm đúng đường mà
+      # người dùng thật đi: DNS → Caddy → container web.
+      #
+      # Fail-closed: sai mã trạng thái ⇒ workflow ĐỎ. Deploy coi như chưa xong.
+      - name: "Assert: bốn route phụ Quánverse phải chuyển hướng"
+        env:
+          DOMAIN: ${{ vars.NHIPQUAN_DOMAIN || 'nhipquan.duckdns.org' }}
+        run: |
+          set -eu
+          base="https://${DOMAIN}"
+          # /quanverse phải sống (200).
+          code_home="$(curl -s -o /dev/null -w '%{http_code}' --retry 12 --retry-delay 5 "$base/quanverse")"
+          if [ "$code_home" != "200" ]; then
+            echo "::error::/quanverse trả $code_home (mong đợi 200)"
+            exit 1
+          fi
+
+          # Bốn route phụ phải chuyển hướng vĩnh viễn (308) về /quanverse.
+          fail=0
+          for path in war-room shift-rescue rules spatial-memory; do
+            read -r code loc < <(
+              curl -s -o /dev/null -w '%{http_code} %{redirect_url}' \
+                --retry 8 --retry-delay 3 "$base/quanverse/$path"
+              echo
+            )
+            if [ "$code" != "308" ]; then
+              echo "::error::/quanverse/$path trả $code (mong đợi 308)"
+              fail=1
+              continue
+            fi
+            case "$loc" in
+              */quanverse) echo "OK  /quanverse/$path -> $code $loc" ;;
+              *) echo "::error::/quanverse/$path chuyển hướng sai đích: $loc"; fail=1 ;;
+            esac
+          done
+          [ "$fail" -eq 0 ] || exit 1
+
+          echo "Quánverse: 1 điểm vào, 4 route phụ đã rút."

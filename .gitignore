@@ -40,6 +40,14 @@ htmlcov/
 # Local test/debug artifacts (không commit)
 _*.txt
 _*.log
+_*.err
+_*.py
+_*.cjs
+_trend_wt/
+hinh_backup_*/
+apps/.._tsc_web.txt
+apply_*.py
+build_clean_transitions.py
 
 # AgentKit / Kiro — công cụ trợ lý cục bộ, không phải mã sản phẩm.
 # .kiro/agentkit chứa bản export portable (1491 tệp) nên tuyệt đối không commit.
@@ -57,6 +65,9 @@ data/out/msg_sent.jsonl
 data/quan.db
 data/quan.db-wal
 data/quan.db-shm
+data/quan_clean.db
+data/quan_clean.db-wal
+data/quan_clean.db-shm
 # Backup DB tự sinh bởi `seed_professional_fixture.py --reset` (backup_db()) —
 # artifact của từng lần chạy, không cho tích tụ binary vào repo.
 # Hai backup có chủ đích vẫn track: `quan-pre-phase0.db` (có sẵn) và
@@ -104,3 +115,20 @@ data/cache/
 # Mỗi script tự ghi ra khi chạy — KHÔNG track kết quả شم沉着 cũ. Giữ .gitkeep.
 data/out/*
 !data/out/.gitkeep
+# Nén tay output cũ — artifact local, không commit (data/out/* chỉ khớp thư mục).
+data/out.rar
+data/out.zip
+data/out.7z
+
+# Backup DB lẻ ngoài hai bản có chủ đích (quan-pre-phase0, quan-pre-gd10-260913).
+data/backups/quan-pre-dedup-*.db*
+
+# File thử một lần ở root (untracked, không phải mã nguồn).
+nim_test.py
+opencode.json
+scripts/_verify_batch_a.mjs
+
+# Artifact Playwright: trace/video/report chỉ sinh khi e2e đỏ — không commit.
+apps/web/test-results/
+apps/web/playwright-report/
+apps/web/blob-report/

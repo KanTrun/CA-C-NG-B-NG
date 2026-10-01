@@ -56,6 +56,16 @@ _WINDOW_S = 60.0
 _MAX_REQ = 20
 
 _PREF_KEY = "experience_preferences"
+_MODE_EVENTS_KEY = "experience_mode_events"
+
+_MODE_LABEL_VI: dict[str, str] = {
+    "troi_mua": "Trời mưa",
+    "gio_cao_diem": "Giờ cao điểm",
+    "khach_doan": "Khách đoàn",
+    "thieu_nhan_su": "Thiếu nhân sự",
+    "quan_yen_tinh": "Quán yên tĩnh",
+    "dem_nhac": "Đêm nhạc",
+}
 
 
 def clear_quanverse_state() -> None:
@@ -66,8 +76,51 @@ def clear_quanverse_state() -> None:
         for mode in ExperienceMode:
             kv_set(f"experience_mode_{mode.value}", None)
         kv_set(_PREF_KEY, [])
+        kv_set(_MODE_EVENTS_KEY, [])
     except Exception:
         pass
+
+
+def _append_mode_event(*, mode: str, action: str) -> dict[str, Any]:
+    """Ghi sự kiện chế độ vào kv để snapshot/events list hiện 'vừa làm gì'."""
+    label = _MODE_LABEL_VI.get(mode, mode)
+    if action == "proposed":
+        summary = f"Đã đề xuất bật chế độ {label} — chờ quản lý duyệt."
+    elif action == "confirmed":
+        effect = mode_effect(ExperienceMode(mode)) if mode in {m.value for m in ExperienceMode} else ""
+        summary = f"Đã bật chế độ {label}." + (f" {effect}" if effect else "")
+    elif action == "deactivated":
+        summary = f"Đã tắt chế độ {label}."
+    else:
+        summary = f"Chế độ {label}: {action}."
+    now = datetime.now(UTC)
+    ev: dict[str, Any] = {
+        "event_id": f"mode_{mode}_{action}_{int(now.timestamp() * 1000)}",
+        "event_type": "mode_change",
+        "status": action,
+        "occurred_at": now.isoformat().replace("+00:00", "Z"),
+        "source": "user",
+        "summary": summary,
+        "zone_id": None,
+    }
+    raw = kv_get(_MODE_EVENTS_KEY, [])
+    events = [e for e in (raw if isinstance(raw, list) else []) if isinstance(e, dict)]
+    events.insert(0, ev)
+    kv_set(_MODE_EVENTS_KEY, events[:40])
+    return ev
+
+
+def _mode_events_projections() -> list[PublicEventProjection]:
+    raw = kv_get(_MODE_EVENTS_KEY, [])
+    out: list[PublicEventProjection] = []
+    for e in raw if isinstance(raw, list) else []:
+        if not isinstance(e, dict):
+            continue
+        try:
+            out.append(PublicEventProjection.model_validate(e))
+        except Exception:
+            continue
+    return out
 
 
 @router.post("/api/v1/experience/quanverse/reset")
@@ -114,6 +167,14 @@ def quanverse_reset(
 
 
 def _rate_limit(user_id: str) -> None:
+    import os
+
+    if os.environ.get("NHIPQUAN_DISABLE_RATE_LIMIT", "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+    }:
+        return
     now = time.time()
     with _LOCK:
         recent = [t for t in _USER_TS.get(user_id, []) if now - t < _WINDOW_S]
@@ -164,6 +225,10 @@ def _project_role(role: ExperienceRole) -> dict[str, Any]:
         PublicEventProjection.model_validate({**e, "occurred_at": _event_time(e)})
         for e in data.get("events", [])
     ]
+    # Sự kiện chế độ do người dùng vừa làm (propose/confirm/deactivate) — đầu danh sách.
+    mode_evs = _mode_events_projections()
+    if mode_evs:
+        events = [*mode_evs, *events]
     modes = [ModeProjection.model_validate(m) for m in data.get("modes", [])]
     # Ghi đè trạng thái mode bằng kv (trạng thái thật do người dùng tạo khi replay).
     #
@@ -176,14 +241,24 @@ def _project_role(role: ExperienceRole) -> dict[str, Any]:
     # "Duyệt" — vòng đời đề xuất → duyệt bị kẹt ngay ở bước đề xuất.
     # Endpoint `/modes` (thêm sau) đã đọc đúng; ở đây phải đọc giống hệt.
     # Thứ tự ưu tiên: kv → fixture → None. `confirmed` chỉ khi đang active.
+    #
+    # BẪY THỨ HAI (đã vấp): kv CÓ bản ghi nhưng `proposal_status` rỗng nghĩa là
+    # "đã bỏ đề xuất", KHÁC với "chưa từng có đề xuất". Bản trước dùng
+    # `state.get("proposal_status") or fixture.proposal_status` nên sau khi bấm
+    # "Bỏ đề xuất" (deactivate ghi `active: False` mà không kèm proposal_status),
+    # giá trị rỗng rơi về FIXTURE — mà fixture khai `khach_doan` là `draft`. Hệ
+    # quả: UI vẫn hiện "Chờ duyệt · Bản nháp" kèm nút Duyệt cho một đề xuất
+    # người dùng vừa bỏ; bấm Duyệt lần nữa lại bật mode. Có kv ⇒ tin kv.
     for i, m in enumerate(modes):
         state = kv_get(f"experience_mode_{m.mode.value}", None) or {}
         active = bool(state.get("active", m.active))
         if active:
             proposal_status: str | None = "confirmed"
         else:
-            raw = state.get("proposal_status") or (
-                m.proposal_status.value if m.proposal_status else None
+            raw = (
+                state.get("proposal_status")
+                if state
+                else (m.proposal_status.value if m.proposal_status else None)
             )
             # `confirmed` trong khi chưa active là vô nghĩa (mâu thuẫn trạng thái),
             # và UI đọc nó thành "chờ duyệt" nên sẽ hiện nút Duyệt sai. Bỏ đi.
@@ -228,7 +303,16 @@ def _project_role(role: ExperienceRole) -> dict[str, Any]:
             "events": [e.model_dump(mode="json") for e in events_proj],
             "modes": [m.model_dump(mode="json") for m in modes],
             "next_horizon": horizon,
-            "data_quality": [{"code": "fixture_replay", "level": "info", "message": "fixture"}],
+            "data_quality": [
+                {
+                    "code": "fixture_replay",
+                    "level": "info",
+                    "message": (
+                        "Bản chiếu nhân viên — dữ liệu diễn tập, "
+                        "không phải đo thật"
+                    ),
+                }
+            ],
         }
     # Manager / Chu quan — full authorized projection
     return {
@@ -236,7 +320,13 @@ def _project_role(role: ExperienceRole) -> dict[str, Any]:
         "events": [e.model_dump(mode="json") for e in events],
         "modes": [m.model_dump(mode="json") for m in modes],
         "next_horizon": horizon,
-        "data_quality": [{"code": "fixture_replay", "level": "info", "message": "fixture"}],
+        "data_quality": [
+            {
+                "code": "fixture_replay",
+                "level": "info",
+                "message": "Dữ liệu diễn tập — không phải đo thật từ quán",
+            }
+        ],
     }
 
 
@@ -301,9 +391,16 @@ def quanverse_modes(
         else:
             # Đề xuất đã ghi vào kv phải đọc lại được — nếu không, UI hiện
             # "Đang tắt" cho một chế độ đang chờ duyệt.
+            #
+            # Và ngược lại: kv CÓ bản ghi với `proposal_status` rỗng nghĩa là
+            # "đã bỏ đề xuất" — không được rơi về giá trị của fixture, nếu không
+            # nút "Bỏ đề xuất" thành nút chết (xem ghi chú ở `_project_role`).
             proposal_status = str(
-                state.get("proposal_status")
-                or (m.proposal_status.value if m.proposal_status else "")
+                (
+                    state.get("proposal_status")
+                    if state
+                    else (m.proposal_status.value if m.proposal_status else "")
+                )
                 or ""
             )
         with_state.append(
@@ -317,6 +414,46 @@ def quanverse_modes(
             }
         )
     return {"modes": with_state, "role": role, "can_activate": can_activate_mode(role)}
+
+
+@router.get("/api/v1/experience/quanverse/stations")
+def quanverse_stations(
+    authorization: Annotated[str | None, Header()] = None,
+) -> dict[str, Any]:
+    """Tải + hàng chờ theo khu vực, tính từ ĐƠN QUẦY THẬT + nhân sự trong ca.
+
+    Read-only. Chưa có đơn → `co_du_lieu=False` để UI bày chế độ mẫu có nhãn.
+    """
+    _require_role(authorization)
+    from ca_api.services.quanverse_live import stations
+
+    return stations()
+
+
+@router.get("/api/v1/experience/quanverse/forecast")
+def quanverse_forecast(
+    authorization: Annotated[str | None, Header()] = None,
+) -> dict[str, Any]:
+    """Nhu cầu/hàng đợi theo GIỜ, tất định từ lịch sử đơn quầy. Read-only."""
+    _require_role(authorization)
+    from ca_api.services.quanverse_live import forecast
+
+    return forecast()
+
+
+@router.get("/api/v1/experience/quanverse/staff-on-shift")
+def quanverse_staff_on_shift(
+    authorization: Annotated[str | None, Header()] = None,
+) -> dict[str, Any]:
+    """Nhân sự đang trực theo ca phủ giờ hiện tại — tính tại máy chủ.
+
+    Read-only. `count=null` khi chưa khớp ca nào (UI hiện "—"), khác `0`
+    (có ca nhưng chưa phân công).
+    """
+    _require_role(authorization)
+    from ca_api.services.quanverse_live import staff_on_shift
+
+    return staff_on_shift()
 
 
 @router.post("/api/v1/experience/quanverse/modes/{mode}/propose")
@@ -357,6 +494,7 @@ def quanverse_mode_propose(
             "at": time.time(),
         },
     )
+    ev = _append_mode_event(mode=mode_enum.value, action="proposed")
     return {
         "mode": mode_enum.value,
         "proposal_status": "draft",
@@ -364,6 +502,7 @@ def quanverse_mode_propose(
         "effect": mode_effect(mode_enum),
         "confirmed": False,
         "replayable": True,
+        "events": [ev],
     }
 
 
@@ -384,12 +523,14 @@ def quanverse_mode_confirm(
     # Lưu trạng thái mode qua kv (audit lý tưởng), không đổi lifecycle khác.
     key = f"experience_mode_{mode_enum.value}"
     kv_set(key, {"active": True, "confirmed_by": str(user), "at": time.time()})
+    ev = _append_mode_event(mode=mode_enum.value, action="confirmed")
     return {
         "mode": mode_enum.value,
         "active": True,
         "affected_projections": impacts,
+        "effect": mode_effect(mode_enum),
         "audited": True,
-        "events": [{"event_type": "mode_change", "mode": mode_enum.value, "source": "replay"}],
+        "events": [ev],
     }
 
 
@@ -413,13 +554,15 @@ def quanverse_mode_deactivate(
     key = f"experience_mode_{mode_enum.value}"
     was_active = bool((kv_get(key, None) or {}).get("active"))
     kv_set(key, {"active": False, "deactivated_by": str(user), "at": time.time()})
+    ev = _append_mode_event(mode=mode_enum.value, action="deactivated")
     return {
         "mode": mode_enum.value,
         "active": False,
         "was_active": was_active,
         "affected_projections": mode_affects(mode_enum),
+        "effect": mode_effect(mode_enum),
         "audited": True,
-        "events": [{"event_type": "mode_change", "mode": mode_enum.value, "source": "replay"}],
+        "events": [ev],
     }
 
 
@@ -583,7 +726,9 @@ def quanverse_tour(
     _require_role(authorization)
     from ca_agents.ag_spatial_memory.tour import plan_tour
 
-    tour = plan_tour()
+    tour = plan_tour(tour_id=tour_id)
+    if tour is None:
+        raise HTTPException(status_code=404, detail="tour_not_found")
     return cast(dict[str, Any], tour.model_dump(mode="json"))
 
 
@@ -613,6 +758,16 @@ def ar_session(
 # cảnh đưa cho LLM là MỘT khối duy nhất — không có đường nào để hai bên lệch số.
 
 
+def _thoi_tiet_for_brief() -> dict[str, Any] | None:
+    """Đọc AI FORECAST thời tiết cho brief — hỏng thì trả None, không làm sập Quánverse."""
+    try:
+        from ca_api.services.thoi_tiet import get_thoi_tiet_hom_nay
+
+        return get_thoi_tiet_hom_nay()
+    except Exception:  # noqa: BLE001 — brief vẫn phải hiện khi Open-Meteo lỗi
+        return None
+
+
 def _payload_for_page(page: QuanversePage, role: ExperienceRole) -> dict[str, Any]:
     """Đọc dữ liệu thật của một trang Quánverse thành tham số cho `build_brief`.
 
@@ -634,12 +789,28 @@ def _payload_for_page(page: QuanversePage, role: ExperienceRole) -> dict[str, An
                     out.append(cast(dict[str, Any], row.model_dump(mode="json")))
             return out
 
+        # Bổ sung stations/forecast thật vào brief living_map — AI nói đúng về tải.
+        stations_payload: dict[str, Any] | None = None
+        forecast_payload: dict[str, Any] | None = None
+        try:
+            from ca_api.services.quanverse_live import forecast as live_forecast
+            from ca_api.services.quanverse_live import stations as live_stations
+
+            stations_payload = live_stations()
+            forecast_payload = live_forecast()
+        except Exception:
+            stations_payload = None
+            forecast_payload = None
+
         return {
             "zones": _as_dicts(proj["zones"]),
             "events": _as_dicts(proj["events"]),
             "modes": _as_dicts(proj["modes"]),
             "horizon": _as_dicts(proj["next_horizon"]),
             "data_quality": _as_dicts(proj["data_quality"]),
+            "stations": stations_payload,
+            "forecast": forecast_payload,
+            "thoi_tiet": _thoi_tiet_for_brief(),
         }
 
     if page == QuanversePage.WAR_ROOM:
@@ -695,16 +866,25 @@ def _payload_for_page(page: QuanversePage, role: ExperienceRole) -> dict[str, An
         # KHÔNG nằm trong fixture `spatial-memory.json` — fixture đó chỉ có
         # `memories`/`audit`/`tour_route`. Đọc sai nguồn sẽ luôn ra "0 neo" dù
         # quán có đủ neo, và brief sẽ nói dối về trạng thái thật của hệ thống.
+        #
+        # Số ký ức đọc từ kho ĐANG SỐNG (`_get_repo()`), không phải fixture thô:
+        # fixture khai `mem_bar_draft_01` là draft, nhưng một bài test cấp consent
+        # cho nó là neo `bar` từ 1 ký ức đã xác nhận thành 2 — brief đọc fixture
+        # sẽ nói 1 trong khi chi tiết neo hiện 2.
         from ca_agents.grand_experience.adapter import resolve_experience_read_adapter
+
+        from ca_api.interfaces.http.spatial_memory import _get_repo
 
         adapter = resolve_experience_read_adapter()
         anchors = [a.model_dump(mode="json") for a in adapter.list_anchors()]
-        data = _fixture("spatial-memory.json")
         counts: dict[str, int] = {}
-        for row in data.get("memories") or []:
-            if str(row.get("status") or "") == "confirmed":
-                aid = str(row.get("anchor_id") or "")
-                counts[aid] = counts.get(aid, 0) + 1
+        try:
+            for mem in _get_repo().all_memories():
+                if str(getattr(mem.status, "value", mem.status)) == "confirmed":
+                    aid = str(mem.anchor_id or "")
+                    counts[aid] = counts.get(aid, 0) + 1
+        except Exception:
+            counts = {}
         return {"anchors": anchors, "memory_counts": counts, "selected_anchor": None}
 
     return {}
@@ -773,5 +953,84 @@ def quanverse_ask(
 
     payload = _payload_for_page(page_enum, role)
     brief = build_brief(page_enum, **payload)
+    # Quanverse 2.0: gắn verdict JEV vào brief (cùng khối căn cứ, không bịa số).
+    try:
+        from ca_api.services.quanverse_evidence import build_evidence
+        from ca_api.services.quanverse_jev import judge as jev_judge
+
+        ev = build_evidence()
+        jd = jev_judge(ev)
+        if jd.get("goi_jev") and jd.get("verdict"):
+            st = (ev.get("state") or {})
+            brief.facts.append(
+                "JEV verdict: "
+                f"{jd.get('verdict_label')} (p={jd.get('p')}, {jd.get('provider')}). "
+                f"Đơn đang xử lý {st.get('don_dang_xu_ly')}, "
+                f"quầy pha {st.get('quay_pha_tai')}/{st.get('quay_pha_muc')}, "
+                f"trực {st.get('nhan_vien_truc')}."
+            )
+            brief.grounded_refs.append("jev_verdict")
+    except Exception:
+        pass
     answer = answer_question(page=page_enum, question=question, brief=brief)
     return cast(dict[str, Any], answer.model_dump(mode="json"))
+
+
+# ── Quanverse 2.0 — Evidence / JEV judge / Demo Setup ────────────────────────
+
+
+@router.get("/api/v1/experience/quanverse/evidence")
+def quanverse_evidence(
+    authorization: Annotated[str | None, Header()] = None,
+) -> dict[str, Any]:
+    """Evidence Builder: STATE gọn + COVERAGE + candidates A–E từ DB thật.
+
+    Chỉ ĐỌC. Không LLM, không JEV. UI dùng để vẽ 3 trạng thái du/thieu/trong.
+    """
+    _require_role(authorization)
+    from ca_api.services.quanverse_evidence import build_evidence
+
+    return build_evidence()
+
+
+@router.post("/api/v1/experience/quanverse/jev-judge")
+def quanverse_jev_judge(
+    authorization: Annotated[str | None, Header()] = None,
+) -> dict[str, Any]:
+    """JEV judge/rank trên evidence thật.
+
+    Trống hoàn toàn → KHÔNG gọi JEV, trả `goi_jev=False` để UI vẽ S3.
+    """
+    _require_role(authorization)
+    from ca_api.services.quanverse_evidence import build_evidence
+    from ca_api.services.quanverse_jev import judge
+
+    ev = build_evidence()
+    jd = judge(ev)
+    return {"evidence": ev, "jev": jd}
+
+
+@router.post("/api/v1/experience/quanverse/demo-setup")
+def quanverse_demo_setup(
+    authorization: Annotated[str | None, Header()] = None,
+) -> dict[str, Any]:
+    """Chuẩn bị dữ liệu demo BẰNG bản ghi nghiệp vụ thật (manager only).
+
+    Không phải mock/flag: ghi don_quay + phan_cong_by_week + tieu_thu thật để
+    Quanverse đọc như dữ liệu quán. Idempotent theo tiền tố `demo_qv_`.
+    """
+    _require_manager(authorization)
+    from ca_api.services.quanverse_demo import setup
+
+    return setup()
+
+
+@router.post("/api/v1/experience/quanverse/demo-reset")
+def quanverse_demo_reset(
+    authorization: Annotated[str | None, Header()] = None,
+) -> dict[str, Any]:
+    """Xoá đúng bản ghi demo `demo_qv_*` (manager only)."""
+    _require_manager(authorization)
+    from ca_api.services.quanverse_demo import reset
+
+    return reset()

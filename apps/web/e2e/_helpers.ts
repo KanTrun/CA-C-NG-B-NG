@@ -64,3 +64,26 @@ export async function disableWebgl(page: Page): Promise<void> {
     Object.defineProperty(HTMLCanvasElement.prototype, "getContext", { value: () => null });
   });
 }
+
+/**
+ * QUÁNVERSE 2.0 — bảo đảm có dữ liệu nghiệp vụ thật cho demo/thi.
+ *
+ * Gọi `POST /quanverse/demo-setup` (manager only, idempotent): ghi don_quay +
+ * phan_cong_by_week + tieu_thu thật để Evidence đủ (S1). Im lặng bỏ qua khi
+ * môi trường không cho phép — bài test phải tự rẽ nhánh S3 khi đó.
+ */
+export async function ensureDemoData(page: Page): Promise<void> {
+  const api = process.env.NQ_API ?? "http://127.0.0.1:8000";
+  const res = await page.request
+    .post(`${api}/api/v1/auth/login`, {
+      data: { username: "lan", password: "nhipquan" },
+    })
+    .catch(() => null);
+  if (!res || !res.ok()) return;
+  const { token } = (await res.json()) as { token: string };
+  await page.request
+    .post(`${api}/api/v1/experience/quanverse/demo-setup`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+    .catch(() => undefined);
+}

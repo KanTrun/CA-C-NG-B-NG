@@ -6,11 +6,25 @@ theo chuẩn kiến trúc Hexagonal.
 
 from __future__ import annotations
 
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
 from ca_api.ai_learning.repository import AILearningRepository
 from ca_api.persist import kv_get
+
+# Giờ quán (Việt Nam). Dùng cho mọi ngữ cảnh gửi cho agent.
+_VN_TZ = timezone(timedelta(hours=7))
+
+
+def ngay_hom_nay_vn() -> str:
+    """Ngày hôm nay theo GIỜ QUÁN (UTC+7), dạng `YYYY-MM-DD`.
+
+    Vì sao không dùng `datetime.now(UTC)`: sau 17:00 giờ VN thì UTC đã sang ngày
+    mới, nên agent nhận `active_date` là HÔM SAU — mọi câu hỏi "hôm nay" bị lệch
+    một ngày (bug QA đợt 4). Múi giờ cũng là bất biến của quán: quán mở/đóng
+    theo giờ địa phương.
+    """
+    return datetime.now(_VN_TZ).date().isoformat()
 
 
 def get_ops_context_for_mail(

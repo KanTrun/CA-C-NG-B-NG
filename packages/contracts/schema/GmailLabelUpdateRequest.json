@@ -1,0 +1,78 @@
+{
+  "properties": {
+    "name": {
+      "anyOf": [
+        {
+          "maxLength": 200,
+          "minLength": 1,
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Name"
+    },
+    "label_list_visibility": {
+      "anyOf": [
+        {
+          "enum": [
+            "labelShow",
+            "labelHide"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Label List Visibility"
+    },
+    "message_list_visibility": {
+      "anyOf": [
+        {
+          "enum": [
+            "show",
+            "hide"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Message List Visibility"
+    },
+    "color_background": {
+      "anyOf": [
+        {
+          "pattern": "^#[0-9a-fA-F]{6}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Color Background"
+    },
+    "color_text": {
+      "anyOf": [
+        {
+          "pattern": "^#[0-9a-fA-F]{6}$",
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Color Text"
+    }
+  },
+  "title": "GmailLabelUpdateRequest",
+  "type": "object"
+}

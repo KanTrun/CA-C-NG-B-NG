@@ -3,8 +3,12 @@
 
 from __future__ import annotations
 
+import pytest
 from ca_solver import build_lich_input, solve_cpsat
 from ca_solver.fairness import debt_spread
+
+# Chậm (~4 phút: 8 lần solve CP-SAT) + nhạy tải CPU CI — chạy ở job unit-slow.
+pytestmark = pytest.mark.slow
 
 
 def test_fairness_eight_weeks_spread_bounded() -> None:

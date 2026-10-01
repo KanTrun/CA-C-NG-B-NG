@@ -105,9 +105,11 @@ function mucDichCau(it: Item): string {
   const thuFull = rb.thu ? thuLabel(rb.thu) : "";
   switch (y) {
     case "xin_nghi":
-      return thuFull
-        ? `Xin nghỉ cả ngày ${thuFull}`
-        : "Xin nghỉ một ca (chưa rõ ngày)";
+      if (!thuFull) return "Xin nghỉ một ca (chưa rõ ngày)";
+      // Có khung giờ = nghỉ ĐÚNG ca đó, KHÔNG phải cả ngày.
+      return rb.start && rb.end
+        ? `Xin nghỉ ca ${thuFull} (${rb.start}–${rb.end})`
+        : `Xin nghỉ cả ngày ${thuFull}`;
     case "doi_ca":
       return "Đổi ca sang người khác trong tuần";
     case "nhan_ca":

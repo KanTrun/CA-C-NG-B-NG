@@ -50,6 +50,9 @@ except ImportError:
 
 from pytest import approx
 
+# Chậm (~5000+ examples hypothesis, CPU-bound) — chạy ở job unit-slow.
+pytestmark = pytest.mark.slow
+
 # Sai số chấp nhận được do số học dấu phẩy động (không phải sai số nghiệp vụ).
 EPS = 1e-6
 

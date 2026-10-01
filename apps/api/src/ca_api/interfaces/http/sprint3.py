@@ -146,17 +146,32 @@ def _known_ca(ca_id: str) -> bool:
 
 
 def _known_nv(nv_id: str) -> bool:
+    """NV có tồn tại không — chỉ tính người THẬT trong pool đang xếp lịch.
+
+    Trước đây truyền `include_seed=True` nên chấp nhận cả `nv_20..nv_25` (mã chỉ
+    có trong seed fixture) → có thể ghim ca / phát QR cho người không tồn tại
+    (bug QA đợt 4). Phải khớp nguồn NV thật để validation đúng.
+    """
     from ca_api.nhan_vien import list_nhan_vien_ops
 
-    ids = {n["id"] for n in list_nhan_vien_ops(include_seed=True)}
+    ids = {n["id"] for n in list_nhan_vien_ops() if n.get("id")}
+    if not ids:
+        # DB rỗng (demo sạch) → chấp nhận seed để không chặn luồng demo.
+        ids = {n["id"] for n in list_nhan_vien_ops(include_seed=True) if n.get("id")}
     return nv_id in ids
 
 
 def _current_week() -> str:
+    """Tuần đang hiệu lực của quán.
+
+    Thứ tự: lifecycle thật → tuần ISO HIỆN TẠI (theo đồng hồ).
+    Trước đây fallback cứng `2026-W01` nên khi KV trống (quán mới/demo sạch)
+    mọi thao tác gắn vào tuần W01 — sai hẳn so với thực tế (bug QA đợt 4).
+    """
     life = kv_get("lich_tuan_lifecycle", {})
     if isinstance(life, dict) and life.get("tuan_iso"):
         return str(life["tuan_iso"])
-    return "2026-W01"
+    return _current_iso_week()
 
 
 def _phan_cong(tuan_iso: str | None = None) -> dict[str, list[str]]:
@@ -223,7 +238,10 @@ class ChungBody(BaseModel):
 
 
 class TreoBody(BaseModel):
-    noi_dung: str
+    # Giới hạn độ dài: bug QA đợt 5 cho thấy 50.000 ký tự vẫn được nhận (200),
+    # trong khi nội dung này hiển thị nguyên văn ở `/treo` và trong bản tin sáng.
+    # 2.000 ký tự thừa cho một việc cần người khác lo.
+    noi_dung: str = Field(min_length=1, max_length=2_000)
 
 
 class CaBody(BaseModel):
@@ -499,14 +517,50 @@ def phieu_start(
     catalog = {entry["ma"] for entry in load_phieu_catalog(_store_from_token(authorization))}
     if body.mau not in catalog:
         raise HTTPException(status_code=404, detail="mau_phieu_khong_bat")
+
     da_diem_danh = nv in set(diem_danh_hom_nay())
 
-    def next_seq(seq: int) -> int:
-        return int(seq) + 1
+    # Kiểm "đã có phiếu đang mở" và TẠO phiếu phải nằm trong CÙNG một
+    # `kv_mutate` — vì đây là read-then-write. Tách ra hai bước thì 8 request
+    # song song cùng đọc bag rỗng, cùng thấy "chưa có phiếu", rồi cùng tạo →
+    # sinh 5 phiếu cho cùng một người/ca (bug QA đợt 5, tái hiện: ph_1..ph_5).
+    # `kv_mutate` giữ khoá ghi nên chỉ một request đi qua được.
+    #
+    # Số phiếu lấy từ chính bag (`ph_<n>` lớn nhất + 1) thay vì đọc khoá
+    # `phieu_seq` riêng — tránh lồng hai `kv_mutate`, mà vẫn duy nhất vì cả hai
+    # thao tác nằm trong một khoá.
+    ket_qua: dict[str, Any] = {}
+    # Phiếu cũ trả về NGUYÊN payload đã lưu; phiếu mới trả `run_to_dict` (có
+    # `so_buoc`, `buocs`, `treo`…). Hai dạng khác nhau nên phải theo dõi cờ.
+    la_phieu_cu = False
 
-    seq = kv_mutate("phieu_seq", next_seq, 0)
-    run_id = f"ph_{seq}"
-    try:
+    def _so_tiep_theo(bag: dict[str, Any]) -> int:
+        lon_nhat = 0
+        for key in bag:
+            if isinstance(key, str) and key.startswith("ph_"):
+                try:
+                    lon_nhat = max(lon_nhat, int(key[3:]))
+                except ValueError:
+                    continue
+        return lon_nhat + 1
+
+    def mut(bag: dict[str, Any]) -> dict[str, Any]:
+        nonlocal la_phieu_cu
+        for raw in bag.values():
+            if not isinstance(raw, dict) or raw.get("closed"):
+                continue
+            if str(raw.get("mau") or "") != body.mau:
+                continue
+            if str(raw.get("nv_id") or "") != nv:
+                continue
+            # Đã có phiếu cùng mẫu đang mở của chính mình → trả lại phiếu đó,
+            # qua `load_run` + `run_to_dict` để payload giống hệt phiếu mới tạo.
+            ket_qua.update(run_to_dict(load_run(raw)))
+            la_phieu_cu = True
+            return bag
+
+        seq = _so_tiep_theo(bag)
+        run_id = f"ph_{seq}"
         run = start_phieu(
             run_id=run_id,
             mau=body.mau,
@@ -515,13 +569,22 @@ def phieu_start(
             now_ms=_clock.now_ms(),
             diem_danh=da_diem_danh,
         )
+        bag[run_id] = dump_run(run)
+        ket_qua.update(run_to_dict(run))
+        return bag
+
+    try:
+        kv_mutate("phieu", mut, {})
     except PermissionError as exc:
         raise HTTPException(status_code=403, detail=str(exc)) from exc
-    _save_run(run)
-    sm = StateMachine()
-    sm.transition("dang_chay")
-    _sm_by_phieu[run_id] = sm
-    return cast(dict[str, Any], run_to_dict(run))
+
+    # Khởi tạo state machine cho phiếu vừa tạo (phiếu cũ đã có sẵn thì bỏ qua).
+    run_id = str(ket_qua.get("id") or "")
+    if run_id and not la_phieu_cu and run_id not in _sm_by_phieu:
+        sm = StateMachine()
+        sm.transition("dang_chay")
+        _sm_by_phieu[run_id] = sm
+    return cast(dict[str, Any], ket_qua)
 
 
 @router.get("/api/v1/phieu/{phieu_id}")
@@ -714,7 +777,10 @@ def msg_classify(
     authorization: Annotated[str | None, Header()] = None,
 ) -> dict[str, Any]:
     _require_role(authorization)
-    r = classify(body.text)
+    # Phải truyền tuần THẬT làm mốc; nếu để trống, `classify` mặc định
+    # "2026-W01" → "tuần sau" tính thành W02 bất kể hôm nay là tuần nào
+    # (bug QA đợt 4: mọi ràng buộc nghỉ/đổi ca rơi vào tuần sai).
+    r = classify(body.text, base_iso_week=_current_iso_week())
     port = get_port(body.backend)
     recipient = _nv_from_token(authorization) if authorization else "lan"
     sent = port.send(recipient, f"intent={r.intent}")
@@ -825,11 +891,6 @@ def tkb_confirm(
         if not any(u.get("id") == nv for u in users):
             raise HTTPException(status_code=403, detail="nhan_vien_khong_thuoc_cua_hang")
 
-    seed = json.loads(SEED.read_text(encoding="utf-8")) if SEED.exists() else {}
-    nv_ids = {n["id"] for n in seed.get("nhan_vien", [])}
-    if nv not in nv_ids and not nv.startswith("nv_"):
-        # Tài khoản đăng ký mới vẫn được lưu theo nv_id phiên.
-        pass
     khoang = _clean_khoang_api(body.khoang_ban)
     if not khoang:
         raise HTTPException(status_code=400, detail="khoang_rong")
@@ -956,6 +1017,7 @@ def tkb_xep_lai(
         tuan_iso=week,
         actor_id=s["nv_id"],
         idempotency_key=f"tkb-xep-lai:{week}:{fingerprint[:16]}",
+        nguon_nhat_ky="tkb",
     )
     ket_qua = cast(dict[str, Any], authoritative.get("result") or {})
 
@@ -1003,12 +1065,27 @@ def tkb_xep_lai(
 
 
 def _nhan_vien_map(store_id: str) -> dict[str, Any]:
-    """Map nv_id → tên để diff in ra TÊN người, không phải mã `nv_xx`."""
-    seed_doc = json.loads(SEED.read_text(encoding="utf-8")) if SEED.exists() else {}
+    """Map nv_id → tên để diff in ra TÊN người, không phải mã `nv_xx`.
+
+    Ưu tiên nguồn THẬT (`list_nhan_vien_ops` = users + seed) để nhân viên tự
+    đăng ký (chỉ có trong DB) cũng hiện tên; seed chỉ là fallback khi nguồn
+    thật rỗng (bug QA đợt 4: map cũ chỉ đọc seed nên NV mới hiện mã `nv_xx`).
+    """
     out: dict[str, Any] = {}
-    for n in seed_doc.get("nhan_vien", []):
-        if isinstance(n, dict) and n.get("id"):
-            out[str(n["id"])] = {"ten": str(n.get("ten") or n.get("ho_ten") or n["id"])}
+    try:
+        from ca_api.nhan_vien import list_nhan_vien_ops
+
+        for n in list_nhan_vien_ops():
+            nid = n.get("id") or n.get("nv_id")
+            if nid:
+                out[str(nid)] = {"ten": str(n.get("ten") or nid)}
+    except Exception:
+        out = {}
+    if not out:
+        seed_doc = json.loads(SEED.read_text(encoding="utf-8")) if SEED.exists() else {}
+        for n in seed_doc.get("nhan_vien", []):
+            if isinstance(n, dict) and n.get("id"):
+                out[str(n["id"])] = {"ten": str(n.get("ten") or n.get("ho_ten") or n["id"])}
     return out
 
 
@@ -1069,15 +1146,35 @@ def toi_lich(
     seed = json.loads(SEED.read_text(encoding="utf-8")) if SEED.exists() else {}
     meta = {c["id"]: c for c in seed.get("ca_mau_21", [])}
     thu = {1: "T2", 2: "T3", 3: "T4", 4: "T5", 5: "T6", 6: "T7", 7: "CN"}
+    # Đọc trạng thái tuần TRƯỚC khi dựng danh sách nhận — để cổng công bố
+    # và bộ lọc thiếu người dùng chung một nguồn sự thật.
+    _by_week_life = kv_get("lich_tuan_lifecycle_by_week", {})
+    _life_doc = _by_week_life.get(target_week) if isinstance(_by_week_life, dict) else None
+    if not _life_doc:
+        _life_doc = kv_get("lich_tuan_lifecycle", {})
+    _trang_thai_som = (_life_doc.get("trang_thai") if isinstance(_life_doc, dict) else None) or "may_sinh"
+    _da_cong_bo_som = _trang_thai_som in {"da_duyet", "da_cong_bo", "da_dong"}
     mine_ids = [cid for cid, nvs in phan.items() if nv in nvs]
-    # Ca TÔI CÓ THỂ NHẬN: chưa có tôi, và tuần đã công bố (nhận ca là thay đổi
-    # phân công nên chỉ có nghĩa khi lịch đã chốt). Trước đây UI tự suy từ
-    # `co_the_nhan` của TẤT CẢ ca nên hiện cả ca của người khác ở tuần nháp.
-    co_the_nhan_ids = [
-        cid
-        for cid, nvs in phan.items()
-        if nv not in nvs and cid in meta
-    ]
+    # Ca TÔI CÓ THỂ NHẬN: chỉ khi tuần đã chốt (da_duyet/da_cong_bo/da_dong)
+    # VÀ ca đó còn thiếu người thật (assigned < so_nguoi_toi_thieu).
+    # Trước đây liệt kê MỌI ca chưa có tôi (66 ca, kể cả ca đã đủ 2/2 người)
+    # nên tuần chốt rồi vẫn hiện hàng chục ca ảo.
+    def _thieu_nguoi(cid: str, nvs: list[str]) -> bool:
+        try:
+            toi_thieu = int((meta.get(cid) or {}).get("so_nguoi_toi_thieu") or 1)
+        except (ValueError, TypeError):
+            toi_thieu = 1
+        return len(set(nvs or [])) < toi_thieu
+
+    co_the_nhan_ids = (
+        [
+            cid
+            for cid, nvs in phan.items()
+            if nv not in nvs and cid in meta and _thieu_nguoi(cid, nvs)
+        ]
+        if _da_cong_bo_som
+        else []
+    )
     ca = []
     for cid in mine_ids:
         fallback = {
@@ -1149,7 +1246,9 @@ def toi_lich(
     matched_user = next((u for u in users if u.get("id") == nv or u.get("nv_id") == nv), None)
     nv_status = (matched_user.get("status") if matched_user else "active") or "active"
 
-    da_cong_bo = trang_thai in {"da_cong_bo", "da_dong"}
+    # `da_duyet` cũng là tuần đã chốt (xem WEEK_STATUS_GUIDE ở roster: da_duyet
+    # = "Đã chốt", NV nhả/đổi qua /doi-ca). Chỉ nhap/dang_giai/cho_duyet là chặn.
+    da_cong_bo = trang_thai in {"da_duyet", "da_cong_bo", "da_dong"}
     return {
         "nv_id": nv,
         "tuan_iso": target_week,
@@ -1251,7 +1350,7 @@ def ca_nha(body: CaBody, authorization: Annotated[str | None, Header()] = None) 
 
     week = _current_week()
     trang_thai = _tuan_trang_thai(week)
-    if trang_thai not in {"da_cong_bo", "da_dong"}:
+    if trang_thai not in {"da_duyet", "da_cong_bo", "da_dong"}:
         # Kèm trạng thái thật để UI nói được ĐANG ở bước nào, thay vì chỉ "không
         # được". Không có nó thì người dùng bấm nút rồi nhận câu từ chối chung
         # chung và không biết chờ ai — đúng phàn nàn "cái nút đó đâu còn ý nghĩa".
@@ -1325,7 +1424,7 @@ def ca_nhan(body: CaBody, authorization: Annotated[str | None, Header()] = None)
 
     week = _current_week()
     trang_thai = _tuan_trang_thai(week)
-    if trang_thai not in {"da_cong_bo", "da_dong"}:
+    if trang_thai not in {"da_duyet", "da_cong_bo", "da_dong"}:
         raise HTTPException(status_code=409, detail="lich_chua_cong_bo")
     raise HTTPException(status_code=409, detail="nhan_ca_phai_qua_cho_doi_ca")
 

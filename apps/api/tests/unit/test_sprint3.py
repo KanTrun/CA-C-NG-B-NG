@@ -203,19 +203,45 @@ def test_ghi_nhan_after_nha() -> None:
 
 
 def test_phieu_seq_unique_under_parallel() -> None:
+    """`phieu_seq` phải cấp id duy nhất kể cả khi nhiều request cùng lúc.
+
+    Cập nhật theo hành vi mới (QA đợt 5): `phieu_start` trả **phiếu đang mở**
+    cùng mẫu của chính mình thay vì tạo phiếu mới mỗi lần. Nên 8 request song
+    song CÙNG mẫu giờ trả về **một** id — đó là điều mong muốn (trước đây sinh
+    `ph_20`/`ph_21`/`ph_22` song song, mỗi bước ghi rải rác nên không phiếu nào
+    đủ bước).
+
+    Bất biến gốc vẫn phải giữ: **không hai phiếu nào trùng id**. Kiểm bằng cách
+    mở nhiều MẪU KHÁC NHAU song song — mỗi mẫu phải ra id riêng.
+    """
     from concurrent.futures import ThreadPoolExecutor
 
     auth = headers(client, "minh")
     client.post("/api/v1/diem-danh", headers=auth)
 
-    def start() -> str:
+    # 1. Cùng mẫu song song → phải hội tụ về MỘT phiếu (không sinh trùng).
+    def start_cung_mau() -> str:
         r = client.post("/api/v1/phieu/start", json={"mau": "mo_quan"}, headers=auth)
         assert r.status_code == 200, r.text
         return cast(str, r.json()["id"])
 
     with ThreadPoolExecutor(max_workers=8) as pool:
-        ids = list(pool.map(lambda _: start(), range(8)))
-    assert len(ids) == len(set(ids))
+        ids_cung_mau = list(pool.map(lambda _: start_cung_mau(), range(8)))
+    assert len(set(ids_cung_mau)) == 1, (
+        f"cùng mẫu phải trả về đúng 1 phiếu đang mở, nhận {len(set(ids_cung_mau))} id khác nhau"
+    )
+
+    # 2. Danh sách mẫu khác nhau chạy song song → id phải DUY NHẤT.
+    mau_list = [entry["ma"] for entry in client.get("/api/v1/phieu/mau", headers=auth).json()["items"]]
+
+    def start_mau(mau: str) -> str:
+        r = client.post("/api/v1/phieu/start", json={"mau": mau}, headers=auth)
+        assert r.status_code == 200, r.text
+        return cast(str, r.json()["id"])
+
+    with ThreadPoolExecutor(max_workers=max(2, len(mau_list))) as pool:
+        ids = list(pool.map(start_mau, mau_list))
+    assert len(ids) == len(set(ids)), f"id phiếu bị trùng: {ids}"
 
 
 def test_phan_cong_doc_lich_tuan_theo_tmp_path_cua_test(

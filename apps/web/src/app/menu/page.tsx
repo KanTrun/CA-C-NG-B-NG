@@ -885,8 +885,14 @@ export default function MenuPage() {
     }
 
     const gia = Number(form.gia);
-    if (!Number.isInteger(gia) || gia < 0) {
+    if (!Number.isFinite(gia) || !Number.isInteger(gia)) {
       setError("Giá bán cần là số nguyên (ví dụ: 35000).");
+      return;
+    }
+    if (gia < 0) {
+      // Nhánh này trước đây không bao giờ chạy tới vì ô nhập đã xoá dấu trừ
+      // (QA 2026-10-01 LỖI 12). Giữ lại như lưới an toàn cuối cùng.
+      setError("Giá bán không được âm.");
       return;
     }
 
@@ -961,9 +967,18 @@ export default function MenuPage() {
             </Field>
 
             <Field label="Giá bán" hint="Nhập số tiền bằng đồng, không cần dấu chấm.">
+              {/* QA 2026-10-01 LỖI 12: trước đây onChange lọc `/\D/g` nên dấu trừ
+                  bị XOÁ ngay khi gõ — gõ `-100` ô hiện `100` và lưu thành 100,
+                  `1e3` thành `13`; nhánh validate `gia < 0` ở trên vì thế không
+                  bao giờ chạy được. Nay để `type="number"` + `min=0` để trình
+                  duyệt tự chặn, chỉ lọc dấu chấm (người dùng VN hay gõ 35.000).
+                  Bỏ dấu trừ trong lúc gõ = tự sửa dữ liệu người dùng vừa nhập. */}
               <Input
+                type="number"
+                min={0}
+                step={1}
                 value={form.gia}
-                onChange={(e) => setForm({ ...form, gia: e.target.value.replace(/\D/g, "") })}
+                onChange={(e) => setForm({ ...form, gia: e.target.value.replace(/\./g, "") })}
                 inputMode="numeric"
                 placeholder="35000"
                 required

@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { motion, useReducedMotion } from "framer-motion";
 import { LINEAR, LOOP_PERIOD_S, beat, beatSeconds } from "../lib/motion";
+import { LOGO_PATH_D } from "./logo-path";
 
 /**
  * Bước so le của dấu quán: mỗi nét vào sau nét trước đúng một nhịp `settle`.
@@ -14,16 +15,31 @@ import { LINEAR, LOOP_PERIOD_S, beat, beatSeconds } from "../lib/motion";
 const LOGO_STEP_S = beatSeconds("settle");
 
 /**
- * Dấu quán: khung tròn nét gạch, nét chữ N, và một chấm đỏ.
+ * Dấu quán: khung tròn nét gạch, hình ly cà phê có đường nhịp tim, và một chấm đỏ.
  *
- * Chuyển động ở đây **chỉ mở một lần khi tải trang** rồi đứng yên. Bản trước để
- * hai vòng lặp `repeat: Infinity` chạy mãi: chấm đỏ phồng lên xẹp xuống liên tục,
- * và vòng gạch quay không ngừng khi trỏ vào. Logo nằm trong thanh trên cùng của
- * **mọi trang**, nên đó là hai chuyển động không bao giờ dừng mà người dùng
- * không tài nào tắt — và cả hai đều không mang thông tin gì: chấm to lên không
- * báo hiệu việc gì đang xảy ra. Nay chúng chạy **theo yêu cầu** (trỏ vào mới quay)
- * và **tôn trọng ý muốn giảm chuyển động** của hệ điều hành, giống bốn biểu đồ
- * trong hệ — trước đây chỉ riêng logo là không.
+ * ── Vì sao hình bên trong đổi (2026-09-27) ──
+ * Bản trước vẽ tay một đường zigzag (`M 30 70 L 30 30 L 50 70 L 70 30 L 70 70`)
+ * đọc ra chữ N/M trừu tượng — **không** phải logo của quán. Trong khi tab trình
+ * duyệt lại hiện ảnh `docs/hinh/logo.png` (ly cà phê có đường nhịp tim). Hai
+ * thương hiệu khác nhau trên cùng một sản phẩm, và người dùng thấy cả hai cùng lúc.
+ *
+ * Nay hình lấy từ `LOGO_PATH_D` — **cùng một nguồn** với `public/icon.svg` và bộ
+ * favicon, đều sinh từ `docs/hinh/logo.png` bởi `scripts/gen_app_icons.py`. Không
+ * chép tay path vào đây: hai bản chép tay thì sớm muộn lệch nhau, đúng thứ vừa
+ * phải đi sửa. Sửa hình = sửa ảnh gốc rồi chạy lại script ấy.
+ *
+ * Vì sao là **một** `<path>` gồm nhiều vòng con thay vì nhiều `<path>`: `fill-rule`
+ * mặc định (`nonzero`) cần thấy hết các vòng trong CÙNG một path mới khoét được lỗ
+ * bên trong nét vẽ (lỗ của tay cầm, khe giữa các nét). Tách ra nhiều `<path>` thì
+ * mỗi vòng thành một hình đặc và các khe biến mất.
+ *
+ * ── Chuyển động ──
+ * Chỉ **mở một lần khi tải trang** rồi đứng yên. Bản trước để hai vòng lặp
+ * `repeat: Infinity` chạy mãi: chấm đỏ phồng lên xẹp xuống liên tục, và vòng gạch
+ * quay không ngừng khi trỏ vào. Logo nằm trong thanh trên cùng của **mọi trang**,
+ * nên đó là hai chuyển động không bao giờ dừng mà người dùng không tài nào tắt —
+ * và cả hai đều không mang thông tin gì. Nay chúng chạy **theo yêu cầu** (trỏ vào
+ * mới quay) và **tôn trọng ý muốn giảm chuyển động** của hệ điều hành.
  */
 export function Logo({ href = "/", className = "" }: { href?: string; className?: string }) {
   const reduced = useReducedMotion() ?? false;
@@ -64,28 +80,34 @@ export function Logo({ href = "/", className = "" }: { href?: string; className?
               reduced
                 ? {}
                 : {
-                    rotate: 180,
-                    strokeWidth: 4,
-                    transition: { duration: LOOP_PERIOD_S, ease: LINEAR, repeat: Infinity },
-                  },
+                  rotate: 180,
+                  strokeWidth: 4,
+                  transition: { duration: LOOP_PERIOD_S, ease: LINEAR, repeat: Infinity },
+                },
           }}
         />
+        {/* Hình ly + nhịp tim.
+            `fillRule="evenodd"` là BẮT BUỘC, không phải mặc định.
+            Path này do `scripts/gen_app_icons.py` trace từ ảnh gốc: mỗi vòng là
+            một đường bao tách riêng, gần như tất cả cùng chiều (13/15 vòng quay
+            cùng hướng). Với `nonzero` — luật mặc định — các vòng cùng chiều cộng
+            dồn winding number nên phần nét TRONG bị tô đặc, mất hết khe hở, và
+            ở cạnh ly hình đọc ra thành một vệt dính. `evenodd` mới khoét đúng lỗ
+            theo số lần cắt.
+            Đo được (IoU với mask gốc, cùng bbox): evenodd 0.87–0.90 so với
+            nonzero 0.82 ở mọi cỡ từ 16px tới 256px. */}
         <motion.path
-          d="M 30 70 L 30 30 L 50 70 L 70 30 L 70 70"
-          stroke="var(--nq-fg)"
-          strokeWidth="6"
-          strokeLinecap="square"
-          strokeLinejoin="miter"
+          d={LOGO_PATH_D}
+          fill="var(--nq-fg)"
+          fillRule="evenodd"
           variants={{
-            hidden: reduced ? { pathLength: 1, opacity: 1 } : { pathLength: 0, opacity: 0 },
+            hidden: reduced ? { opacity: 1 } : { opacity: 0 },
             visible: {
-              pathLength: 1,
               opacity: 1,
               transition: beat("chapter", LOGO_STEP_S),
             },
             hover: {
-              stroke: "var(--nq-accent)",
-              scale: 1.1,
+              fill: "var(--nq-accent)",
               transition: beat("settle"),
             },
           }}

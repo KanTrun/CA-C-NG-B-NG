@@ -62,7 +62,9 @@ export default function SopPage() {
   const [luat, setLuat] = useState<Luat[]>([]);
   const [history, setHistory] = useState<string[]>([]);
   const [ctxHint, setCtxHint] = useState("");
+  const [nguonF, setNguonF] = useState("that");
   const resultRef = useRef<HTMLDivElement | null>(null);
+  const daTuDongHoi = useRef(false);
 
   useEffect(() => {
     setToken(getToken());
@@ -76,13 +78,13 @@ export default function SopPage() {
 
   useEffect(() => {
     if (!token) return;
-    apiGet<{ items: Luat[] }>("/api/v1/cam-nang")
+    apiGet<{ items: Luat[] }>(`/api/v1/cam-nang?nguon=${encodeURIComponent(nguonF)}`)
       .then((d) => setLuat((d.items ?? []).filter((x) => x.trang_thai === "hieu_luc")))
       .catch(() => undefined);
     apiGet<{ ngay: string }>("/api/v1/hom-nay")
       .then((d) => setCtxHint(d.ngay ? `Ngày ${d.ngay}` : ""))
       .catch(() => undefined);
-  }, [token]);
+  }, [token, nguonF]);
 
   const goiY = useMemo(() => {
     // Gợi ý chỉ sinh từ luật đang hiệu lực của quán — không dùng danh sách
@@ -102,7 +104,7 @@ export default function SopPage() {
     return out;
   }, [luat]);
 
-  const ask = useCallback(async (question: string) => {
+  const ask = useCallback(async (question: string, nguon?: string) => {
     setError(null);
     const text = question.trim();
     if (!text) {
@@ -112,7 +114,8 @@ export default function SopPage() {
     setQ(text);
     setBusy(true);
     try {
-      const d = await apiSend<Ans>("/api/v1/sop", { question: text });
+      const chiLuatThat = (nguon ?? nguonF) === "that";
+      const d = await apiSend<Ans>("/api/v1/sop", { question: text, chi_luat_that: chiLuatThat });
       setA(d);
       setHistory((prev) => {
         const next = [text, ...prev.filter((x) => x !== text)].slice(0, 8);
@@ -124,7 +127,22 @@ export default function SopPage() {
     } finally {
       setBusy(false);
     }
-  }, []);
+  }, [nguonF]);
+
+  // Deep-link từ tour/cẩm nang: /sop?q=<câu hỏi> — điền sẵn và hỏi luôn một lần.
+  useEffect(() => {
+    if (!token || daTuDongHoi.current) return;
+    let cau = "";
+    try {
+      cau = new URLSearchParams(window.location.search).get("q") || "";
+    } catch {
+      cau = "";
+    }
+    if (cau.trim()) {
+      daTuDongHoi.current = true;
+      void ask(cau.trim());
+    }
+  }, [token, ask]);
 
   useEffect(() => {
     if (!a || busy) return;
@@ -266,12 +284,19 @@ export default function SopPage() {
                       {trichDan.map((t) => {
                         const { loai } = trichDanTach(t);
                         const label = trichDanLabel(t, labelOpts);
+                        const ma = t.includes(":") ? t.split(":").slice(1).join(":") : "";
+                        const href =
+                          loai === "luat" && ma
+                            ? `/cam-nang?id=${encodeURIComponent(ma)}`
+                            : loai === "phieu"
+                              ? "/phieu"
+                              : "";
                         return (
                           <li key={t}>
                             <span className="nq-sop-copilot__source-tag">
                               {loai === "luat" ? "Luật" : loai === "phieu" ? "Phiếu" : "Nguồn"}
                             </span>
-                            {label}
+                            {href ? <Link href={href}>{label}</Link> : label}
                           </li>
                         );
                       })}
@@ -294,9 +319,37 @@ export default function SopPage() {
         )}
       </section>
 
+      <div className="nq-sop-copilot__suggest" aria-label="Nguồn trả lời">
+        <span className="nq-sop-copilot__suggest-label">Nguồn trả lời</span>
+        <div className="nq-sop-copilot__suggest-row" role="group">
+          <button
+            type="button"
+            className="nq-sop-copilot__suggest-chip"
+            aria-pressed={nguonF === "that"}
+            disabled={busy}
+            onClick={() => setNguonF("that")}
+            title="Chỉ trả lời từ luật quán thật — loại trừ dữ liệu mẫu demo"
+          >
+            Luật quán thật
+          </button>
+          <button
+            type="button"
+            className="nq-sop-copilot__suggest-chip"
+            aria-pressed={nguonF === "mau"}
+            disabled={busy}
+            onClick={() => setNguonF("mau")}
+            title="Đối chiếu demo: cho phép dùng dữ liệu mẫu"
+          >
+            Dữ liệu mẫu
+          </button>
+        </div>
+      </div>
+
       <footer className="nq-sop-copilot__foot">
         <span>
-          {luat.length > 0 ? `${luat.length} luật đang hiệu lực` : "Chưa có luật hiệu lực"}
+          {luat.length > 0
+            ? `${luat.length} luật đang hiệu lực${nguonF === "that" ? " (nguồn Thật)" : " (mẫu demo)"}`
+            : "Chưa có luật hiệu lực"}
         </span>
         <Link href="/cam-nang">Mở cẩm nang</Link>
       </footer>

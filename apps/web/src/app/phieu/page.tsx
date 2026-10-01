@@ -1,23 +1,23 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import {
-  Alert,
-  AuthGate,
-  Btn,
-  BtnLink,
-  Empty,
-  FixedBottomBar,
-  Hint,
-  inputClassName,
-  OpsCard,
-  PageActions,
-  PageHeader,
-  ProgressBar,
-  StepDone,
-  Textarea,
-} from "../../ui/kit";
 import { CopilotPane } from "../../ui/copilot/CopilotPane";
+import {
+    Alert,
+    AuthGate,
+    Btn,
+    BtnLink,
+    Empty,
+    FixedBottomBar,
+    Hint,
+    inputClassName,
+    OpsCard,
+    PageActions,
+    PageHeader,
+    ProgressBar,
+    StepDone,
+    Textarea,
+} from "../../ui/kit";
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 const PHIEU_ID_KEY = "nq_phieu_dang_lam";
@@ -131,7 +131,10 @@ export default function PhieuPage() {
   }, [token, authHeader]);
 
   // Load danh sách mẫu — không còn fallback hard-code.
+  // Phải chờ có token: effect chạy ở lần render đầu khi `token` còn rỗng sẽ gửi
+  // `Authorization: Bearer ` (rỗng) → API trả 401 (QA đợt 6).
   useEffect(() => {
+    if (!token) return;
     fetch(`${API}/api/v1/phieu/mau`, { headers: authHeader() })
       .then(async (r) => {
         if (!r.ok) throw new Error("load_mau");
@@ -139,7 +142,7 @@ export default function PhieuPage() {
       })
       .then((d) => setMauList(Array.isArray(d) ? d : d.items ?? []))
       .catch(() => setMauList([]));
-  }, [authHeader]);
+  }, [token, authHeader]);
 
   async function xacNhanCoMat() {
     setBusy(true);

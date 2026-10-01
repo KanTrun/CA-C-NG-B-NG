@@ -22,6 +22,7 @@ from ca_api.persist import (
 def run_authoritative_schedule(
     *, store_id: str, tuan_iso: str, actor_id: str, idempotency_key: str,
     expected_fingerprint: str | None = None, extra_pin: tuple[str, str] | None = None,
+    nguon_nhat_ky: str = "xep_tu_dong",
 ) -> dict[str, Any]:
     """Run the one production CP-SAT path and persist its immutable input run."""
     snapshot, fingerprint = authoritative_input_fingerprint(store_id, tuan_iso)
@@ -47,7 +48,12 @@ def run_authoritative_schedule(
     # remains the only authoritative scheduling application boundary.
     from ca_api.services.solver_adapter import run_solver
 
-    result = run_solver(tuan_iso, confirmed_availability=availability, extra_pin=extra_pin)
+    result = run_solver(
+        tuan_iso,
+        confirmed_availability=availability,
+        extra_pin=extra_pin,
+        nguon_nhat_ky=nguon_nhat_ky,
+    )
     final_status = "computed" if result.get("ok") else "needs_gap_resolution"
     schedule_run_update_result(
         str(run["id"]), status=final_status, result_snapshot=result,
@@ -101,6 +107,43 @@ def _gap_ca_id(gap: str) -> str | None:
     return value or None
 
 
+def current_open_shifts(
+    store_id: str, tuan_iso: str, *,
+    phan_cong: dict[str, list[str]] | None = None,
+    ca_list: list[dict[str, Any]] | None = None,
+) -> list[dict[str, Any]]:
+    """Ca thiếu người THẬT của tuần: bản ghi open_shift mà ca đó VẪN chưa đủ người.
+
+    `open_shifts` là bảng SQLite TÍCH LUỸ: ca thiếu của lần xếp thất bại cũ vẫn
+    nằm ở trạng thái "open" dù quản lý đã ghim đủ người (ghim chạy `run_solver`
+    trực tiếp, KHÔNG tạo run mới, nên không có đường vá nào dọn bản ghi cũ).
+    Không lọc thì mọi bề mặt (lịch tuần, chợ đổi ca) hiện hàng chục ca "thiếu"
+    không còn đúng sự thật, bắt người dùng xử lý vô nghĩa.
+
+    Luật: ca nào `assigned >= so_nguoi_toi_thieu` thì KHÔNG còn là việc phải làm,
+    bất kể bản ghi open_shift cũ còn nằm đó. Chỉ giữ bản ghi còn thiếu thật.
+    """
+    from ca_api.persist import open_shift_list
+
+    items = [
+        *open_shift_list(store_id, tuan_iso=tuan_iso),
+        *open_shift_list(store_id, tuan_iso=tuan_iso, status="claimed"),
+    ]
+    if not items:
+        return []
+    if phan_cong is not None and ca_list is not None:
+        toi_thieu = {
+            str(shift.get("id")): int(shift.get("so_nguoi_toi_thieu") or 1)
+            for shift in ca_list
+        }
+        items = [
+            s for s in items
+            if len(set(phan_cong.get(str(s.get("ca_id") or ""), [])))
+            < toi_thieu.get(str(s.get("ca_id") or ""), 1)
+        ]
+    return items
+
+
 def resolve_schedule_gaps(
     *, store_id: str, tuan_iso: str, actor_id: str, schedule_run_id: str,
     expected_fingerprint: str, idempotency_key: str,
@@ -118,4 +161,5 @@ def resolve_schedule_gaps(
         idempotency_key=f"{idempotency_key}{pin_suffix}",
         expected_fingerprint=expected_fingerprint,
         extra_pin=pin,
+        nguon_nhat_ky="gap",
     )

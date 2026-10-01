@@ -36,6 +36,9 @@ def main() -> None:
         with Camoufox(
             headless=False,
             user_data_dir=str(profile_dir),
+            # Camoufox 0.5.x bắt buộc persistent_context=True khi truyền
+            # user_data_dir (nếu thiếu → TypeError: unexpected keyword argument).
+            persistent_context=True,
             geoip=True,
             humanize=True,
         ) as browser:
