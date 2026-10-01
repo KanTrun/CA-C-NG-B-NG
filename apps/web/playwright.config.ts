@@ -48,12 +48,15 @@ export default defineConfig({
       },
     },
     {
-      // CI: dùng standalone server.js (sau `npm run build`, .next/standalone đã tồn tại,
-      //     static đã được copy bởi bước "Prepare standalone" trong ci.yml).
-      // Local: `npx next start -p 3001` bình thường (không cần build trước).
-      command: process.env.CI
-        ? "node .next/standalone/server.js"
-        : "npx next start -p 3001",
+      // CẢ HAI môi trường đều chạy `standalone/server.js`, không dùng `next start`.
+      //
+      // Vì sao: `next.config` đặt `output: "standalone"`, nên `next start` chỉ in
+      // cảnh báo và KHÔNG phục vụ đúng `.next/static` — browser nhận 404 cho mọi
+      // chunk, React không hydrate, và mọi bài đỏ ở `loginAs` (trông như lỗi điều
+      // hướng). Bản standalone cần `static/` + `public/` được copy vào; script
+      // `prepare-standalone.mjs` làm việc đó và chạy ngay trước khi start.
+      command:
+        "node scripts/prepare-standalone.mjs && node .next/standalone/server.js",
       url: "http://localhost:3001",
       cwd: __dirname,
       reuseExistingServer: false,

@@ -1017,6 +1017,7 @@ def tkb_xep_lai(
         tuan_iso=week,
         actor_id=s["nv_id"],
         idempotency_key=f"tkb-xep-lai:{week}:{fingerprint[:16]}",
+        nguon_nhat_ky="tkb",
     )
     ket_qua = cast(dict[str, Any], authoritative.get("result") or {})
 
@@ -1145,15 +1146,35 @@ def toi_lich(
     seed = json.loads(SEED.read_text(encoding="utf-8")) if SEED.exists() else {}
     meta = {c["id"]: c for c in seed.get("ca_mau_21", [])}
     thu = {1: "T2", 2: "T3", 3: "T4", 4: "T5", 5: "T6", 6: "T7", 7: "CN"}
+    # Đọc trạng thái tuần TRƯỚC khi dựng danh sách nhận — để cổng công bố
+    # và bộ lọc thiếu người dùng chung một nguồn sự thật.
+    _by_week_life = kv_get("lich_tuan_lifecycle_by_week", {})
+    _life_doc = _by_week_life.get(target_week) if isinstance(_by_week_life, dict) else None
+    if not _life_doc:
+        _life_doc = kv_get("lich_tuan_lifecycle", {})
+    _trang_thai_som = (_life_doc.get("trang_thai") if isinstance(_life_doc, dict) else None) or "may_sinh"
+    _da_cong_bo_som = _trang_thai_som in {"da_duyet", "da_cong_bo", "da_dong"}
     mine_ids = [cid for cid, nvs in phan.items() if nv in nvs]
-    # Ca TÔI CÓ THỂ NHẬN: chưa có tôi, và tuần đã công bố (nhận ca là thay đổi
-    # phân công nên chỉ có nghĩa khi lịch đã chốt). Trước đây UI tự suy từ
-    # `co_the_nhan` của TẤT CẢ ca nên hiện cả ca của người khác ở tuần nháp.
-    co_the_nhan_ids = [
-        cid
-        for cid, nvs in phan.items()
-        if nv not in nvs and cid in meta
-    ]
+    # Ca TÔI CÓ THỂ NHẬN: chỉ khi tuần đã chốt (da_duyet/da_cong_bo/da_dong)
+    # VÀ ca đó còn thiếu người thật (assigned < so_nguoi_toi_thieu).
+    # Trước đây liệt kê MỌI ca chưa có tôi (66 ca, kể cả ca đã đủ 2/2 người)
+    # nên tuần chốt rồi vẫn hiện hàng chục ca ảo.
+    def _thieu_nguoi(cid: str, nvs: list[str]) -> bool:
+        try:
+            toi_thieu = int((meta.get(cid) or {}).get("so_nguoi_toi_thieu") or 1)
+        except (ValueError, TypeError):
+            toi_thieu = 1
+        return len(set(nvs or [])) < toi_thieu
+
+    co_the_nhan_ids = (
+        [
+            cid
+            for cid, nvs in phan.items()
+            if nv not in nvs and cid in meta and _thieu_nguoi(cid, nvs)
+        ]
+        if _da_cong_bo_som
+        else []
+    )
     ca = []
     for cid in mine_ids:
         fallback = {
@@ -1225,7 +1246,9 @@ def toi_lich(
     matched_user = next((u for u in users if u.get("id") == nv or u.get("nv_id") == nv), None)
     nv_status = (matched_user.get("status") if matched_user else "active") or "active"
 
-    da_cong_bo = trang_thai in {"da_cong_bo", "da_dong"}
+    # `da_duyet` cũng là tuần đã chốt (xem WEEK_STATUS_GUIDE ở roster: da_duyet
+    # = "Đã chốt", NV nhả/đổi qua /doi-ca). Chỉ nhap/dang_giai/cho_duyet là chặn.
+    da_cong_bo = trang_thai in {"da_duyet", "da_cong_bo", "da_dong"}
     return {
         "nv_id": nv,
         "tuan_iso": target_week,
@@ -1327,7 +1350,7 @@ def ca_nha(body: CaBody, authorization: Annotated[str | None, Header()] = None) 
 
     week = _current_week()
     trang_thai = _tuan_trang_thai(week)
-    if trang_thai not in {"da_cong_bo", "da_dong"}:
+    if trang_thai not in {"da_duyet", "da_cong_bo", "da_dong"}:
         # Kèm trạng thái thật để UI nói được ĐANG ở bước nào, thay vì chỉ "không
         # được". Không có nó thì người dùng bấm nút rồi nhận câu từ chối chung
         # chung và không biết chờ ai — đúng phàn nàn "cái nút đó đâu còn ý nghĩa".
@@ -1401,7 +1424,7 @@ def ca_nhan(body: CaBody, authorization: Annotated[str | None, Header()] = None)
 
     week = _current_week()
     trang_thai = _tuan_trang_thai(week)
-    if trang_thai not in {"da_cong_bo", "da_dong"}:
+    if trang_thai not in {"da_duyet", "da_cong_bo", "da_dong"}:
         raise HTTPException(status_code=409, detail="lich_chua_cong_bo")
     raise HTTPException(status_code=409, detail="nhan_ca_phai_qua_cho_doi_ca")
 

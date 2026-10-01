@@ -67,6 +67,7 @@ from ca_api.interfaces.http.channels import router as channels_router
 from ca_api.interfaces.http.chat import router as chat_router
 from ca_api.interfaces.http.copilot import router as copilot_router
 from ca_api.interfaces.http.copilot_voice import router as copilot_voice_router
+from ca_api.interfaces.http.dia_chi import router as dia_chi_router
 from ca_api.interfaces.http.experience import router as experience_router
 from ca_api.interfaces.http.experience_rules import router as experience_rules_router
 from ca_api.interfaces.http.gmail import router as gmail_router
@@ -75,7 +76,11 @@ from ca_api.interfaces.http.mail import router as mail_router
 from ca_api.interfaces.http.meeting import router as meeting_router
 from ca_api.interfaces.http.ops_explain import router as ops_explain_router
 from ca_api.interfaces.http.ops_predict import router as ops_predict_router
-from ca_api.interfaces.http.origins import allowed_web_origins
+from ca_api.interfaces.http.origins import (
+    DEV_WEB_ORIGINS,
+    allowed_web_origins,
+    configured_web_origins,
+)
 from ca_api.interfaces.http.pos import router as pos_router
 from ca_api.interfaces.http.quanverse import router as quanverse_router
 
@@ -97,6 +102,7 @@ from ca_api.interfaces.http.spatial_memory import router as spatial_memory_route
 from ca_api.interfaces.http.sprint3 import router as sprint3_router
 from ca_api.interfaces.http.sprint45 import _SHARED_ALLOWED
 from ca_api.interfaces.http.sprint45 import router as sprint45_router
+from ca_api.interfaces.http.thoi_tiet import router as thoi_tiet_router
 from ca_api.interfaces.http.trends import router as trends_router
 from ca_api.interfaces.http.war_room import router as war_room_router
 from ca_api.nhan_vien import list_nhan_vien_ops
@@ -166,13 +172,18 @@ app = FastAPI(
     else None,
 )
 
-# CORS: mặc định 3 origin dev local. Khi deploy (Postgres, domain thật) đặt
-# NHIPQUAN_CORS_ORIGINS — danh sách origin cách nhau bởi dấu phẩy — để thay
-# toàn bộ danh sách này; bỏ trống thì giữ mặc định bên dưới.
+# CORS: origin dev local LUÔN được phép; `NHIPQUAN_CORS_ORIGINS` chỉ THÊM origin
+# triển khai (ngăn cách bởi dấu phẩy). Logic nằm ở `origins.py` — MỘT nguồn sự
+# thật cho cả CORS lẫn OAuth redirect Gmail — ở đây chỉ giữ lại tên thuộc tính
+# mà test gate CORS đọc (`test_cors_dev_origins.py`).
 #
-# Danh sách nằm ở `origins.py` vì OAuth callback Gmail cũng phải chuyển hướng
-# về đúng origin của web (không thể dùng đường dẫn tương đối — xem chú thích ở
-# `origins.py`). Một nguồn sự thật cho cả hai nơi.
+# Vì sao cộng thay vì thay thế: `.env` máy dev có
+# `NHIPQUAN_CORS_ORIGINS=https://nhipquan.duckdns.org` mà hiểu là "thay toàn bộ"
+# thì `http://localhost:3000` bị chặn, trình duyệt chặn preflight và UI báo
+# "Chưa nối được máy chủ quán" trong khi API vẫn 200 qua curl (curl không kiểm
+# CORS). Muốn chặt hơn ở production: đặt `NHIPQUAN_CORS_DISABLE_DEV=1`.
+_DEV_CORS_ORIGINS = list(DEV_WEB_ORIGINS)
+_configured_cors = configured_web_origins()
 _cors_origins = allowed_web_origins()
 app.add_middleware(
     CORSMiddleware,
@@ -303,6 +314,8 @@ async def broadcast_successful_mutation(request: Request, call_next: Any) -> Any
 
 app.include_router(sprint3_router)
 app.include_router(sprint45_router)
+app.include_router(thoi_tiet_router)
+app.include_router(dia_chi_router)
 app.include_router(hao_hut_router)
 app.include_router(channels_router)
 app.include_router(copilot_router)
@@ -1223,6 +1236,19 @@ def get_lich_thay_doi(
         "so_ban_ghi": len(items),
         "items": list(reversed(items)),
     }
+
+
+@app.post("/api/v1/lich-tuan/demo-mini-w41")
+def post_demo_mini_w41(
+    _role: Annotated[str, Depends(_require_write_role)],
+) -> dict[str, Any]:
+    """Seed bộ test 4 NV + tuần W41 — tự kiểm xếp → nhật ký → swap trong vài phút.
+
+    Chỉ quản lý/chủ. Không đụng tuần khác. Trả hướng dẫn bước tiếp theo.
+    """
+    from ca_api.services.mini_w41_fixture import seed_mini_w41_roster
+
+    return seed_mini_w41_roster()
 
 
 @app.post("/api/v1/lich-tuan/nv-status")

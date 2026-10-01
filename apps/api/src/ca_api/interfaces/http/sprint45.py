@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import uuid
 from dataclasses import asdict
 from io import BytesIO
@@ -349,10 +350,21 @@ def _life(tuan_iso: str | None = None, *, store_id: str = "quan_01") -> dict[str
     return {"tuan_iso": _tuan_hien_tai_iso(), "trang_thai": "may_sinh", "nguon": "quan"}
 
 
-def _save_life(doc: dict[str, Any], *, store_id: str = "quan_01") -> None:
+def _save_life(
+    doc: dict[str, Any],
+    *,
+    store_id: str = "quan_01",
+    dong_bo_toan_cuc: bool = True,
+) -> None:
     # Ghi CẢ HAI khóa: mới là nguồn sự thật, cũ giữ đồng bộ cho tiến trình
     # còn đọc chưa nâng cấp (đọc soft ở trên tự bỏ qua khi mới tồn tại).
-    if store_id == "quan_01":
+    #
+    # `dong_bo_toan_cuc=False` khi ghi trạng thái cho một tuần KHÁC tuần đang
+    # làm việc: khoá toàn cục là con trỏ "tuần hiện tại" mà nhiều màn hình đọc
+    # ngầm định, gán nó sang tuần khác sẽ khiến luồng nhận/nhả ca và công bố
+    # lịch nhảy tuần. Bản theo tuần (`lich_tuan_lifecycle_by_week`) mới là chỗ
+    # đúng để lưu trạng thái của tuần đích.
+    if store_id == "quan_01" and dong_bo_toan_cuc:
         kv_set("lich_tuan_lifecycle", doc)
         kv_set("lifecycle", doc)
     week = str(doc.get("tuan_iso") or _tuan_hien_tai_iso())
@@ -430,6 +442,9 @@ class SwapBody(BaseModel):
     a: str
     b: str
     ca_id: str
+    # Tuần của ca cần đổi — mặc định tuần hiện tại của quán. Cho phép ghi rõ
+    # để phiếu không rơi nhầm tuần khi người mở đang xem tuần khác.
+    tuan: str | None = None
 
 
 class OpenShiftBody(BaseModel):
@@ -1178,7 +1193,25 @@ def _decide_inbox_item(
         and found.get("hieu_luc", {}).get("loai") == "rang_buoc_cho_solver"
     ):
         life = _life(store_id=store_id)
-        current_state = str(life.get("trang_thai") or "may_sinh")
+        rb = found.get("rang_buoc") or {}
+        # Cổng khoá phải xét trạng thái của TUẦN ĐÍCH, không phải tuần đang làm
+        # việc. Trường hợp thật: lịch tuần này đã công bố, nhân viên nhắn báo bận
+        # cho TUẦN SAU (còn nháp) — xét tuần hiện tại sẽ trả LIFECYCLE_LOCKED và
+        # AI không bao giờ xếp lại tuần đích, dù tuần đó hoàn toàn được phép.
+        tuan_hien_tai = str(life.get("tuan_iso") or "")
+        week = str(rb.get("tuan_id") or tuan_hien_tai or "2026-W01")
+        if week == tuan_hien_tai:
+            life_tuan_dich = life
+            dong_bo_toan_cuc = True
+        else:
+            life_tuan_dich = _life(week, store_id=store_id)
+            dong_bo_toan_cuc = False
+        # Neo khoá tuần trước khi lưu: `_save_life` suy ra khoá ghi
+        # `lich_tuan_lifecycle_by_week` từ `doc["tuan_iso"]`; thiếu nó thì bản
+        # ghi rơi vào tuần hiện tại của đồng hồ, tức trạng thái `cho_duyet` của
+        # tuần đích bị ghi nhầm chỗ.
+        life_tuan_dich["tuan_iso"] = week
+        current_state = str(life_tuan_dich.get("trang_thai") or "may_sinh")
         if current_state in {"da_duyet", "da_cong_bo", "da_dong"}:
             solver_result = {
                 "ok": False,
@@ -1189,8 +1222,6 @@ def _decide_inbox_item(
         else:
             # Đi qua application service authoritative để mọi trigger dùng chung
             # một đường CP-SAT (schedule_run/fingerprint/audit/open_shift).
-            rb = found.get("rang_buoc") or {}
-            week = str(rb.get("tuan_id") or life.get("tuan_iso") or "2026-W01")
             try:
                 authoritative = run_authoritative_schedule(
                     store_id=store_id,
@@ -1210,12 +1241,16 @@ def _decide_inbox_item(
                     "detail": "khong_the_chay_solver",
                 }
             if solver_result.get("ok"):
-                life["trang_thai"] = "cho_duyet"
-                life["solver"] = solver_result
-                life["schedule_run_id"] = solver_result.get("schedule_run_id")
-                life["cap_nhat_luc"] = _clock.now_iso()
-                life["cap_nhat_boi"] = role
-                _save_life(life, store_id=store_id)
+                life_tuan_dich["trang_thai"] = "cho_duyet"
+                life_tuan_dich["solver"] = solver_result
+                life_tuan_dich["schedule_run_id"] = solver_result.get("schedule_run_id")
+                life_tuan_dich["cap_nhat_luc"] = _clock.now_iso()
+                life_tuan_dich["cap_nhat_boi"] = role
+                _save_life(
+                    life_tuan_dich,
+                    store_id=store_id,
+                    dong_bo_toan_cuc=dong_bo_toan_cuc,
+                )
         response["tu_dong_xep_lich"] = solver_result
         _audit(
             "inbox_auto_schedule",
@@ -1948,12 +1983,57 @@ def qr_use(
     return {"ok": True, "nv_id": used["nv_id"]}
 
 
+def _o_truc_con_thieu(ca_id: str, week: str) -> dict[str, Any] | None:
+    """Ô ngày+khung chứa ca vừa đổi còn thiếu người không?
+
+    Lưới lịch tuần gom các ca VỊ TRÍ cùng khung giờ thành MỘT ô và đếm theo
+    SUẤT trực (mỗi vị trí một suất), nên kiểm tra thiếu phải cùng đơn vị:
+    tổng suất đã xếp so với tổng định biên của cả ô. Trả None khi đã đủ —
+    caller hiện cảnh báo chỉ khi có dict (tránh spam khi mọi thứ đã ổn).
+    """
+    meta = _ca_meta_map().get(str(ca_id))
+    if not meta:
+        return None
+    thu, khung = str(meta.get("thu") or ""), str(meta.get("khung") or "")
+    if not thu or not khung:
+        return None
+    metas = _ca_meta_map()
+    o_ca_ids = [
+        cid for cid, m in metas.items()
+        if str(m.get("thu")) == thu and str(m.get("khung")) == khung
+    ]
+    if not o_ca_ids:
+        return None
+    dinh_bien = _so_nguoi_toi_thieu_map()
+    pc = _phan_cong_tuan(week)
+    da_xep = sum(len(pc.get(cid, [])) for cid in o_ca_ids)
+    can = sum(int(dinh_bien.get(cid, 1)) for cid in o_ca_ids)
+    if da_xep >= can:
+        return None
+    return {"thu": thu, "khung": khung, "da_xep": da_xep, "can": can, "thieu": can - da_xep}
+
+
 def _apply_swap_to_assignments(
     *, giver: str, taker: str, ca_id: str, week: str, swap_id: str, actor: str,
 ) -> None:
-    """Cập nhật hoán đổi nhân viên ca làm việc thật trên lịch khi lệnh đổi ca được đồng ý."""
+    """Cập nhật hoán đổi nhân viên ca làm việc thật trên lịch khi lệnh đổi ca được đồng ý.
+
+    Sau khi ghi phân công, luôn ghi nhật ký `lich_thay_doi_by_week` nguồn `doi_ca`
+    — đây là điểm gãy cũ: duyệt đổi ca đổi người thật nhưng panel "ai đổi ca với
+    ai" trên `/lich-tuan` im lặng vì không có bản ghi.
+    """
     if not giver or not taker or not ca_id:
         return
+
+    # Chụp phân công TRƯỚC khi mutate để diff A→B chính xác.
+    by_week_truoc = kv_get("phan_cong_by_week", {})
+    week_truoc_raw = by_week_truoc.get(week, {}) if isinstance(by_week_truoc, dict) else {}
+    truoc: dict[str, list[str]] = {}
+    if isinstance(week_truoc_raw, dict):
+        truoc = {str(k): list(v) if isinstance(v, list) else [] for k, v in week_truoc_raw.items()}
+    elif isinstance(kv_get("phan_cong", {}), dict):
+        flat = kv_get("phan_cong", {})
+        truoc = {str(k): list(v) if isinstance(v, list) else [] for k, v in flat.items()}
 
     def mut_pc(cur: dict[str, Any]) -> dict[str, Any]:
         assigned = list(cur.get(ca_id, []))
@@ -1981,6 +2061,22 @@ def _apply_swap_to_assignments(
 
     kv_mutate("lich_tuan_results_by_week", mut_results_by_week, {})
 
+    # Diff sau mutate → nhật ký nguồn doi_ca (không để panel lịch tuần trống).
+    try:
+        from ca_api.services.solver_adapter import ghi_nhat_ky_thay_doi
+
+        by_week_sau = kv_get("phan_cong_by_week", {})
+        week_sau_raw = by_week_sau.get(week, {}) if isinstance(by_week_sau, dict) else {}
+        sau: dict[str, list[str]] = {}
+        if isinstance(week_sau_raw, dict):
+            sau = {
+                str(k): list(v) if isinstance(v, list) else []
+                for k, v in week_sau_raw.items()
+            }
+        ghi_nhat_ky_thay_doi(week, sau, nguon="doi_ca", truoc=truoc)
+    except Exception:
+        pass
+
     record_sua(
         loai="doi_ca",
         truoc={"ca_id": ca_id, "nv_id": giver},
@@ -2004,6 +2100,15 @@ async def swap_open(
         raise HTTPException(status_code=403, detail="khong_phai_nguoi_tham_gia")
     if not _known_nv(body.a) or (body.b != "all" and not _known_nv(body.b)):
         raise HTTPException(status_code=422, detail="nhan_vien_khong_hop_le")
+    week = (body.tuan or "").strip() or str(_life().get("tuan_iso") or "2026-W01")
+    if not re.fullmatch(r"\d{4}-W\d{2}", week):
+        raise HTTPException(status_code=422, detail="tuan_khong_hop_le")
+    # Người nhả PHẢI đang giữ ca đó trong tuần của phiếu. Không kiểm ở đây thì
+    # mở được phiếu nhả ca của người khác — phiếu rác, tới lúc duyệt mới lộ
+    # (`ca_khong_trong_phan_cong_cua_nguoi_nhuong`).
+    phan_tuan = _phan_cong_tuan(week)
+    if body.a not in [str(x) for x in phan_tuan.get(body.ca_id, [])]:
+        raise HTTPException(status_code=409, detail="nguoi_nhuong_khong_trong_ca")
     item = {
         "id": f"sw_{uuid.uuid4().hex[:8]}",
         "a": body.a,
@@ -2011,7 +2116,7 @@ async def swap_open(
         "ca_id": body.ca_id,
         "trang_thai": "cho_xac_nhan",
         "nguon": "quan",
-        "tuan_id": _life().get("tuan_iso", "2026-W01"),
+        "tuan_id": week,
     }
 
     def mut(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -2282,7 +2387,10 @@ async def swap_dong_y(
         "audit:shift_swap",
         details={"action": "shift_swap.confirm", "swap_id": swap_id},
     )
-    return found
+    # Báo cho UI biết ô trực sau đổi còn thiếu người không — đổi ca là thay
+    # người (tổng suất không đổi) nên ô vốn thiếu vẫn thiếu; im lặng sẽ khiến
+    # người đọc tưởng hệ thống quên cộng người.
+    return {**found, "con_thieu": _o_truc_con_thieu(ca_id, swap_week)}
 
 
 @router.post("/api/v1/cho-doi-ca/{swap_id}/tu-choi")
@@ -2342,7 +2450,8 @@ def _guard_swap_cong_bo(week: str, caller: dict[str, Any]) -> None:
         ("consent bắt buộc") mà mã nguồn chưa hề thực thi.
     """
     trang_thai = str(_life(week).get("trang_thai") or "nhap")
-    if trang_thai not in {"da_cong_bo", "da_dong"}:
+    # `da_duyet` cũng là tuần đã chốt (nhất quán với /toi/lich và /ca/nha).
+    if trang_thai not in {"da_duyet", "da_cong_bo", "da_dong"}:
         raise HTTPException(status_code=409, detail="lich_chua_cong_bo")
     if str(caller.get("role") or "") not in {"quan_ly", "chu_quan"}:
         raise HTTPException(status_code=409, detail="doi_ca_can_quan_ly_duyet")
@@ -2376,6 +2485,27 @@ async def swap_duyet(
                 raise HTTPException(status_code=409, detail="swap_da_tu_choi")
             if it.get("da_duyet_boi"):
                 raise HTTPException(status_code=409, detail="swap_da_duyet_roi")
+            # Chặn duyệt phiếu không bao giờ áp được: người nhường không giữ
+            # ca MÀ người nhận cũng chưa có ca (phiếu hỏng từ lúc mở). Còn khi
+            # người nhận đã vào ca (phiếu áp rồi ở bước đồng ý của quản lý/chủ)
+            # thì duyệt chỉ ghi nhận phê chuẩn — `_apply` là noop an toàn.
+            # Chưa có người nhận (`b == "all"`) cũng không được duyệt: tránh ghi
+            # chuỗi "all" vào phân công. Xung đột giờ của người nhận thì KHÔNG
+            # chặn: đó là quyết định của quản lý khi đã thấy cảnh báo.
+            if str(it.get("b") or "") == "all":
+                raise HTTPException(status_code=409, detail="swap_chua_co_nguoi_nhan")
+            wk = str(it.get("tuan_id") or _life().get("tuan_iso") or "2026-W01")
+            danh_sach = [
+                str(x)
+                for x in _phan_cong_tuan(wk).get(str(it.get("ca_id") or ""), [])
+            ]
+            con_nhuong = str(it.get("a") or "") in danh_sach
+            da_nhan = str(it.get("b") or "") in danh_sach
+            if not con_nhuong and not da_nhan:
+                raise HTTPException(
+                    status_code=409,
+                    detail="ca_khong_trong_phan_cong_cua_nguoi_nhuong",
+                )
             it["da_duyet_boi"] = str(caller.get("nv_id") or caller.get("username") or "")
             it["trang_thai"] = "da_duyet"
             found = dict(it)
@@ -2387,10 +2517,11 @@ async def swap_duyet(
         raise HTTPException(status_code=404, detail="swap_khong_tim_thay")
 
     week = str(found.get("tuan_id") or _life().get("tuan_iso") or "2026-W01")
+    ca_id = str(found.get("ca_id") or "")
     _apply_swap_to_assignments(
         giver=str(found.get("a") or ""),
         taker=str(found.get("b") or ""),
-        ca_id=str(found.get("ca_id") or ""),
+        ca_id=ca_id,
         week=week,
         swap_id=swap_id,
         actor=str(caller.get("nv_id") or caller.get("username") or "quan_ly"),
@@ -2404,7 +2535,7 @@ async def swap_duyet(
         "audit:shift_swap",
         details={"action": "shift_swap.approve", "swap_id": swap_id},
     )
-    return found
+    return {**found, "con_thieu": _o_truc_con_thieu(ca_id, week)}
 
 
 @router.get("/api/v1/ops/pickers")

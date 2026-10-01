@@ -144,7 +144,13 @@ export function RosterGrid({
                   </th>
                   {DAYS.map((d) => {
                     const shifts = (byDay[d] ?? []).filter((c) => c.khung === khung);
-                    const assigned = [...new Set(shifts.flatMap((shift) => phanCong[shift.id] ?? []))];
+                    const slots = shifts.flatMap((shift) => phanCong[shift.id] ?? []);
+                    const assigned = [...new Set(slots)];
+                    // Đếm theo SUẤT trực (mỗi vị trí một suất), KHÔNG gộp trùng
+                    // đầu người: một người gánh 2 vị trí cùng khung giờ lấp 2
+                    // suất — chi tiết từng vị trí đều báo Đủ. Đếm đầu người duy
+                    // nhất sẽ báo Thiếu oan (vd 3 người/4 suất thành "Thiếu").
+                    const slotCount = slots.length;
                     const visibleShifts = shifts.filter((shift) => matchCell(phanCong[shift.id] ?? [], shift));
                     const dimmed = shifts.length > 0 && visibleShifts.length === 0;
                     const lit = spotlightDay === d;
@@ -154,15 +160,20 @@ export function RosterGrid({
                       (sum, shift) => sum + Number(shift.so_nguoi_toi_thieu ?? 1),
                       0,
                     );
-                    const summary = rosterCellSummary(assigned.length, roleLabel, assigned.length < required);
+                    const summary = rosterCellSummary(slotCount, roleLabel, slotCount < required);
                     const hasUnconfirmed = assigned.some((id) => nvStatusMap?.[id] === "chua_xac_nhan");
+                    // Người xuất hiện ở >1 ca trong cùng ô = đang gánh đôi.
+                    const ganDoi = assigned.filter(
+                      (id) => slots.filter((s) => s === id).length > 1,
+                    );
                     const pinnedIds = new Set(
                       pins
                         .filter((pin) => shifts.some((shift) => shift.id === pin.ca_id))
                         .map((pin) => pin.nv_id),
                     );
                     const overflow = Math.max(0, assigned.length - CREW_VISIBLE);
-                    const statusText = countLabel(assigned.length, required, summary.tone);
+                    const statusText = countLabel(slotCount, required, summary.tone);
+                    const ganDoiNames = ganDoi.map((id) => nvName(id)).join(", ");
 
                     return (
                       <td
@@ -176,10 +187,10 @@ export function RosterGrid({
                             className={`nq-roster-slot-btn nq-roster-slot-btn--${summary.tone}`}
                             data-unconfirmed={hasUnconfirmed ? "1" : undefined}
                             onClick={() => onSelectDay(d)}
-                            aria-label={`${dayLabels[DAYS.indexOf(d)]?.title} ${rowLabel}: ${statusText}, ${roleLabel}${hasUnconfirmed ? " (Có nhân sự chưa xác nhận lịch)" : ""}`}
+                            aria-label={`${dayLabels[DAYS.indexOf(d)]?.title} ${rowLabel}: ${statusText}, ${roleLabel}${hasUnconfirmed ? " (Có nhân sự chưa xác nhận lịch)" : ""}${ganDoi.length > 0 ? ` (${ganDoiNames} gánh 2 vị trí)` : ""}`}
                           >
                             <span
-                              className={`nq-roster-slot-accent nq-roster-slot-accent--${summary.tone}`}
+                              className="nq-roster-slot-accent nq-roster-slot-accent--ok"
                               aria-hidden="true"
                             />
                             <span className="nq-roster-slot-body">
@@ -188,6 +199,14 @@ export function RosterGrid({
                                 {hasUnconfirmed && (
                                   <span className="nq-roster-slot-flag" title="Có nhân sự chưa xác nhận lịch">
                                     <Icon name="warn" size={12} />
+                                  </span>
+                                )}
+                                {ganDoi.length > 0 && (
+                                  <span
+                                    className="nq-roster-slot-flag"
+                                    title={`${ganDoiNames} đang gánh 2 vị trí cùng khung giờ — các suất đều có người nhưng một người làm 2 việc`}
+                                  >
+                                    <Icon name="users" size={12} />
                                   </span>
                                 )}
                               </span>

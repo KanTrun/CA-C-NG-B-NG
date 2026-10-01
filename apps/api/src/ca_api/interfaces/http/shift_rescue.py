@@ -51,6 +51,14 @@ def clear_shift_rescue_state() -> None:
 
 
 def _rate_limit(user_id: str) -> None:
+    import os
+
+    if os.environ.get("NHIPQUAN_DISABLE_RATE_LIMIT", "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+    }:
+        return
     now = time.time()
     with _LOCK:
         recent = [t for t in _USER_TS.get(user_id, []) if now - t < _WINDOW_S]

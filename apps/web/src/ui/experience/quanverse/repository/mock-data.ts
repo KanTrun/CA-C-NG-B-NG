@@ -100,13 +100,31 @@ function capacity(points: Array<[number, number]>, daysOfData: number | null): Q
     hour,
     demand,
     backlog: Math.max(0, Math.round(demand - 2)),
+    low: Math.max(0, Math.round((demand - 1.2) * 10) / 10),
+    high: Math.round((demand + 1.2) * 10) / 10,
   }));
   const dinh = Math.max(...mapped.map((p) => p.demand));
+  const tomorrow = mapped.map((p) => ({
+    hour: p.hour,
+    demand: Math.round(p.demand * 0.95 * 10) / 10,
+    backlog: Math.max(0, Math.round(p.demand * 0.95 - 2)),
+    low: Math.max(0, Math.round((p.demand * 0.95 - 1.5) * 10) / 10),
+    high: Math.round((p.demand * 0.95 + 1.5) * 10) / 10,
+  }));
+  const dinhMai = Math.max(...tomorrow.map((p) => p.demand ?? 0));
   return {
     points: mapped,
     hasHistory: true,
     daysOfData,
     peaks: mapped.filter((p) => p.demand === dinh).map((p) => p.hour),
+    weatherHint: null,
+    weatherSuggestMode: null,
+    weatherSuggestModeLabel: null,
+    weatherNeedsLocation: false,
+    confidence: (daysOfData ?? 0) >= 7 ? "cao" : (daysOfData ?? 0) >= 3 ? "trung_binh" : "thap",
+    tomorrow,
+    tomorrowPeaks: tomorrow.filter((p) => p.demand === dinhMai).map((p) => p.hour),
+    note: `Trung bình ${daysOfData ?? "—"} ngày gần nhất · khoảng tin cậy 80%`,
   };
 }
 

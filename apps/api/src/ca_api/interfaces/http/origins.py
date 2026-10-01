@@ -11,16 +11,24 @@ của API (`http://localhost:8000/gmail`) trong khi web nằm ở cổng khác
 (`http://localhost:3000`) ⇒ người dùng kết nối xong lại nhận 404 và không bao
 giờ thấy thông báo "Đã kết nối Gmail". Gộp danh sách về một chỗ để hai nơi
 không thể lệch nhau.
+
+Ngữ nghĩa CỘNG (additive), không thay thế: origin dev local LUÔN được phép;
+`NHIPQUAN_CORS_ORIGINS` chỉ THÊM origin triển khai. Bản thay-thế cũ từng gây
+lỗi thật (260930): `.env` máy dev có
+`NHIPQUAN_CORS_ORIGINS=https://nhipquan.duckdns.org` là `localhost:3000` bị
+chặn, trình duyệt chặn preflight và UI báo "Chưa nối được máy chủ quán" trong
+khi API vẫn 200 qua curl — toàn bộ e2e đỏ ở bước đăng nhập. Cộng cũng đúng về
+bảo mật ở hệ này: xác thực dùng Bearer token trong header (KHÔNG cookie
+phiên), nên CORS không phải ranh giới xác thực. Muốn chặt hơn ở production:
+đặt `NHIPQUAN_CORS_DISABLE_DEV=1`.
 """
 
 from __future__ import annotations
 
 import os
 
-# Origin dev local — dùng khi `NHIPQUAN_CORS_ORIGINS` bỏ trống.
-# Đặt biến đó (danh sách cách nhau bởi dấu phẩy) sẽ THAY THẾ toàn bộ danh sách
-# này; xem `.env.example`.
-DEFAULT_WEB_ORIGINS: tuple[str, ...] = (
+# Origin dev local — LUÔN được phép trừ khi `NHIPQUAN_CORS_DISABLE_DEV=1`.
+DEV_WEB_ORIGINS: tuple[str, ...] = (
     "http://localhost:3000",
     "http://localhost:3001",
     "http://localhost:3002",
@@ -32,15 +40,35 @@ DEFAULT_WEB_ORIGINS: tuple[str, ...] = (
     "http://[::1]:3002",
 )
 
+# Tên cũ, giữ để không phá import nào đang dùng.
+DEFAULT_WEB_ORIGINS: tuple[str, ...] = DEV_WEB_ORIGINS
 
-def allowed_web_origins() -> list[str]:
-    """Danh sách origin được phép, theo `NHIPQUAN_CORS_ORIGINS` nếu có."""
-    configured = [
+
+def _dev_enabled() -> bool:
+    """Origin dev có được phép không (opt-out cho production siết chặt)."""
+    return os.environ.get("NHIPQUAN_CORS_DISABLE_DEV", "").strip().lower() not in {
+        "1",
+        "true",
+        "yes",
+    }
+
+
+def configured_web_origins() -> list[str]:
+    """Origin triển khai khai tường minh trong `NHIPQUAN_CORS_ORIGINS`."""
+    return [
         origin.strip()
         for origin in os.environ.get("NHIPQUAN_CORS_ORIGINS", "").split(",")
         if origin.strip()
     ]
-    return configured or list(DEFAULT_WEB_ORIGINS)
+
+
+def allowed_web_origins() -> list[str]:
+    """Mọi origin được phép: triển khai (nếu có) CỘNG origin dev (trừ khi tắt)."""
+    return list(
+        dict.fromkeys(
+            [*configured_web_origins(), *(_dev_enabled() and list(DEV_WEB_ORIGINS) or [])]
+        )
+    )
 
 
 def resolve_web_base(origin: str | None) -> str:

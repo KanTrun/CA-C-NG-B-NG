@@ -73,6 +73,7 @@ from ca_api.ai_learning.operations import circuit_breaker_open
 from ca_api.ai_learning.repository import AILearningRepository
 from ca_api.ai_learning.rollout import select_active_rules
 from ca_api.interfaces.http.sprint3 import (
+    _current_iso_week,
     _known_nv,
     _nv_from_token,
     _phan_cong,
@@ -361,7 +362,20 @@ def process_inbound(msg: InboundMessage, *, reply_backend: str | None = None) ->
     except Exception:
         pass
 
-    r = classify(text, mode=agent_mode(), staff=staff_list if staff_list else None)
+    # `base_iso_week` BẮT BUỘC: phải truyền tuần THẬT — giống sprint3 msg_classify.
+    # Thiếu nó, "tuần sau" được tính từ mốc mặc định cứng "2026-W01" trong `ag_msg.extract`
+    # → mọi tin nhắn kênh (Zalo/Telegram/Facebook) báo bận cho tuần tới đều bị ghi vào
+    # tuần SAI (vd 2026-W02), nên lượt xếp lịch thật của tuần tới không hề thấy ràng buộc.
+    try:
+        base_week = _current_iso_week()
+    except Exception:
+        base_week = None
+    r = classify(
+        text,
+        mode=agent_mode(),
+        staff=staff_list if staff_list else None,
+        base_iso_week=base_week,
+    )
     if not should_enqueue_constraint(text, r.intent, r.do_tin_cay):
         sent = port.send(
             msg.external_user_id,
@@ -1874,14 +1888,40 @@ class StoreProfileBody(BaseModel):
     nhận cả `<script>` trong tên quán, hotline không phải số, và địa chỉ dài
     5.000 ký tự. Ba trường này đều được nhúng vào prompt của bot chăm sóc khách,
     nên rác ở đây thành rác trả lời khách thật.
+
+    `lat`/`lon`: toạ độ GPS quán cho AI FORECAST (không bắt buộc; None = chưa lấy).
     """
 
     ten_quan: str = Field(default="", max_length=120)
+    slogan: str = Field(default="", max_length=200)
     dia_chi: str = Field(default="", max_length=300)
+    dia_chi_chi_tiet: str = Field(default="", max_length=200)
+    phuong_xa: str = Field(default="", max_length=80)
+    phuong_xa_code: str = Field(default="", max_length=20)
+    quan_huyen: str = Field(default="", max_length=80)
+    quan_huyen_code: str = Field(default="", max_length=20)
+    tinh: str = Field(default="", max_length=80)
+    tinh_code: str = Field(default="", max_length=20)
+    thanh_pho: str = Field(default="", max_length=80)
+    toa_do_lat: str = Field(default="", max_length=30)
+    toa_do_lon: str = Field(default="", max_length=30)
+    google_maps_url: str = Field(default="", max_length=500)
+    lat: float | None = Field(default=None, ge=-90, le=90)
+    lon: float | None = Field(default=None, ge=-180, le=180)
     hotline: str = Field(default="", max_length=40)
+    hotline_phu: str = Field(default="", max_length=40)
+    email: str = Field(default="", max_length=120)
+    website: str = Field(default="", max_length=200)
+    fanpage_url: str = Field(default="", max_length=250)
     gio_mo_cua: str = Field(default="", max_length=120)
+    gio_mo_cua_chi_tiet: str = Field(default="", max_length=300)
+    khoang_gia: str = Field(default="", max_length=100)
+    tien_ich: str = Field(default="", max_length=500)
     wifi_ssid: str = Field(default="", max_length=60)
     wifi_pass: str = Field(default="", max_length=60)
+    ngan_hang: str = Field(default="", max_length=100)
+    stk_ngan_hang: str = Field(default="", max_length=60)
+    chu_tai_khoan: str = Field(default="", max_length=120)
     mo_ta: str = Field(default="", max_length=1000)
     chinh_sach_dat_ban: str = Field(default="", max_length=1000)
     huong_dan_agent: str = Field(default="", max_length=4000)
@@ -1919,14 +1959,26 @@ def update_profile(
     authorization: Annotated[str | None, Header()] = None,
 ) -> dict[str, Any]:
     role = _require_manager(authorization)
-    sach = {k: _text_sach(v) for k, v in data.model_dump().items()}
+    dumped = data.model_dump()
+    sach: dict[str, Any] = {}
+    for k, v in dumped.items():
+        if k in {"lat", "lon"}:
+            sach[k] = float(v) if v is not None else None
+        else:
+            sach[k] = _text_sach(v) if isinstance(v, str) else v
     # Hotline: chỉ nhận chữ số và các ký tự ngăn cách thông dụng. Bỏ trống vẫn hợp lệ
     # (quán chưa cấu hình → bot trả "chưa cập nhật", xem ADR-008).
-    hotline = sach["hotline"]
+    hotline = str(sach.get("hotline") or "")
     if hotline and not re.fullmatch(r"[0-9+()\-.\s]{6,40}", hotline):
         raise HTTPException(status_code=422, detail="hotline_khong_hop_le")
+    hotline_phu = sach.get("hotline_phu", "")
+    if hotline_phu and not re.fullmatch(r"[0-9+()\-.\s]{6,40}", hotline_phu):
+        raise HTTPException(status_code=422, detail="hotline_phu_khong_hop_le")
+    email = sach.get("email", "")
+    if email and ("@" not in email or len(email) < 5):
+        raise HTTPException(status_code=422, detail="email_khong_hop_le")
     set_store_profile(sach)
-    _audit(role, "store_profile_update", sach)
+    _audit(role, "store_profile_update", {**sach, "lat": sach.get("lat"), "lon": sach.get("lon")})
     return {"ok": True, "profile": get_store_profile()}
 
 

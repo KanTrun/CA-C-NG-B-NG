@@ -47,10 +47,11 @@ export default function OperationalMap2d({
         title="Trạng thái quán hiện tại"
         icon="location"
         trailing={
-          <span className="nq-qvmap__legend" aria-hidden="true">
-            <span className="nq-qvmap__legend-item nq-qvmap__legend-item--on_dinh" /> Ổn định
-            <span className="nq-qvmap__legend-item nq-qvmap__legend-item--chu_y" /> Chú ý
-            <span className="nq-qvmap__legend-item nq-qvmap__legend-item--qua_tai" /> Quá tải
+          <span className="nq-qvmap__legend" aria-label="Chú giải: Ổn định, Chú ý, Quá tải">
+            <span className="nq-qvmap__legend-item nq-qvmap__legend-item--on_dinh" aria-hidden="true" /> Ổn định
+            <span className="nq-qvmap__legend-item nq-qvmap__legend-item--chu_y" aria-hidden="true" /> Chú ý
+            <span className="nq-qvmap__legend-item nq-qvmap__legend-item--qua_tai" aria-hidden="true" /> Quá tải
+            <span className="nq-sr-only">Màu chỉ minh hoạ, trạng thái luôn có chữ đi kèm.</span>
           </span>
         }
       />
@@ -78,6 +79,10 @@ export default function OperationalMap2d({
                   data-trang-thai={z.status}
                   aria-pressed={dangChon}
                   aria-label={`${z.label} — ${NHAN_TRANG_THAI[z.status]}${
+                    z.load !== null ? `, tải ${z.load}` : ", chưa rõ tải"
+                  }${
+                    z.threshold !== null ? ` trên ngưỡng ${z.threshold}` : ""
+                  }${
                     z.queue !== null ? `, ${z.queue} đơn chờ` : ""
                   }`}
                   onClick={() => onSelect(dangChon ? null : z.zoneId)}

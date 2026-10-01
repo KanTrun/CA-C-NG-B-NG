@@ -140,6 +140,8 @@ export interface QuanverseTimelineItem {
   kind: string;
   source: string;
   status: QuanverseTimelineStatus;
+  /** Khu vực gắn mốc (nếu nguồn có). `null` = toàn quán. */
+  zoneId?: string | null;
 }
 
 // ── F. NĂNG LỰC / TẢI VẬN HÀNH ─────────────────────────────────────────────
@@ -151,7 +153,13 @@ export interface QuanverseCapacityPoint {
   demand: number | null;
   /** Hàng chờ dự báo. `null` khi chưa đủ lịch sử. */
   backlog: number | null;
+  /** Biên dưới khoảng tin cậy 80%. `null` khi chưa tính được. */
+  low?: number | null;
+  /** Biên trên khoảng tin cậy 80%. `null` khi chưa tính được. */
+  high?: number | null;
 }
+
+export type QuanverseConfidence = "cao" | "trung_binh" | "thap";
 
 export interface QuanverseCapacity {
   points: QuanverseCapacityPoint[];
@@ -161,6 +169,24 @@ export interface QuanverseCapacity {
   daysOfData: number | null;
   /** Các giờ cao điểm theo dữ liệu. */
   peaks: number[];
+  /**
+   * Gợi ý điều chỉnh theo thời tiết (AI FORECAST). Không đổi số nhu cầu —
+   * chỉ nhãn để người đọc biết tín hiệu môi trường. `null` khi chưa có thời tiết.
+   */
+  weatherHint: string | null;
+  /** Mode đề xuất từ thời tiết (vd `troi_mua`). `null` khi không đề xuất. */
+  weatherSuggestMode: string | null;
+  weatherSuggestModeLabel: string | null;
+  /** Thiếu GPS/địa chỉ — UI hiện CTA lấy vị trí. */
+  weatherNeedsLocation: boolean;
+  /** Độ tin cậy suy từ số ngày dữ liệu. Optional để tương thích fixture cũ. */
+  confidence?: QuanverseConfidence | null;
+  /** Dự báo ngày mai (cùng khung 7..22). Rỗng khi chưa đủ dữ liệu. */
+  tomorrow?: QuanverseCapacityPoint[];
+  /** Giờ cao điểm ngày mai. */
+  tomorrowPeaks?: number[];
+  /** Ghi chú ngắn cho người đọc, vd "Trung bình 4 ngày gần nhất". */
+  note?: string | null;
 }
 
 // ── G. AI COPILOT ──────────────────────────────────────────────────────────
@@ -170,6 +196,14 @@ export interface QuanverseCapacity {
  * trả về (chỉ có `grounded: boolean`) — hợp đồng không được bịa ra thứ backend
  * không có. Khi backend bổ sung, thêm `confidence?: number | null` tại đây.
  */
+export interface QuanverseActionLink {
+  label: string;
+  /** Đường dẫn nội bộ. `null` khi chỉ là gợi ý xem bản đồ. */
+  href: string | null;
+  /** Zone liên quan để đánh dấu trên bản đồ. */
+  zoneId: string | null;
+}
+
 export interface QuanverseCopilot {
   headline: string;
   /** Lý do / diễn giải. */
@@ -183,6 +217,8 @@ export interface QuanverseCopilot {
   provider: string;
   /** Hành động gợi ý (chỉ đề xuất — không bao giờ tự ghi DB). */
   suggestedActions: string[];
+  /** Liên kết hành động suy từ suggestedActions + actions. Optional. */
+  actionLinks?: QuanverseActionLink[];
 }
 
 // ── H. SỰ KIỆN VẬN HÀNH ────────────────────────────────────────────────────
@@ -232,6 +268,95 @@ export interface QuanverseDataQualityNotice {
   code: string;
   level: "info" | "warning" | "error";
   message: string;
+}
+
+// ── AI Ask (kết quả một lần hỏi) ───────────────────────────────────────────
+/** Kết quả `POST /ask` — tách khỏi brief tĩnh để UI giữ cả hai. */
+export interface QuanverseAskResult {
+  question: string;
+  answer: string;
+  citations: string[];
+  unsupportedClaims: string[];
+  grounded: boolean;
+  provider: string;
+}
+
+// ── Cafe Modes (đề xuất → xác nhận) ────────────────────────────────────────
+
+export type QuanverseModeStatus = "off" | "draft" | "active";
+
+export interface QuanverseMode {
+  mode: string;
+  label: string;
+  active: boolean;
+  proposalStatus: string;
+  status: QuanverseModeStatus;
+  effect: string;
+  affectedProjections: string[];
+}
+
+export interface QuanverseModesState {
+  modes: QuanverseMode[];
+  canActivate: boolean;
+  role: QuanverseRole;
+}
+
+// ── Selection helpers (con trỏ hệ thống) ───────────────────────────────────
+
+/**
+ * Lấy zoneId từ action: ưu tiên id dạng `zone_<id>` (dữ liệu thật), lùi về suy
+ * từ tiêu đề/lý do cho fixture mock (`cd_a_*`/`qt_a_*` không mang zoneId) để
+ * nút "Xem trên bản đồ" không rơi vào "Chỉ để biết" oan. Null = toàn quán.
+ */
+export function zoneIdTuAction(action: QuanverseActionItem): string | null {
+  if (action.id.startsWith("zone_")) return action.id.slice("zone_".length);
+  const t = `${action.title} ${action.reason}`.toLowerCase();
+  if (t.includes("quầy pha")) return "quay_pha";
+  if (t.includes("thu ngân") || t.includes("thanh toán")) return "quay_thu_ngan";
+  if (t.includes("khu bàn") || t.includes("khu khách")) return "khu_ban";
+  // Word-boundary: "kho" trần khớp cả "không"/"khoảng" nên phải chặn.
+  if (/\bkho\b/.test(t)) return "kho";
+  return null;
+}
+
+/** Lọc actions theo khu vực đang chọn — giữ mục toàn quán (không gắn zone). */
+export function locActionsTheoZone(
+  actions: readonly QuanverseActionItem[],
+  zoneId: string | null,
+): QuanverseActionItem[] {
+  if (!zoneId) return [...actions];
+  return actions.filter((a) => {
+    const z = zoneIdTuAction(a);
+    return z === null || z === zoneId;
+  });
+}
+
+/** Lọc events theo khu vực — mục không gắn zone vẫn hiện. */
+export function locEventsTheoZone(
+  events: readonly QuanverseEvent[],
+  zoneId: string | null,
+): QuanverseEvent[] {
+  if (!zoneId) return [...events];
+  return events.filter((e) => e.zoneId === null || e.zoneId === zoneId);
+}
+
+/** Lọc timeline theo khu vực khi nguồn có `zoneId`. */
+export function locTimelineTheoZone(
+  items: readonly QuanverseTimelineItem[],
+  zoneId: string | null,
+): QuanverseTimelineItem[] {
+  if (!zoneId) return [...items];
+  const coZone = items.some((i) => i.zoneId);
+  if (!coZone) return [...items];
+  return items.filter((i) => !i.zoneId || i.zoneId === zoneId);
+}
+
+/** Zone nóng nhất (quá tải > chú ý) — dùng khi bấm KPI alerts/queue. */
+export function zoneNongNhat(zones: readonly QuanverseZone[]): string | null {
+  const quaTai = zones.find((z) => z.status === "qua_tai");
+  if (quaTai) return quaTai.zoneId;
+  const chuY = zones.find((z) => z.status === "chu_y");
+  return chuY?.zoneId ?? null;
 }
 
 // ── Hàm hiển thị dùng CHUNG (một chỗ duy nhất cho quy ước null) ────────────
@@ -291,4 +416,126 @@ export function mangHoacRong<T>(value: readonly T[] | null | undefined): T[] {
  */
 export function mangTho(value: unknown): unknown[] {
   return Array.isArray(value) ? [...value] : [];
+}
+
+// ── QUÁNVERSE 2.0 — Evidence / JEV (không mock, JEV chỉ judge/rank) ──────────
+
+export type QuanverseCoverage = "ok" | "thieu";
+export type QuanverseEvidenceTrangThai = "du" | "thieu_1_phan" | "trong";
+
+export interface QuanverseEvidenceCandidate {
+  id: string;
+  label: string;
+  href: string | null;
+  source: string;
+  eligible: boolean;
+  reason: string;
+}
+
+export interface QuanverseEvidence {
+  trangThai: QuanverseEvidenceTrangThai;
+  coverage: { don: QuanverseCoverage; lich: QuanverseCoverage; kho: QuanverseCoverage };
+  state: {
+    donDangXuLy: number | null;
+    tongDon: number | null;
+    quayPhaTai: number | null;
+    quayPhaMuc: number | null;
+    quayPhaCanhBao: string | null;
+    nhanVienTruc: number | null;
+    caHienTai: string | null;
+    tonDuoiNguong: string[];
+    viecTreoMo: number | null;
+    soNgayDuLieu: number | null;
+    gioDinh: number[];
+    tuanIso: string | null;
+  };
+  candidates: QuanverseEvidenceCandidate[];
+}
+
+export type QuanverseVerdict = "binh_thuong" | "theo_doi" | "can_xu_ly" | "khan_cap";
+
+export interface QuanverseJev {
+  goiJev: boolean;
+  verdict: QuanverseVerdict | null;
+  verdictLabel: string | null;
+  p: number | null;
+  provider: "jev" | "fallback" | "none";
+  latencyMs: number | null;
+  ranking: Array<{ id: string; p: number }>;
+  thieu: string[];
+}
+
+const NHAN_COVERAGE: Record<string, string> = {
+  don: "Đơn hàng",
+  lich: "Lịch ca",
+  kho: "Tồn kho",
+};
+
+export function nhanCoverage(key: string): string {
+  return NHAN_COVERAGE[key] ?? key;
+}
+
+export function chuanHoaEvidence(tho: unknown): QuanverseEvidence | null {
+  if (!tho || typeof tho !== "object") return null;
+  const o = tho as Record<string, unknown>;
+  const cov = (o.coverage ?? {}) as Record<string, unknown>;
+  const st = (o.state ?? {}) as Record<string, unknown>;
+  const covDon: QuanverseCoverage = cov.don === "ok" ? "ok" : "thieu";
+  const covLich: QuanverseCoverage = cov.lich === "ok" ? "ok" : "thieu";
+  const covKho: QuanverseCoverage = cov.kho === "ok" ? "ok" : "thieu";
+  const trangThai: QuanverseEvidenceTrangThai =
+    o.trang_thai === "du" ? "du" : o.trang_thai === "thieu_1_phan" ? "thieu_1_phan" : "trong";
+  const cands = mangTho(o.candidates).map((raw) => {
+    const c = (raw ?? {}) as Record<string, unknown>;
+    return {
+      id: typeof c.id === "string" ? c.id : "",
+      label: typeof c.label === "string" ? c.label : "",
+      href: typeof c.href === "string" ? c.href : null,
+      source: typeof c.source === "string" ? c.source : "",
+      eligible: c.eligible === true,
+      reason: typeof c.reason === "string" ? c.reason : "",
+    } satisfies QuanverseEvidenceCandidate;
+  });
+  return {
+    trangThai,
+    coverage: { don: covDon, lich: covLich, kho: covKho },
+    state: {
+      donDangXuLy: soHoacNull(st.don_dang_xu_ly),
+      tongDon: soHoacNull(st.tong_don),
+      quayPhaTai: soHoacNull(st.quay_pha_tai),
+      quayPhaMuc: soHoacNull(st.quay_pha_muc),
+      quayPhaCanhBao: typeof st.quay_pha_canh_bao === "string" ? st.quay_pha_canh_bao : null,
+      nhanVienTruc: soHoacNull(st.nhan_vien_truc),
+      caHienTai: typeof st.ca_hien_tai === "string" ? st.ca_hien_tai : null,
+      tonDuoiNguong: mangTho(st.ton_duoi_nguong).filter((x): x is string => typeof x === "string"),
+      viecTreoMo: soHoacNull(st.viec_treo_mo),
+      soNgayDuLieu: soHoacNull(st.so_ngay_du_lieu),
+      gioDinh: mangTho(st.gio_dinh).map((x) => soHoacNull(x)).filter((x): x is number => x !== null),
+      tuanIso: typeof st.tuan_iso === "string" ? st.tuan_iso : null,
+    },
+    candidates: cands,
+  };
+}
+
+export function chuanHoaJev(tho: unknown): QuanverseJev | null {
+  if (!tho || typeof tho !== "object") return null;
+  const o = tho as Record<string, unknown>;
+  const v = typeof o.verdict === "string" ? o.verdict : null;
+  const verdict: QuanverseVerdict | null =
+    v === "binh_thuong" || v === "theo_doi" || v === "can_xu_ly" || v === "khan_cap" ? v : null;
+  return {
+    goiJev: o.goi_jev === true,
+    verdict,
+    verdictLabel: typeof o.verdict_label === "string" ? o.verdict_label : null,
+    p: soHoacNull(o.p),
+    provider: o.provider === "jev" ? "jev" : o.provider === "fallback" ? "fallback" : "none",
+    latencyMs: soHoacNull(o.latency_ms),
+    ranking: mangTho(o.ranking)
+      .map((raw) => {
+        const r = (raw ?? {}) as Record<string, unknown>;
+        return { id: typeof r.id === "string" ? r.id : "", p: soHoacNull(r.p) ?? 0 };
+      })
+      .filter((x) => x.id),
+    thieu: mangTho(o.thieu).filter((x): x is string => typeof x === "string"),
+  };
 }

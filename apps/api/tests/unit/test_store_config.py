@@ -33,7 +33,7 @@ def test_profile_mac_dinh_rong_khong_co_du_lieu_bia(client: TestClient) -> None:
     assert r.status_code == 200, r.text
     p = r.json()
     # Các giá trị giả từng hardcode — phải không còn xuất hiện.
-    for key in ("ten_quan", "dia_chi", "hotline", "gio_mo_cua", "wifi_ssid", "wifi_pass", "huong_dan_agent"):
+    for key in ("ten_quan", "dia_chi", "tinh", "thanh_pho", "hotline", "gio_mo_cua", "wifi_ssid", "wifi_pass", "huong_dan_agent"):
         assert str(p.get(key) or "").strip() == "", f"{key} phải rỗng khi chưa cấu hình, được {p.get(key)!r}"
     assert "123 Đường Cà Phê" not in str(p)
     assert "0901234567" not in str(p)

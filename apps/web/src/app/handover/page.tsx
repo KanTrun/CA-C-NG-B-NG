@@ -4,20 +4,20 @@ import { useCallback, useEffect, useState } from "react";
 import { apiGet, apiSend } from "../../lib/api";
 import { actorLabel, formatLuc, safeText, viError } from "../../lib/present";
 import { getToken } from "../../lib/session";
-import {
-  Alert,
-  AuthGate,
-  Btn,
-  Empty,
-  Field,
-  Loading,
-  OpsCard,
-  PageActions,
-  PageHeader,
-  PagedList,
-  Textarea,
-} from "../../ui/kit";
 import { CopilotPane } from "../../ui/copilot/CopilotPane";
+import {
+    Alert,
+    AuthGate,
+    Btn,
+    Empty,
+    Field,
+    Loading,
+    OpsCard,
+    PageActions,
+    PageHeader,
+    PagedList,
+    Textarea,
+} from "../../ui/kit";
 
 type Sbar = {
   id?: string;

@@ -12,6 +12,7 @@
 import {
   KHONG_CO_DU_LIEU,
   type QuanverseActionItem,
+  type QuanverseAskResult,
   type QuanverseCapacity,
   type QuanverseCapacityPoint,
   type QuanverseCopilot,
@@ -19,6 +20,10 @@ import {
   type QuanverseEvent,
   type QuanverseKpi,
   type QuanverseKpiTone,
+  type QuanverseMode,
+  type QuanverseModeStatus,
+  type QuanverseModesState,
+  type QuanverseRole,
   type QuanverseStoreHeader,
   type QuanverseTimelineItem,
   type QuanverseTimelineStatus,
@@ -27,6 +32,7 @@ import {
   mangHoacRong,
   soHoacNull,
 } from "../quanverse-contract";
+import { QUANVERSE_MODE_LABEL } from "./types";
 
 // ── Nhãn enum tiếng Việt (một chỗ duy nhất) ────────────────────────────────
 
@@ -186,6 +192,7 @@ interface HorizonTho {
   starts_in_min?: unknown;
   source?: unknown;
   status?: unknown;
+  zone_id?: unknown;
 }
 
 /** `starts_in_min` (fixture) → giờ "HH:MM" so với `gio` vận hành. */
@@ -217,6 +224,7 @@ export function chuanHoaTimeline(
       kind: typeof h.kind === "string" ? h.kind : "",
       source: nhanNguon(h.source),
       status: trangThaiTimeline(h.status),
+      zoneId: typeof h.zone_id === "string" && h.zone_id ? h.zone_id : null,
     };
   });
 }
@@ -227,18 +235,37 @@ interface SeriesTho {
   gio?: unknown;
   nhu_cau?: unknown;
   hang_doi_du_bao?: unknown;
+  thap?: unknown;
+  thap_80?: unknown;
+  low?: unknown;
+  cao_80?: unknown;
+  high?: unknown;
 }
 
 /**
  * Chuẩn hoá chuỗi dự báo. Khi `co_du_lieu = false`, nhu cầu PHẢI là `null` cho
  * mọi điểm — UI sẽ nói "chưa đủ dữ liệu lịch sử" thay vì vẽ một đường phẳng 0
  * trông như dữ liệu thật.
+ *
+ * Tương thích tiến/lùi: backend mới có thể kèm `thap_80/cao_80` (khoảng tin
+ * cậy), `do_tin_cay`, `du_bao_ngay_mai`, `dinh_ngay_mai`, `ghi_chu`. Thiếu thì
+ * để `null`/`[]` — UI cũ vẫn vẽ được đường hôm nay.
  */
 export function chuanHoaCapacity(
   series: readonly unknown[],
   coDuLieu: boolean,
   soNgay: unknown,
   dinh: readonly unknown[],
+  extra?: {
+    do_tin_cay?: unknown;
+    du_bao_ngay_mai?: readonly unknown[];
+    dinh_ngay_mai?: readonly unknown[];
+    ghi_chu?: unknown;
+    weatherHint?: unknown;
+    weatherSuggestMode?: unknown;
+    weatherSuggestModeLabel?: unknown;
+    weatherNeedsLocation?: unknown;
+  },
 ): QuanverseCapacity {
   const points: QuanverseCapacityPoint[] = series.map((raw) => {
     const s = (raw ?? {}) as SeriesTho;
@@ -246,6 +273,8 @@ export function chuanHoaCapacity(
       hour: soHoacNull(s.gio) ?? 0,
       demand: coDuLieu ? soHoacNull(s.nhu_cau) : null,
       backlog: coDuLieu ? soHoacNull(s.hang_doi_du_bao) : null,
+      low: coDuLieu ? (soHoacNull(s.thap_80 ?? s.thap ?? s.low) ?? null) : null,
+      high: coDuLieu ? (soHoacNull(s.cao_80 ?? s.high) ?? null) : null,
     };
   });
   const peaks = coDuLieu
@@ -253,11 +282,43 @@ export function chuanHoaCapacity(
         .map((g) => soHoacNull(g))
         .filter((g): g is number => g !== null)
     : [];
+  const tomorrowRaw = mangHoacRong(
+    (extra?.du_bao_ngay_mai ?? []) as readonly unknown[],
+  );
+  const tomorrow: QuanverseCapacityPoint[] = tomorrowRaw.map((raw) => {
+    const s = (raw ?? {}) as SeriesTho;
+    return {
+      hour: soHoacNull(s.gio) ?? 0,
+      demand: coDuLieu ? soHoacNull(s.nhu_cau) : null,
+      backlog: coDuLieu ? soHoacNull(s.hang_doi_du_bao) : null,
+      low: coDuLieu ? (soHoacNull(s.thap_80 ?? s.thap ?? s.low) ?? null) : null,
+      high: coDuLieu ? (soHoacNull(s.cao_80 ?? s.high) ?? null) : null,
+    };
+  });
+  const tomorrowPeaks = coDuLieu
+    ? mangHoacRong((extra?.dinh_ngay_mai ?? []) as readonly unknown[])
+        .map((g) => soHoacNull(g))
+        .filter((g): g is number => g !== null)
+    : [];
+  const rawConf = typeof extra?.do_tin_cay === "string" ? extra.do_tin_cay : "";
+  const confidence =
+    rawConf === "cao" || rawConf === "trung_binh" || rawConf === "thap"
+      ? rawConf
+      : null;
+  const note = typeof extra?.ghi_chu === "string" && extra.ghi_chu.trim() ? extra.ghi_chu.trim() : null;
   return {
     points,
     hasHistory: coDuLieu && points.some((p) => p.demand !== null),
     daysOfData: soHoacNull(soNgay),
     peaks,
+    weatherHint: typeof extra?.weatherHint === "string" ? extra.weatherHint : null,
+    weatherSuggestMode: typeof extra?.weatherSuggestMode === "string" ? extra.weatherSuggestMode : null,
+    weatherSuggestModeLabel: typeof extra?.weatherSuggestModeLabel === "string" ? extra.weatherSuggestModeLabel : null,
+    weatherNeedsLocation: extra?.weatherNeedsLocation === true,
+    confidence,
+    tomorrow,
+    tomorrowPeaks,
+    note,
   };
 }
 
@@ -292,6 +353,33 @@ function chuoiTuMang(value: unknown): string[] {
  * Lưu ý: backend KHÔNG trả trường độ tin cậy dạng số — chỉ có `grounded`
  * (boolean). Hợp đồng ở đây phản ánh đúng thực tế đó, không bịa thêm.
  */
+function suyActionLinks(
+  suggested: string[],
+): QuanverseCopilot["actionLinks"] {
+  const out: NonNullable<QuanverseCopilot["actionLinks"]> = [];
+  for (const s of suggested) {
+    const t = s.toLowerCase();
+    let href: string | null = null;
+    let zoneId: string | null = null;
+    if (t.includes("phân công") || t.includes("lịch tuần") || t.includes("điều người") || t.includes("ca 18")) {
+      href = "/lich-tuan";
+    } else if (t.includes("sop") || t.includes("vệ sinh") || t.includes("máy pha")) {
+      href = "/sop";
+    } else if (t.includes("tồn kho") || t.includes("tiêu thụ") || t.includes("nguyên liệu")) {
+      href = "/tieu-thu";
+    } else if (t.includes("treo")) {
+      href = "/treo";
+    }
+    if (t.includes("quầy pha")) zoneId = "quay_pha";
+    else if (t.includes("thu ngân") || t.includes("thanh toán")) zoneId = "quay_thu_ngan";
+    else if (t.includes("khu bàn") || t.includes("khu khách")) zoneId = "khu_ban";
+    else if (/\bkho\b/.test(t)) zoneId = "kho";
+    // Chỉ giữ liên kết có ích: có href hoặc có zone để đánh dấu bản đồ.
+    if (href || zoneId) out.push({ label: s, href, zoneId });
+  }
+  return out;
+}
+
 export function chuanHoaCopilot(
   brief: BriefTho | null,
   ask: AskTho | null,
@@ -309,6 +397,12 @@ export function chuanHoaCopilot(
     ...chuoiTuMang(brief?.risks),
   ];
   const citations = chuoiTuMang(ask?.citations ?? brief?.grounded_refs);
+  const suggestedActions = chuoiTuMang(ask ? undefined : brief?.next_actions);
+  const fromAsk = ask ? [] : suggestedActions;
+  // Khi có câu trả lời ask, suggestedActions giữ từ brief để không mất đề xuất gốc.
+  const keptSuggest = ask
+    ? chuoiTuMang((brief as BriefTho | null)?.next_actions)
+    : fromAsk;
   return {
     headline,
     reasons,
@@ -316,7 +410,68 @@ export function chuanHoaCopilot(
     unsupportedClaims: chuoiTuMang(ask?.unsupported_claims),
     grounded: ask?.grounded === true || citations.length > 0,
     provider: typeof ask?.provider === "string" ? ask.provider : "replay",
-    suggestedActions: chuoiTuMang(brief?.next_actions),
+    suggestedActions: keptSuggest,
+    actionLinks: suyActionLinks(keptSuggest),
+  };
+}
+
+/** Chuẩn hoá một lần hỏi AI thành `QuanverseAskResult`. */
+export function chuanHoaAsk(
+  tho: AskTho & { question?: unknown } | null,
+  question: string,
+): QuanverseAskResult {
+  const answer =
+    typeof tho?.answer === "string" && tho.answer.trim()
+      ? tho.answer.trim()
+      : "Chưa có bản ghi hậu thuẫn. (Không suy đoán)";
+  const citations = chuoiTuMang(tho?.citations);
+  return {
+    question,
+    answer,
+    citations,
+    unsupportedClaims: chuoiTuMang(tho?.unsupported_claims),
+    grounded: tho?.grounded === true || citations.length > 0,
+    provider: typeof tho?.provider === "string" ? tho.provider : "replay",
+  };
+}
+
+function trangThaiMode(active: boolean, proposalStatus: string): QuanverseModeStatus {
+  if (active) return "active";
+  if (proposalStatus === "draft") return "draft";
+  return "off";
+}
+
+interface ModeTho {
+  mode?: unknown;
+  active?: unknown;
+  proposal_status?: unknown;
+  effect?: unknown;
+  affected_projections?: unknown;
+}
+
+export function chuanHoaModes(
+  tho: { modes?: unknown; can_activate?: unknown; role?: unknown } | null,
+): QuanverseModesState {
+  const modesRaw = mangHoacRong(tho?.modes as readonly ModeTho[]);
+  const modes: QuanverseMode[] = modesRaw.map((m) => {
+    const code = typeof m.mode === "string" ? m.mode : "";
+    const active = m.active === true;
+    const proposalStatus =
+      typeof m.proposal_status === "string" ? m.proposal_status : "";
+    return {
+      mode: code,
+      label: QUANVERSE_MODE_LABEL[code] ?? code,
+      active,
+      proposalStatus,
+      status: trangThaiMode(active, proposalStatus),
+      effect: typeof m.effect === "string" ? m.effect : "",
+      affectedProjections: chuoiTuMang(m.affected_projections),
+    };
+  });
+  return {
+    modes,
+    canActivate: tho?.can_activate === true,
+    role: (typeof tho?.role === "string" ? tho.role : "nhan_vien") as QuanverseRole,
   };
 }
 

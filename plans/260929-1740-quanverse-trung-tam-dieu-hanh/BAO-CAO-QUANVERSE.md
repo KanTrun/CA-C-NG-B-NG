@@ -1,11 +1,17 @@
 # BÁO CÁO — Quánverse thành Trung tâm Điều hành Quán
 
 - **Kế hoạch**: `260929-1740-quanverse-trung-tam-dieu-hanh`
-- **Ngày thực hiện**: 2026-09-29
-- **Nhánh**: `main` (đã push) · `fa4b05f..2235a88`
-- **10 commit** (6 tính năng + 3 fix CI + 1 báo cáo) · **CI 8/8 XANH** (run `36609562876`)
+- **Ngày thực hiện**: 2026-09-29 → 2026-09-30
+- **Nhánh**: `main` (đã push) · `fa4b05f..22ecde6`
+- **12 commit** (6 tính năng + 3 fix CI + 1 báo cáo + 1 gia cố deploy + 1 báo cáo)
+- **CI 8/8 XANH** (run `36609562876`) · **Deploy production XANH** (run `36683927376`)
+- **Production ĐÃ KIỂM**: `/quanverse` = 200 · 4 route phụ = **308 → /quanverse**
+
+> ⚠️ **Sự cố đã xảy ra và đã sửa** — xem §9. Bản đầu tiên **không lên production**
+> dù CI xanh: deploy tự bỏ qua mà vẫn báo thành công. Đã gia cố cả hai lỗ hổng.
 
 ---
+
 
 ## 1. Các file đã thay đổi
 
@@ -366,3 +372,107 @@ tsc --noEmit && vitest run && next build && playwright test
 | 6 | Thêm brief cho `stations`/`forecast` (§9.7) | Hoặc mở rộng `QuanversePage` |
 | 7 | Xử lý `test_menu_style_http.py` (§9.8) | Nợ có sẵn — commit module hoặc xoá test |
 | 8 | Xoá backend của 4 tính năng đã rút | **Chủ ý hoãn**: yêu cầu là không chạm API dùng chung |
+
+---
+
+## 9. SỰ CỐ: bản đầu KHÔNG lên production dù CI xanh
+
+Phát hiện 2026-09-30 khi người dùng hỏi *"sao vẫn thấy war room / cứu ca / rules /
+spatial memory trên nhipquan.duckdns.org?"*.
+
+### 9.1 Triệu chứng
+
+| Kiểm tra | Kết quả |
+|---|---|
+| `gh run list` job `ci` | ✅ XANH 8/8 |
+| `next.config.js` trên `origin/main` | ✅ có 4 redirect |
+| File page 4 route trên `origin/main` | ✅ đã xoá |
+| **`curl -I https://nhipquan.duckdns.org/quanverse/war-room`** | ❌ **200** (mong đợi 308) |
+
+Production phục vụ code cũ. CI xanh nhưng **không có gì được phát hành**.
+
+### 9.2 Nguyên nhân (đã chứng minh, không phỏng đoán)
+
+Log deploy `36611115269`:
+
+```
+release_sha="2235a8844932c561a995753a256c6111d4578f03"
+BỎ qua release 2235a884... vì main hiện tại là 49acbc12...
+✅ Successfully executed commands to all hosts.
+```
+
+`deploy-aws.yml` có **chốt chống đua**: fetch `main`, nếu `release_sha != main_sha`
+thì thoát. Chốt này đúng ý đồ. Nhưng:
+
+1. Nó `exit 0` ⇒ workflow **XANH trong 13 giây** dù không deploy gì.
+2. Tôi push thêm 4 commit trong lúc deploy đang xếp hàng ⇒ chốt bắn.
+3. Commit cuối (`49acbc1`) chỉ sửa tài liệu, nhưng chốt so **SHA**, không so **diff**.
+
+Bằng chứng VM đang chạy bản cũ — tag container từ lần deploy thật cuối (14:29):
+
+```
+nhipquan-web-1   ghcr.io/.../nhipquan-web:326b307e993c7c8e4d53157b75da9291a1da8e92
+```
+
+Và `git merge-base --is-ancestor`: **cả 11 commit của tôi đều NOT in `326b307`**.
+
+Ghi chú phụ: log deploy có `+ 326b307...49acbc1 main -> origin/main (forced update)` —
+thao tác `git rebase` trước đó viết lại `main`, nên VM fetch thấy forced update.
+Bình thường và vô hại, nhưng đó chính là thứ chốt đem đi so.
+
+### 9.3 Việc đã làm
+
+**A — Phát hành lại (đã xong).**
+`gh workflow run deploy-aws.yml --ref main`. Lần này `release_sha == main_sha`
+⇒ chốt qua ⇒ VM pull image mới ⇒ `nhipquan-web-1 Recreated`.
+Kiểm chứng trên bản đang chạy:
+
+```
+/quanverse               -> 200
+/quanverse/war-room      -> 308  .../quanverse
+/quanverse/shift-rescue  -> 308  .../quanverse
+/quanverse/rules         -> 308  .../quanverse
+/quanverse/spatial-memory-> 308  .../quanverse
+nhãn nav đã rút trên /login: 0 lần xuất hiện
+```
+
+**B — Bỏ qua deploy KHÔNG còn là thành công (`22ecde6`).**
+Chốt nay in `::warning::`, ghi kết luận vào `$GITHUB_STEP_SUMMARY` và `exit 1`.
+
+**Chứng minh nó THẬT SỰ đỏ** (không chỉ tin vào code):
+
+| Thử | Kết quả |
+|---|---|
+| Workflow **cũ** ở SHA cũ | `success` trong 12s — **đúng là bug cũ** |
+| Workflow **mới** ở SHA cũ | **`failure`** · annotation `⚠️ Bỏ qua deploy: release c086e05… không còn là main (22ecde6…)` |
+
+**C — Cổng hậu-deploy kiểm 308 (`22ecde6`).**
+Thêm step chạy **trên runner GitHub** (không phải VM) nên kiểm đúng đường người
+dùng thật đi: DNS → Caddy → container web. Assert `/quanverse` = 200 và 4 route
+phụ = 308 + `Location` kết thúc bằng `/quanverse`. Sai ⇒ workflow ĐỎ.
+
+Lần chạy thật `36683927376`:
+
+```
+OK  /quanverse/war-room       -> 308 https://nhipquan.duckdns.org/quanverse
+OK  /quanverse/shift-rescue   -> 308 https://nhipquan.duckdns.org/quanverse
+OK  /quanverse/rules          -> 308 https://nhipquan.duckdns.org/quanverse
+OK  /quanverse/spatial-memory -> 308 https://nhipquan.duckdns.org/quanverse
+Quánverse: 1 điểm vào, 4 route phụ đã rút.
+```
+
+Và chứng minh cổng **có thể đỏ**: `curl /hom-nay` → 200 ⇒ cổng báo `FAIL` (đúng,
+vì không phải 308); `/khong-ton-tai-xyz` → 404 ⇒ `FAIL`. Cổng phân biệt được.
+
+### 9.4 Bài học
+
+1. **"Deploy thoát 0" ≠ "đã deploy".** Một bước tự bỏ qua mà vẫn xanh là chỗ
+   giấu lỗi hoàn hảo — nó biến CI thành bằng chứng giả.
+2. **Đừng push thêm commit sau khi deploy đã xếp hàng.** Chốt so SHA nên commit
+   tài liệu cũng đủ vô hiệu hoá deploy. Hoặc chờ, hoặc chấp nhận chạy lại.
+3. **Cổng phải kiểm thứ NGƯỜI DÙNG thấy, không phải thứ máy chủ nói.** `curl /`
+   và `/health` đều 200 trong suốt sự cố. Chỉ phép kiểm 308 mới lộ ra.
+4. **Cổng viết sau khi sửa xong thì "xanh" không chứng minh gì** — phải chứng
+   minh nó đỏ được (đã làm ở §9.3 B và C).
+
+

@@ -1,22 +1,33 @@
 "use client";
 
 /**
- * QUÁNVERSE — H. SỰ KIỆN VẬN HÀNH.
- *
- * Dòng sự kiện có mốc thời gian, nhãn loại, nguồn và khu vực gắn kết. Bấm vào
- * nhãn khu vực để đánh dấu khu vực đó trên bản đồ (không điều hướng đi đâu).
+ * QUÁNVERSE — H. SỰ KIỆN VẬN HÀNH (compact, scroll nội bộ).
  */
 
 import { Icon } from "../../../icons";
-import { formatLuc } from "../../../../lib/present";
+import { formatLuc, safeText } from "../../../../lib/present";
 import type { QuanverseEvent } from "../quanverse-contract";
 import { Card, CardHead, NguonChip } from "./kit";
 
+function hienMoc(occurredAt: string): string {
+  const raw = safeText(occurredAt, "—");
+  if (raw === "—") return raw;
+  // Mapper có thể trả nhãn tương đối "X phút trước" — giữ nguyên, không ép qua Date.
+  if (/phút trước|giờ trước|hôm qua/i.test(raw)) return raw;
+  // "HH:MM" từ fixture — giữ nguyên để không thành "—" oan.
+  if (/^\d{1,2}:\d{2}$/.test(raw.trim())) return raw.trim();
+  return formatLuc(raw);
+}
+
 export default function EventsList({
   events,
+  filterZoneLabel,
+  onClearFilter,
   onFocusZone,
 }: {
   events: readonly QuanverseEvent[];
+  filterZoneLabel: string | null;
+  onClearFilter: () => void;
   onFocusZone: (zoneId: string) => void;
 }) {
   return (
@@ -26,6 +37,15 @@ export default function EventsList({
         icon="bell"
         trailing={<span className="nq-qv-card__count">{events.length} mục</span>}
       />
+
+      {filterZoneLabel ? (
+        <div className="nq-qvact__filter" data-testid="events-filter">
+          <span>Đang lọc · {filterZoneLabel}</span>
+          <button type="button" className="nq-linkbtn" onClick={onClearFilter}>
+            Xem tất cả
+          </button>
+        </div>
+      ) : null}
 
       {events.length === 0 ? (
         <p className="nq-qv-trong" data-testid="events-empty">
@@ -43,7 +63,7 @@ export default function EventsList({
               <span className="nq-qvev__type">{ev.typeLabel}</span>
               <span className="nq-qvev__sum">{ev.summary}</span>
               <span className="nq-qvev__meta">
-                <time className="nq-qvev__time">{formatLuc(ev.occurredAt)}</time>
+                <time className="nq-qvev__time">{hienMoc(ev.occurredAt)}</time>
                 {ev.zoneId ? (
                   <button
                     type="button"

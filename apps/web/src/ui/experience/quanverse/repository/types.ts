@@ -6,7 +6,11 @@
  */
 
 import type {
+  QuanverseAskResult,
   QuanverseDataSource,
+  QuanverseEvidence,
+  QuanverseJev,
+  QuanverseModesState,
   QuanverseRole,
   QuanverseScenario,
   QuanverseViewModel,
@@ -27,13 +31,45 @@ export const QUANVERSE_SCENARIO_LABEL: Record<QuanverseScenario, string> = {
   qua_tai_pha: "Quầy pha quá tải",
 };
 
+/** Nhãn đọc được cho mã mode backend. */
+export const QUANVERSE_MODE_LABEL: Record<string, string> = {
+  gio_cao_diem: "Giờ cao điểm",
+  troi_mua: "Trời mưa",
+  khach_doan: "Khách đoàn",
+  thieu_nhan_su: "Thiếu nhân sự",
+  quan_yen_tinh: "Quán yên tĩnh",
+  dem_nhac: "Đêm nhạc",
+};
+
 export interface QuanverseReadOptions {
   role: QuanverseRole;
   /** Chỉ dùng ở chế độ mô phỏng. */
   scenario?: QuanverseScenario;
 }
 
+export interface QuanverseAskOptions {
+  question: string;
+  page?: "living_map";
+}
+
 export interface QuanverseRepository {
   readonly dataSource: QuanverseDataSource;
   getViewModel(opts: QuanverseReadOptions): Promise<QuanverseViewModel>;
+  /** Hỏi AI grounded — không ghi DB. */
+  askQuestion(opts: QuanverseAskOptions): Promise<QuanverseAskResult>;
+  /** Đọc trạng thái cafe modes. */
+  listModes(): Promise<QuanverseModesState>;
+  /** Đề xuất bật mode (chưa kích hoạt). */
+  proposeMode(mode: string): Promise<QuanverseModesState>;
+  /** Xác nhận mode đã đề xuất (manager). */
+  confirmMode(mode: string): Promise<QuanverseModesState>;
+  /** Tắt mode đang bật (manager). */
+  deactivateMode(mode: string): Promise<QuanverseModesState>;
+  /** QUÁNVERSE 2.0 — Evidence thật (không JEV). Null khi đọc lỗi. */
+  getEvidence(): Promise<QuanverseEvidence | null>;
+  /** QUÁNVERSE 2.0 — Evidence + JEV judge/rank. Null khi đọc lỗi. */
+  judgeJev(): Promise<{ evidence: QuanverseEvidence; jev: QuanverseJev } | null>;
+  /** Demo Setup/Reset qua schema nghiệp vụ thật (manager, admin ẩn). */
+  demoSetup(): Promise<unknown>;
+  demoReset(): Promise<unknown>;
 }

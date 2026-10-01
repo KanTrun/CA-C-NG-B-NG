@@ -1,23 +1,23 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import {
-  Alert,
-  AuthGate,
-  Btn,
-  BtnLink,
-  Empty,
-  FixedBottomBar,
-  Hint,
-  inputClassName,
-  OpsCard,
-  PageActions,
-  PageHeader,
-  ProgressBar,
-  StepDone,
-  Textarea,
-} from "../../ui/kit";
 import { CopilotPane } from "../../ui/copilot/CopilotPane";
+import {
+    Alert,
+    AuthGate,
+    Btn,
+    BtnLink,
+    Empty,
+    FixedBottomBar,
+    Hint,
+    inputClassName,
+    OpsCard,
+    PageActions,
+    PageHeader,
+    ProgressBar,
+    StepDone,
+    Textarea,
+} from "../../ui/kit";
 
 const API = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8000";
 const PHIEU_ID_KEY = "nq_phieu_dang_lam";

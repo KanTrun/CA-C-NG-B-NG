@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 
-test("lịch tuần hiển thị đủ 21 ô và không trắng trang", async ({ page }) => {
+test("lịch tuần hiển thị đủ 21 ô và không trắng trang @smoke", async ({ page }) => {
   await page.goto("/login");
   await page.getByLabel("Tài khoản").fill("lan");
   await page.getByLabel("Mật khẩu").fill("nhipquan");

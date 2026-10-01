@@ -38,6 +38,21 @@ type Swap = {
   la_nguoi_tham_gia?: boolean;
 };
 
+/** Ô trực sau đổi ca còn thiếu người (server tính theo suất trực cả ô). */
+type ConThieu = {
+  thu: string;
+  khung: string;
+  da_xep: number;
+  can: number;
+  thieu: number;
+};
+
+const NHAN_KHUNG: Record<string, string> = {
+  sang: "sáng",
+  chieu: "chiều",
+  toi: "tối",
+};
+
 /** Phép ĐO rủi ro kẹt ca do server trả — không phải lời khuyên. */
 type RuiRo = {
   tuan_id: string;
@@ -131,6 +146,19 @@ export default function DoiCaPage() {
   const [msg, setMsg] = useState<string | null>(null);
   const [b, setB] = useState("");
   const [ca, setCa] = useState("");
+  // Ca TÔI đang giữ trong tuần đang xem — để dropdown "Ca cần đổi" chỉ hiện
+  // ca của chính mình, không phải toàn bộ 70 ca của quán.
+  const [myShiftIds, setMyShiftIds] = useState<string[] | null>(null);
+
+  useEffect(() => {
+    if (!token) return;
+    setMyShiftIds(null);
+    apiGet<{ ca_ids?: string[] }>(`/api/v1/toi/lich?tuan=${encodeURIComponent(openShiftWeek)}`)
+      .then((d) => setMyShiftIds(Array.isArray(d.ca_ids) ? d.ca_ids : []))
+      // Lỗi tải thì KHÔNG lọc (tránh kẹt form); backend vẫn chặn phiếu sai.
+      .catch(() => setMyShiftIds(null));
+  }, [token, openShiftWeek]);
+
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
@@ -142,6 +170,19 @@ export default function DoiCaPage() {
   const { data: pickers } = useOpsPickers(!!token);
   const meNv = pickers?.me_nv_id ?? null;
   const employeeMode = getRole() === "nhan_vien";
+
+  // Người nhận: loại chính mình (tự đổi cho mình là vô nghĩa — backend cũng 422).
+  // Giữ "Mọi người" = phiếu mở, ai nhanh tay nhận trước thì giữ chỗ.
+  const recipientOptions = useMemo(
+    () => (pickers?.nhan_vien ?? []).filter((n) => n.id !== meNv),
+    [pickers, meNv],
+  );
+  const myShifts = useMemo(() => {
+    const all = pickers?.ca ?? [];
+    if (myShiftIds === null) return all;
+    const mine = new Set(myShiftIds);
+    return all.filter((c) => mine.has(c.id));
+  }, [pickers, myShiftIds]);
 
   useEffect(() => {
     setToken(getToken());
@@ -197,20 +238,44 @@ export default function DoiCaPage() {
     ];
   }, [items, pickers]);
 
+  // Trạng thái phiếu đã xong — mặc định ẩn để đỡ rác, bật toggle mới hiện.
+  const DONG_TRANG_THAI = useMemo(() => new Set(["dong_y", "da_duyet", "tu_choi", "huy"]), []);
+  const [showClosed, setShowClosed] = useState(false);
+
   // Server đã lọc theo người tham gia (nhân viên chỉ thấy phiếu của mình).
-  // Ở đây chỉ loại phiếu đã chốt khỏi danh sách đang mở.
+  // Ở đây loại phiếu đã xong khỏi danh sách đang mở.
   const available = useMemo(() => {
-    return items.filter((it) => it.trang_thai !== "dong_y" && it.trang_thai !== "da_duyet");
-  }, [items]);
+    return items.filter((it) => !DONG_TRANG_THAI.has(it.trang_thai));
+  }, [items, DONG_TRANG_THAI]);
+  const closedCount = items.length - available.length;
 
   const filtered = useMemo(() => {
-    return available.filter((it) => {
+    const nguon = showClosed ? items : available;
+    return nguon.filter((it) => {
       if (!matchSearch(swapHaystack(it, personLabel), search)) return false;
       if (!matchExact(it.trang_thai, statusF)) return false;
       if (personF !== "all" && ![it.a, it.b].includes(personF)) return false;
       return true;
     });
-  }, [available, search, statusF, personF, pickers]);
+  }, [showClosed, items, available, search, statusF, personF, pickers]);
+
+  // Ưu tiên hiển thị: phiếu tới lượt TÔI xử lý (bấm Duyệt / bấm Nhận) lên
+  // đầu, phiếu chờ người khác ở giữa, phiếu đã xong xuống cuối.
+  const sapXep = useMemo(() => {
+    const hang = (it: Swap) => {
+      if (DONG_TRANG_THAI.has(it.trang_thai)) return 2;
+      const agreed = new Set(it.dong_y ?? []);
+      const du = it.trang_thai === "dong_y" || agreed.size >= 2;
+      if (laQuanLy && du) return 0;
+      const rr = it.rui_ro;
+      const hong = Boolean(rr && !rr.co_the_nhan && rr.ly_do_chan === "ca_khong_trong_phan_cong_cua_nguoi_nhuong");
+      const hetHan = Boolean(it.tuan_id && it.tuan_id < openShiftWeek);
+      const recipient = it.b === "all" || it.b === meNv;
+      if (!hetHan && !hong && meNv && recipient && it.a !== meNv && !agreed.has(meNv)) return 0;
+      return 1;
+    };
+    return [...filtered].sort((x, y) => hang(x) - hang(y));
+  }, [filtered, laQuanLy, meNv, openShiftWeek, DONG_TRANG_THAI]);
 
   const filterActive = search.length > 0 || statusF !== "all" || personF !== "all";
 
@@ -232,7 +297,7 @@ export default function DoiCaPage() {
     }
     setBusy(true);
     try {
-      await apiSend("/api/v1/cho-doi-ca", { a: meNv, b: b.trim(), ca_id: ca.trim() });
+      await apiSend("/api/v1/cho-doi-ca", { a: meNv, b: b.trim(), ca_id: ca.trim(), tuan: openShiftWeek });
       setB("");
       setMsg("Đã mở phiếu đổi ca.");
       load();
@@ -248,12 +313,21 @@ export default function DoiCaPage() {
     }
   }
 
+  function msgSauDoi(res: unknown, macDinh: string): string {
+    const ct = (res as { con_thieu?: ConThieu | null } | null)?.con_thieu;
+    if (ct && ct.thieu > 0) {
+      const khung = NHAN_KHUNG[ct.khung] ?? ct.khung;
+      return `${macDinh} Lưu ý: ô ${ct.thu} · ca ${khung} vẫn thiếu ${ct.thieu} người (${ct.da_xep}/${ct.can} suất) — đổi ca chỉ thay người, cần điều thêm mới hết thiếu.`;
+    }
+    return macDinh;
+  }
+
   async function dongY(id: string) {
     setBusy(true);
     setError(null);
     try {
-      await apiSend(`/api/v1/cho-doi-ca/${encodeURIComponent(id)}/dong-y`, {});
-      setMsg("Đã ghi nhận đồng ý của bạn.");
+      const res = await apiSend(`/api/v1/cho-doi-ca/${encodeURIComponent(id)}/dong-y`, {});
+      setMsg(msgSauDoi(res, "Đã ghi nhận đồng ý của bạn."));
       load();
     } catch (e) {
       setError(viError(e, { doing: "ghi nhận đồng ý đổi ca" }));
@@ -281,8 +355,8 @@ export default function DoiCaPage() {
     setBusy(true);
     setError(null);
     try {
-      await apiSend(`/api/v1/cho-doi-ca/${encodeURIComponent(id)}/duyet`, {});
-      setMsg("Đã duyệt và áp dụng phiếu đổi ca.");
+      const res = await apiSend(`/api/v1/cho-doi-ca/${encodeURIComponent(id)}/duyet`, {});
+      setMsg(msgSauDoi(res, "Đã duyệt và áp dụng phiếu đổi ca."));
       load();
     } catch (e) {
       setError(viError(e, { doing: "duyệt phiếu đổi ca" }));
@@ -351,7 +425,7 @@ export default function DoiCaPage() {
           <input
             type="week"
             value={openShiftWeek}
-            onChange={(event) => setOpenShiftWeek(event.target.value)}
+            onChange={(event) => { setOpenShiftWeek(event.target.value); setCa(""); }}
             className="mt-1 block min-h-10 w-full border border-[var(--nq-line)] bg-[var(--nq-panel)] px-3 text-[var(--nq-text)]"
           />
           </label>
@@ -441,15 +515,25 @@ export default function DoiCaPage() {
 
       <OpsCard eyebrow="Nhân viên đổi với nhau · Khu vực 1" title="Mở phiếu đổi ca">
         <form onSubmit={onSubmit}>
-          <p className="nq-muted mb-3">Người nhả ca: {meNv ? personLabel(meNv) : "Đang tải tài khoản…"}</p>
+          <p className="nq-muted mb-3">Người nhả ca: {meNv ? personLabel(meNv) : "Đang tải tài khoản…"} · Phiếu mở cho tuần {openShiftWeek}</p>
           <select className="nq-select mb-3" value={b} onChange={(e) => setB(e.target.value)} aria-label="Người nhận ca">
             <option value="">Chọn người nhận…</option>
-            <option value="all">Mọi người</option>
-            {(pickers?.nhan_vien ?? []).map((n) => (
+            <option value="all">Mọi người — ai nhanh tay nhận trước</option>
+            {recipientOptions.map((n) => (
               <option key={n.id} value={n.id}>{nvTenHienThi(n.ten, n.id)}</option>
             ))}
           </select>
-          <ShiftSelect value={ca} onChange={setCa} label="Ca cần đổi" shifts={pickers?.ca} />
+          <ShiftSelect
+            value={ca}
+            onChange={setCa}
+            label="Ca cần đổi (ca bạn đang giữ)"
+            shifts={myShifts}
+            hint={
+              myShiftIds !== null && myShiftIds.length === 0
+                ? "Tuần này bạn không giữ ca nào — không mở được phiếu."
+                : "Chỉ hiện ca bạn đang giữ trong tuần trên. Chọn tên cụ thể = chỉ định, chọn Mọi người = ai nhận trước thì giữ chỗ."
+            }
+          />
           <Btn type="submit" variant="primary" disabled={busy}>
             {busy ? "Đang mở lệnh…" : "Mở lệnh đổi ca"}
           </Btn>
@@ -468,52 +552,76 @@ export default function DoiCaPage() {
           onPersonChange={setPersonF}
           personOptions={personOptions}
           shown={filtered.length}
-          total={available.length}
+          total={showClosed ? items.length : available.length}
           filtered={filterActive}
         />
+        {closedCount > 0 ? (
+          <label className="mb-3 flex items-center gap-2 text-sm text-[var(--nq-dim)]">
+            <input
+              type="checkbox"
+              checked={showClosed}
+              onChange={(e) => setShowClosed(e.target.checked)}
+            />
+            Hiện cả phiếu đã xong ({closedCount})
+          </label>
+        ) : null}
         {loading ? <Loading skeleton="list">Đang tải lệnh đổi ca…</Loading> : null}
-        {!loading && !error && available.length === 0 ? (
+        {!loading && !error && filtered.length === 0 && (showClosed ? items.length : available.length) === 0 ? (
           <Empty title="Chưa có lệnh">Chưa có lệnh đổi ca nào đang mở.</Empty>
         ) : null}
-        {!loading && available.length > 0 && filtered.length === 0 ? <FilteredEmpty onClear={clearFilters} /> : null}
+        {!loading && filtered.length === 0 && (showClosed ? items.length : available.length) > 0 ? <FilteredEmpty onClear={clearFilters} /> : null}
         <div className="nq-list">
           <PagedList
-            items={filtered}
+            items={sapXep}
             pageSize={10}
             renderItem={(it) => {
               const agreed = new Set(it.dong_y ?? []);
-              const recipient = it.b === "all" || it.b === meNv;
-              const canAgree = meNv && recipient && it.a !== meNv && !agreed.has(meNv) && it.trang_thai !== "da_duyet";
               const rr = it.rui_ro;
               const daDuyet = it.trang_thai === "da_duyet";
-              const du = agreed.size >= 2;
+              // Chỉ phiếu còn mở mới có nút bấm — phiếu đã xong (duyệt/từ chối/
+              // hủy) bấm gì cũng không đổi trạng thái, ẩn hết để khỏi rối.
+              const dangMo = !DONG_TRANG_THAI.has(it.trang_thai);
+              // Phiếu hỏng: người nhường không còn giữ ca → duyệt cũng vô nghĩa.
+              const hong = Boolean(rr && !rr.co_the_nhan && rr.ly_do_chan === "ca_khong_trong_phan_cong_cua_nguoi_nhuong");
+              // Phiếu của tuần đã qua → ca đã trôi, không còn gì để nhận/duyệt.
+              const hetHan = Boolean(it.tuan_id && it.tuan_id < openShiftWeek);
+              // Đủ đồng ý = backend đã chốt pha đồng thuận (`dong_y`). Chỉ đếm
+              // số lượt thì phiếu mở cho mọi người (1 lượt nhận là xong) kẹt mãi.
+              const du = it.trang_thai === "dong_y" || agreed.size >= 2;
+              const recipient = it.b === "all" || it.b === meNv;
+              const canAgree = dangMo && !hetHan && !hong && meNv && recipient && it.a !== meNv && !agreed.has(meNv);
+              // Nói rõ đang chờ ai thay vì câu chung chung.
+              const choAi = [it.a, it.b === "all" ? null : it.b].filter(
+                (p): p is string => typeof p === "string" && p.length > 0 && !agreed.has(p),
+              );
+              const caChiTiet = rr?.ca?.gio
+                ? `${thuLabel(rr.ca.thu)} · ${rr.ca.gio}${rr.ca.vi_tri ? ` · ${viTriLabel(rr.ca.vi_tri)}` : ""}`
+                : caLabel(it.ca_id);
               return (
                 <article key={it.id} className="nq-item">
                   <p className="nq-item-title">
                     {personLabel(it.a)} nhả · {it.b === "all" ? "Mọi người" : `${personLabel(it.b)} nhận`}
                   </p>
                   <p className="nq-item-sub">
-                    <StatusChip tone={daDuyet ? "ok" : it.trang_thai === "dong_y" ? "info" : "warn"}>
-                      {swapLabel(it.trang_thai)}
+                    <StatusChip tone={daDuyet ? "ok" : it.trang_thai === "dong_y" ? "info" : hetHan || hong ? "danger" : "warn"}>
+                      {hetHan ? "Hết hạn" : swapLabel(it.trang_thai)}
                     </StatusChip>
-                    {/* Tuần là thứ bản cũ KHÔNG hiện — người dùng không biết phiếu thuộc tuần nào. */}
                     {it.tuan_id ? ` · Tuần ${it.tuan_id}` : ""}
-                    {it.ca_id ? ` · ${caLabel(it.ca_id)}` : ""}
+                    {` · ${caChiTiet}`}
                   </p>
-                  {rr?.ca?.gio ? (
+                  {agreed.size > 0 && !daDuyet ? (
                     <p className="nq-item-sub text-xs mt-1">
-                      Ca nhường: {thuLabel(rr.ca.thu)} · {rr.ca.gio}
-                      {rr.ca.vi_tri ? ` · ${viTriLabel(rr.ca.vi_tri)}` : ""}
+                      Đã đồng ý: {[...agreed].map(personLabel).join(", ")}
                     </p>
                   ) : null}
-                  <p className="nq-item-sub text-xs mt-2">
-                    {agreed.size > 0
-                      ? `Đã đồng ý: ${[...agreed].map(personLabel).join(", ")}`
-                      : "Chưa có ai đồng ý"}
-                  </p>
 
+                  {hetHan && !daDuyet ? (
+                    <p className="nq-item-sub text-xs mt-1" data-rui-ro="het-han">
+                      Tuần này đã qua — phiếu hết hiệu lực, không nhận/duyệt nữa.
+                    </p>
+                  ) : null}
                   {/* Cảnh báo kẹt ca — trả lời "họ có bị kẹt ở ca nào không". */}
-                  {rr && !rr.co_the_nhan ? (
+                  {!hetHan && rr && !rr.co_the_nhan ? (
                     <div className="mt-2" data-rui-ro="chan">
                       <Alert kind="err">
                         {LY_DO_CHAN_LABEL[rr.ly_do_chan] ?? "Phiếu này chưa thực hiện được."}
@@ -528,11 +636,6 @@ export default function DoiCaPage() {
                       </Alert>
                     </div>
                   ) : null}
-                  {rr && rr.co_the_nhan && !daDuyet ? (
-                    <p className="nq-item-sub text-xs mt-1" data-rui-ro="ok">
-                      Không vướng ca trùng giờ — có thể nhận.
-                    </p>
-                  ) : null}
 
                   <div className="flex flex-wrap gap-2 mt-2">
                     {canAgree ? (
@@ -546,15 +649,21 @@ export default function DoiCaPage() {
                       </>
                     ) : null}
                     {/* Quản lý duyệt: chỉ hiện khi đã đủ hai bên đồng ý và chưa duyệt. */}
-                    {laQuanLy && !daDuyet && du ? (
+                    {laQuanLy && dangMo && !hetHan && !hong && du ? (
                       <Btn variant="primary" busy={busy} onClick={() => void duyet(it.id)}>
                         Duyệt &amp; áp dụng
                       </Btn>
                     ) : null}
-                    {laQuanLy && !daDuyet && !du ? (
+                    {laQuanLy && dangMo && !hetHan && !hong && !du ? (
                       <span className="text-xs text-[var(--nq-dim)] self-center">
-                        Chờ đủ hai bên đồng ý rồi mới duyệt được.
+                        {choAi.length > 0 ? `Chờ: ${choAi.map(personLabel).join(", ")}` : "Chờ người nhận đầu tiên."}
                       </span>
+                    ) : null}
+                    {/* Phiếu hỏng / hết hạn mà còn mở: quản lý đóng để dọn chợ, khỏi tồn mãi. */}
+                    {laQuanLy && dangMo && (hong || hetHan) ? (
+                      <Btn variant="danger" disabled={busy} onClick={() => void tuChoi(it.id)}>
+                        {hong ? "Đóng phiếu hỏng" : "Đóng phiếu hết hạn"}
+                      </Btn>
                     ) : null}
                     {daDuyet ? (
                       <span className="text-xs text-[var(--nq-dim)] self-center">

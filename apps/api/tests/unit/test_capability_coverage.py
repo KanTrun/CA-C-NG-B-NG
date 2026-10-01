@@ -104,6 +104,10 @@ EXCLUDED_ROUTES: dict[str, str] = {
     "/api/v1/page/treo": "FB Page — deep-link /page-quan",
     "/api/v1/store/profile": "R3: store profile qua UI /page-quan",
     "/api/v1/store/promotions": "R3: promotions qua UI /page-quan",
+    # ── Danh mục địa chính — hỗ trợ chọn địa chỉ hồ sơ quán qua UI /cau-hinh-quan ──
+    "/api/v1/geo/provinces": "danh mục địa chính — danh sách tỉnh/thành cho UI /cau-hinh-quan",
+    "/api/v1/geo/districts/{province_code}": "danh mục địa chính — danh sách quận/huyện theo tỉnh cho UI /cau-hinh-quan",
+    "/api/v1/geo/wards/{district_code}": "danh mục địa chính — danh sách phường/xã theo quận cho UI /cau-hinh-quan",
     "/api/v1/page/status": "PR12: GET_PAGE_STATUS đã phủ qua chat",
     "/api/v1/page/sync": "PR12: PROPOSE_PAGE_SYNC đã phủ qua chat",
     "/api/v1/page/sync-multi": "multi-page sync qua trang quan ly",
@@ -163,6 +167,8 @@ EXCLUDED_ROUTES: dict[str, str] = {
     "/api/v1/lich/ics": "R0: xuất ICS qua UI /roster",
     "/api/v1/lich/xlsx": "R0: xuất Excel qua UI /lich-tuan",
     "/api/v1/lich/pdf": "R0: xuất PDF qua UI /lich-tuan",
+    "/api/v1/hom-nay": "R0: bảng hôm nay qua UI /hom-nay",
+    "/api/v1/thoi-tiet/hom-nay": "AI FORECAST thời tiết hôm nay qua UI /hom-nay + brief Quánverse",
     "/api/v1/audit": "R0: audit qua UI /vet",
     # ── Mail / profile — deep-link /toi ──
     "/api/v1/mail/send": "R2: gửi mail qua UI (Copilot SEND_MAIL đã phủ chat)",
@@ -243,6 +249,7 @@ EXCLUDED_ROUTES: dict[str, str] = {
     "/api/v1/experience/quanverse/snapshot": "experience — deep-link /quanverse (bản chiếu theo vai trò)",
     "/api/v1/experience/quanverse/stations": "experience — deep-link /quanverse (tải/hàng chờ theo khu vực, đọc đơn thật)",
     "/api/v1/experience/quanverse/forecast": "experience — deep-link /quanverse (dự báo nhu cầu theo giờ, đọc lịch sử đơn)",
+    "/api/v1/experience/quanverse/staff-on-shift": "experience — deep-link /quanverse (nhân sự đang trong ca theo phân công tuần)",
     "/api/v1/experience/quanverse/modes": "experience — deep-link /quanverse (danh sách chế độ)",
     "/api/v1/experience/quanverse/modes/{mode}/propose": "R2: đề xuất chế độ qua UI /quanverse",
     "/api/v1/experience/quanverse/modes/{mode}/confirm": "R3: duyệt chế độ qua UI /quanverse (quản lý/chủ quán)",
@@ -261,6 +268,13 @@ EXCLUDED_ROUTES: dict[str, str] = {
     # đây đúng khuôn "narration phụ trợ" như /api/v1/ai/insight.
     "/api/v1/experience/quanverse/brief/{page}": "narration phụ trợ — tóm tắt tất định của dữ liệu đã có capability riêng",
     "/api/v1/experience/quanverse/ask": "narration phụ trợ — LLM chỉ diễn đạt brief, không thêm số/kết luận",
+    # ── Quanverse 2.0 — Evidence / JEV judge / Demo Setup (deep-link /quanverse) ──
+    # Evidence + JEV judge đọc/gạch từ cùng DB thật mà stations/forecast đã phủ;
+    # JEV chỉ judge/rank closed-set, không điều phối hành động mới qua chat.
+    "/api/v1/experience/quanverse/evidence": "experience — deep-link /quanverse (STATE + coverage từ DB thật, chỉ đọc)",
+    "/api/v1/experience/quanverse/jev-judge": "experience — deep-link /quanverse (JEV judge/rank closed-set A–E, không phát minh action)",
+    "/api/v1/experience/quanverse/demo-setup": "R3: nạp dữ liệu demo bằng bản ghi nghiệp vụ thật qua UI /quanverse (quản lý/chủ quán)",
+    "/api/v1/experience/quanverse/demo-reset": "R3: xoá bản ghi demo qua UI /quanverse (quản lý/chủ quán)",
     "/api/v1/experience/war-room/simulate": "R2: mô phỏng qua UI /quanverse/war-room (số do math layer, không qua chat)",
     "/api/v1/experience/war-room/simulate-live": "R2: mô phỏng trên LỊCH TUẦN THẬT qua UI /quanverse/war-room (số tự tính, không preset)",
     "/api/v1/experience/war-room/scenarios/{simulation_id}": "experience — deep-link /quanverse/war-room",

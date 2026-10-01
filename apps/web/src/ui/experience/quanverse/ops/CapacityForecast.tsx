@@ -1,16 +1,20 @@
 "use client";
 
 /**
- * QUÁNVERSE — F. NĂNG LỰC / TẢI VẬN HÀNH.
+ * QUÁNVERSE — F. NĂNG LỰC / TẢI VẬN HÀNH (tương tác).
  *
- * Biểu đồ SVG thuần (không thư viện chart). Khi chưa đủ lịch sử, khối nói
- * THẲNG "Chưa đủ dữ liệu lịch sử để dự báo" và KHÔNG vẽ đường — vẽ một đường
- * phẳng 0 sẽ trông y như dữ liệu thật và đánh lừa người đọc.
+ * SVG thuần: hover giờ, click peak/điểm → báo giờ chọn lên trang (để prefill AI).
+ * Dual series: nhu cầu + hàng đợi dự báo. Empty trung thực khi chưa đủ lịch sử.
+ * Weather CTA: đề xuất chế độ từ AI FORECAST (human confirm, không tự bật).
  */
 
+import Link from "next/link";
+import { useState } from "react";
 import {
   CHUA_CO_DU_LIEU,
   type QuanverseCapacity,
+  type QuanverseCapacityPoint,
+  type QuanverseConfidence,
   formatSo,
 } from "../quanverse-contract";
 import { Card, CardHead, NguonChip } from "./kit";
@@ -20,29 +24,130 @@ const H = 150;
 const PAD_X = 26;
 const PAD_Y = 14;
 
+const NHAN_TIN_CAY: Record<QuanverseConfidence, string> = {
+  cao: "Tin cậy cao",
+  trung_binh: "Tin cậy trung bình",
+  thap: "Tin cậy thấp",
+};
+
+function Chart({
+  points,
+  peaks,
+  label,
+}: {
+  points: readonly QuanverseCapacityPoint[];
+  peaks: readonly number[];
+  label: string;
+}) {
+  const coDuLieu = points.some((p) => p.demand !== null);
+  const maxY = coDuLieu
+    ? Math.max(...points.map((p) => Math.max(p.high ?? p.demand ?? 0, p.demand ?? 0)), 1)
+    : 1;
+  const x = (i: number) =>
+    PAD_X + (i / Math.max(1, points.length - 1)) * (W - PAD_X * 2);
+  const y = (v: number) => H - PAD_Y - (v / maxY) * (H - PAD_Y * 2);
+  const duong = points
+    .map((p, i) => `${i === 0 ? "M" : "L"} ${x(i).toFixed(1)} ${y(p.demand ?? 0).toFixed(1)}`)
+    .join(" ");
+  // Dải tin cậy: đi theo biên trên rồi về theo biên dưới.
+  const coDai = points.some((p) => p.low !== null && p.low !== undefined && p.high !== null && p.high !== undefined);
+  const dai = coDai
+    ? `${points.map((p, i) => `${i === 0 ? "M" : "L"} ${x(i).toFixed(1)} ${y(p.high ?? p.demand ?? 0).toFixed(1)}`).join(" ")} ${[...points].map((p, i) => `L ${x(points.length - 1 - i).toFixed(1)} ${y(p.low ?? p.demand ?? 0).toFixed(1)}`).reverse().join(" ")} Z`
+    : "";
+  const maxDemand = Math.max(...points.map((p) => p.demand ?? 0), 0);
+  return (
+    <>
+      <div className="nq-qvcap__chart">
+        <svg
+          viewBox={`0 0 ${W} ${H}`}
+          width="100%"
+          role="img"
+          aria-label={`${label}, cao nhất ${formatSo(maxDemand)} đơn mỗi giờ`}
+        >
+          <line className="nq-qvcap__axis" x1={PAD_X} y1={H - PAD_Y} x2={W - PAD_X} y2={H - PAD_Y} />
+          <line className="nq-qvcap__axis" x1={PAD_X} y1={PAD_Y} x2={PAD_X} y2={H - PAD_Y} />
+          {coDai ? <path className="nq-qvcap__area" d={dai} /> : null}
+          <path className="nq-qvcap__line" d={duong} fill="none" />
+          {points.map((p, i) =>
+            peaks.includes(p.hour) ? (
+              <circle
+                key={`${label}-${p.hour}`}
+                className="nq-qvcap__peak"
+                cx={x(i)}
+                cy={y(p.demand ?? 0)}
+                r={3.5}
+              />
+            ) : null,
+          )}
+        </svg>
+      </div>
+
+      <ul className="nq-qvcap__hours" aria-hidden="true">
+        {points.map((p) => (
+          <li key={`${label}-${p.hour}`}>{String(p.hour).padStart(2, "0")}</li>
+        ))}
+      </ul>
+    </>
+  );
+}
+
 export default function CapacityForecast({
   capacity,
   isMock,
+  selectedHour,
+  onSelectHour,
+  canProposeWeatherMode = false,
+  weatherModeBusy = false,
+  onProposeWeatherMode,
 }: {
   capacity: QuanverseCapacity;
   isMock: boolean;
+  selectedHour: number | null;
+  onSelectHour: (hour: number | null) => void;
+  canProposeWeatherMode?: boolean;
+  weatherModeBusy?: boolean;
+  onProposeWeatherMode?: (mode: string) => void;
 }) {
+  const [tab, setTab] = useState<"hom_nay" | "ngay_mai">("hom_nay");
   const points = capacity.points;
   const coDuLieu = capacity.hasHistory && points.some((p) => p.demand !== null);
+  const tomorrow = capacity.tomorrow ?? [];
+  const coMai = tomorrow.some((p) => p.demand !== null);
+  const dangXemMai = tab === "ngay_mai" && coMai;
+  const xemPeaks = dangXemMai ? (capacity.tomorrowPeaks ?? []) : capacity.peaks;
+  const suggestMode = capacity.weatherSuggestMode;
+  const suggestLabel = capacity.weatherSuggestModeLabel || suggestMode;
 
   const maxDemand = coDuLieu
-    ? Math.max(...points.map((p) => p.demand ?? 0), 1)
+    ? Math.max(
+        ...points.map((p) => Math.max(p.demand ?? 0, p.backlog ?? 0)),
+        1,
+      )
     : 1;
 
   const x = (i: number) =>
     PAD_X + (i / Math.max(1, points.length - 1)) * (W - PAD_X * 2);
   const y = (v: number) => H - PAD_Y - (v / maxDemand) * (H - PAD_Y * 2);
 
-  const duong = coDuLieu
+  const duongDemand = coDuLieu
     ? points
-        .map((p, i) => `${i === 0 ? "M" : "L"} ${x(i).toFixed(1)} ${y(p.demand ?? 0).toFixed(1)}`)
+        .map(
+          (p, i) =>
+            `${i === 0 ? "M" : "L"} ${x(i).toFixed(1)} ${y(p.demand ?? 0).toFixed(1)}`,
+        )
         .join(" ")
     : "";
+
+  const duongBacklog = coDuLieu
+    ? points
+        .map(
+          (p, i) =>
+            `${i === 0 ? "M" : "L"} ${x(i).toFixed(1)} ${y(p.backlog ?? 0).toFixed(1)}`,
+        )
+        .join(" ")
+    : "";
+
+  const selected = points.find((p) => p.hour === selectedHour) ?? null;
 
   return (
     <Card className="nq-qvcap" label="Năng lực vận hành" testId="quanverse-capacity">
@@ -58,20 +163,83 @@ export default function CapacityForecast({
         }
       />
 
+      {capacity.confidence ? (
+        <span className={`nq-qvcap__conf nq-qvcap__conf--${capacity.confidence}`} data-testid="capacity-confidence">
+          {NHAN_TIN_CAY[capacity.confidence]}
+          {capacity.daysOfData !== null ? ` · ${capacity.daysOfData} ngày` : ""}
+        </span>
+      ) : null}
+
+      {coMai ? (
+        <div className="nq-qvcap__tabs" role="tablist" aria-label="Chọn ngày dự báo">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={tab === "hom_nay"}
+            className={`nq-qvcap__tab${tab === "hom_nay" ? " is-on" : ""}`}
+            data-testid="capacity-tab-today"
+            onClick={() => setTab("hom_nay")}
+          >
+            Hôm nay
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={tab === "ngay_mai"}
+            className={`nq-qvcap__tab${tab === "ngay_mai" ? " is-on" : ""}`}
+            data-testid="capacity-tab-tomorrow"
+            onClick={() => setTab("ngay_mai")}
+          >
+            Ngày mai
+          </button>
+        </div>
+      ) : null}
+
       {points.length === 0 ? (
-        <p className="nq-qv-trong" data-testid="capacity-empty">
-          <span className="nq-qv-trong__text">{CHUA_CO_DU_LIEU}</span>
-          <span className="nq-qv-trong__hint">Chưa đọc được chuỗi dự báo.</span>
-        </p>
+        <div className="nq-qvcap__emptyfill" data-testid="capacity-empty">
+          <p className="nq-qv-trong">
+            <span className="nq-qv-trong__text">{CHUA_CO_DU_LIEU}</span>
+            <span className="nq-qv-trong__hint">Chưa đọc được chuỗi dự báo.</span>
+          </p>
+          <ul className="nq-qvcap__empty-steps">
+            <li>API `/forecast` cần phản hồi series 07:00–22:00</li>
+            <li>Hoặc bật mô phỏng để xem biểu đồ tương tác đủ</li>
+          </ul>
+        </div>
       ) : !coDuLieu ? (
-        <p className="nq-qv-trong" data-testid="capacity-no-history">
-          <span className="nq-qv-trong__text">
-            Chưa đủ dữ liệu lịch sử để dự báo
-          </span>
-          <span className="nq-qv-trong__hint">
-            Cần thêm ngày có đơn thật để đường dự báo có nghĩa.
-          </span>
-        </p>
+        <div className="nq-qvcap__emptyfill" data-testid="capacity-no-history">
+          <p className="nq-qv-trong">
+            <span className="nq-qv-trong__text">
+              Chưa đủ dữ liệu lịch sử để dự báo
+            </span>
+            <span className="nq-qv-trong__hint">
+              Cần thêm ngày có đơn thật để đường dự báo có nghĩa — không vẽ đường
+              phẳng 0 giả.
+            </span>
+          </p>
+          <ul className="nq-qvcap__empty-steps">
+            <li>Ghi đơn quầy trong ngày → stations/forecast tự đầy</li>
+            <li>Pitch ngay: bật Mô phỏng · Giờ cao điểm</li>
+          </ul>
+        </div>
+      ) : dangXemMai ? (
+        <>
+          <Chart
+            points={tomorrow}
+            peaks={xemPeaks}
+            label="Nhu cầu ngày mai theo giờ"
+          />
+
+          {xemPeaks.length > 0 ? (
+            <p className="nq-qvcap__peaks" data-testid="capacity-peaks-tomorrow">
+              Mai đông nhất:{" "}
+              {xemPeaks.map((h) => `${String(h).padStart(2, "0")}:00`).join(", ")}
+            </p>
+          ) : null}
+          {capacity.note ? (
+            <p className="nq-qvcap__peaks" data-testid="capacity-note">{capacity.note}</p>
+          ) : null}
+        </>
       ) : (
         <>
           <div className="nq-qvcap__chart">
@@ -81,37 +249,135 @@ export default function CapacityForecast({
               role="img"
               aria-label={`Nhu cầu theo giờ, cao nhất ${formatSo(maxDemand)} đơn mỗi giờ`}
             >
-              <line className="nq-qvcap__axis" x1={PAD_X} y1={H - PAD_Y} x2={W - PAD_X} y2={H - PAD_Y} />
-              <line className="nq-qvcap__axis" x1={PAD_X} y1={PAD_Y} x2={PAD_X} y2={H - PAD_Y} />
-              <path className="nq-qvcap__line" d={duong} fill="none" />
-              {points.map((p, i) =>
-                capacity.peaks.includes(p.hour) ? (
-                  <circle
-                    key={p.hour}
-                    className="nq-qvcap__peak"
-                    cx={x(i)}
-                    cy={y(p.demand ?? 0)}
-                    r={3.5}
-                  />
-                ) : null,
-              )}
+              <line
+                className="nq-qvcap__axis"
+                x1={PAD_X}
+                y1={H - PAD_Y}
+                x2={W - PAD_X}
+                y2={H - PAD_Y}
+              />
+              <line
+                className="nq-qvcap__axis"
+                x1={PAD_X}
+                y1={PAD_Y}
+                x2={PAD_X}
+                y2={H - PAD_Y}
+              />
+              <path className="nq-qvcap__line nq-qvcap__line--backlog" d={duongBacklog} fill="none" />
+              <path className="nq-qvcap__line" d={duongDemand} fill="none" />
+              {points.map((p, i) => {
+                const isPeak = capacity.peaks.includes(p.hour);
+                const isSel = selectedHour === p.hour;
+                return (
+                  <g key={p.hour}>
+                    <circle
+                      className={`nq-qvcap__dot${isPeak ? " is-peak" : ""}${
+                        isSel ? " is-selected" : ""
+                      }`}
+                      cx={x(i)}
+                      cy={y(p.demand ?? 0)}
+                      r={isSel ? 5 : isPeak ? 3.5 : 2.5}
+                      data-testid={`cap-hour-${p.hour}`}
+                      role="button"
+                      tabIndex={0}
+                      aria-label={`Giờ ${String(p.hour).padStart(2, "0")}:00, nhu cầu ${formatSo(p.demand)}`}
+                      onClick={() =>
+                        onSelectHour(isSel ? null : p.hour)
+                      }
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          onSelectHour(isSel ? null : p.hour);
+                        }
+                      }}
+                    />
+                  </g>
+                );
+              })}
             </svg>
           </div>
 
           <ul className="nq-qvcap__hours" aria-hidden="true">
             {points.map((p) => (
-              <li key={p.hour}>{String(p.hour).padStart(2, "0")}</li>
+              <li
+                key={p.hour}
+                className={selectedHour === p.hour ? "is-selected" : undefined}
+              >
+                <button
+                  type="button"
+                  className="nq-qvcap__hourbtn"
+                  onClick={() =>
+                    onSelectHour(selectedHour === p.hour ? null : p.hour)
+                  }
+                >
+                  {String(p.hour).padStart(2, "0")}
+                </button>
+              </li>
             ))}
           </ul>
 
-          {capacity.peaks.length > 0 ? (
+          <div className="nq-qvcap__legend">
+            <span className="nq-qvcap__legend-item nq-qvcap__legend-item--demand">
+              Nhu cầu
+            </span>
+            <span className="nq-qvcap__legend-item nq-qvcap__legend-item--backlog">
+              Hàng đợi dự báo
+            </span>
+          </div>
+
+          {selected ? (
+            <p className="nq-qvcap__selected" data-testid="capacity-selected">
+              {String(selected.hour).padStart(2, "0")}:00 — nhu cầu{" "}
+              {formatSo(selected.demand)}, hàng đợi {formatSo(selected.backlog)}
+            </p>
+          ) : capacity.peaks.length > 0 ? (
             <p className="nq-qvcap__peaks">
               Giờ đông nhất:{" "}
-              {capacity.peaks.map((h) => `${String(h).padStart(2, "0")}:00`).join(", ")}
+              {capacity.peaks
+                .map((h) => `${String(h).padStart(2, "0")}:00`)
+                .join(", ")}
+              {" · "}
+              <button
+                type="button"
+                className="nq-linkbtn"
+                data-testid="capacity-peak-ask"
+                onClick={() => onSelectHour(capacity.peaks[0] ?? null)}
+              >
+                Chọn giờ đỉnh
+              </button>
             </p>
           ) : null}
         </>
       )}
+
+      {capacity.weatherHint || capacity.weatherNeedsLocation || suggestMode ? (
+        <div className="nq-qvcap__weather" data-testid="capacity-weather-hint">
+          <NguonChip>AI Forecast</NguonChip>
+          {capacity.weatherHint ? <span>{capacity.weatherHint}</span> : null}
+          {capacity.weatherNeedsLocation ? (
+            <Link
+              href="/cau-hinh-quan"
+              className="nq-qvcap__weather-cta"
+              data-testid="capacity-weather-setup"
+            >
+              Lấy vị trí quán
+            </Link>
+          ) : null}
+          {suggestMode && onProposeWeatherMode ? (
+            <button
+              type="button"
+              className="nq-qvcap__weather-btn"
+              data-testid="capacity-weather-propose"
+              disabled={!canProposeWeatherMode || weatherModeBusy}
+              onClick={() => onProposeWeatherMode(suggestMode)}
+            >
+              {weatherModeBusy
+                ? "Đang đề xuất…"
+                : `Đề xuất chế độ ${suggestLabel} (cần duyệt)`}
+            </button>
+          ) : null}
+        </div>
+      ) : null}
     </Card>
   );
 }

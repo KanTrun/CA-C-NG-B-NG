@@ -11,8 +11,17 @@ import { MockQuanverseRepository } from "./mock";
 import { RealQuanverseRepository } from "./real";
 import type { QuanverseRepository, QuanverseScenario } from "./types";
 
-export type { QuanverseReadOptions, QuanverseRepository, QuanverseScenario } from "./types";
-export { QUANVERSE_SCENARIOS, QUANVERSE_SCENARIO_LABEL } from "./types";
+export type {
+  QuanverseAskOptions,
+  QuanverseReadOptions,
+  QuanverseRepository,
+  QuanverseScenario,
+} from "./types";
+export {
+  QUANVERSE_MODE_LABEL,
+  QUANVERSE_SCENARIOS,
+  QUANVERSE_SCENARIO_LABEL,
+} from "./types";
 
 /**
  * Có được phép mở chế độ mô phỏng không.

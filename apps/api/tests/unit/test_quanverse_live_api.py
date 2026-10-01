@@ -50,3 +50,34 @@ def test_stations_requires_auth() -> None:
 def test_forecast_requires_auth() -> None:
     r = client.get("/api/v1/experience/quanverse/forecast")
     assert r.status_code == 401
+
+
+def test_staff_on_shift_shape() -> None:
+    r = client.get(
+        "/api/v1/experience/quanverse/staff-on-shift",
+        headers=headers(client, "lan"),
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert "names" in body
+    assert isinstance(body["names"], list)
+    # count: int khi khớp ca, None khi chưa khớp — không bịa 0 giả.
+    assert body["count"] is None or isinstance(body["count"], int)
+    assert "shift_label" in body
+    assert "co_du_lieu" in body
+
+
+def test_staff_on_shift_requires_auth() -> None:
+    r = client.get("/api/v1/experience/quanverse/staff-on-shift")
+    assert r.status_code == 401
+
+
+def test_stations_muc_day_cau_hinh_duoc(monkeypatch: pytest.MonkeyPatch) -> None:
+    from ca_api.persist import kv_set
+
+    kv_set("quanverse_zone_thresholds", {"default": 5, "quay_pha": 8})
+    r = client.get("/api/v1/experience/quanverse/stations", headers=headers(client, "lan"))
+    assert r.status_code == 200, r.text
+    by_id = {s["zone_id"]: s for s in r.json()["stations"]}
+    assert by_id["quay_pha"]["muc_day"] == 8
+    assert by_id["kho"]["muc_day"] == 5

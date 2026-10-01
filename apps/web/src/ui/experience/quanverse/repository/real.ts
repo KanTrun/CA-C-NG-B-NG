@@ -26,31 +26,43 @@
  * RỖNG và UI hiện "—" — không đoán.
  */
 
-import { ApiError, apiGet } from "../../../../lib/api";
+import { ApiError, apiGet, apiSend } from "../../../../lib/api";
 import { getRole } from "../../../../lib/session";
 import {
   type QuanverseActionItem,
+  type QuanverseAskResult,
+  type QuanverseEvidence,
+  type QuanverseJev,
   type QuanverseKpi,
+  type QuanverseModesState,
   type QuanverseProvenance,
   type QuanverseRole,
   type QuanverseViewModel,
   type QuanverseZone,
+  chuanHoaEvidence,
+  chuanHoaJev,
   mangHoacRong,
   mangTho,
   soHoacNull,
 } from "../quanverse-contract";
 import {
   chuanHoaActions,
+  chuanHoaAsk,
   chuanHoaCapacity,
   chuanHoaCopilot,
   chuanHoaDataQuality,
   chuanHoaEvents,
   chuanHoaHeader,
+  chuanHoaModes,
   chuanHoaTimeline,
   chuanHoaZone,
   kpi,
 } from "./mappers";
-import type { QuanverseReadOptions, QuanverseRepository } from "./types";
+import type {
+  QuanverseAskOptions,
+  QuanverseReadOptions,
+  QuanverseRepository,
+} from "./types";
 
 // ── Hình dạng thô của các nguồn (chỉ khai trường mình đọc) ─────────────────
 
@@ -67,6 +79,25 @@ interface ForecastTho {
   so_ngay_du_lieu?: unknown;
   series?: unknown;
   giao_dich_nhat?: unknown;
+  do_tin_cay?: unknown;
+  du_bao_ngay_mai?: unknown;
+  dinh_ngay_mai?: unknown;
+  ghi_chu?: unknown;
+}
+
+interface ThoiTietTho {
+  co_du_lieu?: unknown;
+  can_cau_hinh?: unknown;
+  ly_do?: unknown;
+  anh_huong_quan?: {
+    tom_tat?: unknown;
+    de_xuat_mode?: unknown;
+    de_xuat_mode_label?: unknown;
+  };
+  hien_tai?: {
+    mo_ta?: unknown;
+    nhiet_do?: unknown;
+  };
 }
 
 interface SnapshotTho {
@@ -253,14 +284,100 @@ export function suyNguoiTruc(
 
 // ── Adapter ────────────────────────────────────────────────────────────────
 
+interface StaffOnShiftTho {
+  names?: unknown;
+  count?: unknown;
+  shift_label?: unknown;
+  co_du_lieu?: unknown;
+}
+
 export class RealQuanverseRepository implements QuanverseRepository {
   readonly dataSource = "real" as const;
+
+  async askQuestion(opts: QuanverseAskOptions): Promise<QuanverseAskResult> {
+    const question = opts.question.trim();
+    try {
+      const raw = await apiSend<{
+        question?: unknown;
+        answer?: unknown;
+        citations?: unknown;
+        unsupported_claims?: unknown;
+        grounded?: unknown;
+        provider?: unknown;
+      }>("/api/v1/experience/quanverse/ask", {
+        page: opts.page ?? "living_map",
+        question,
+      });
+      return chuanHoaAsk(raw, question);
+    } catch {
+      return chuanHoaAsk(null, question);
+    }
+  }
+
+  async listModes(): Promise<QuanverseModesState> {
+    try {
+      const raw = await apiGet<{
+        modes?: unknown;
+        can_activate?: unknown;
+        role?: unknown;
+      }>("/api/v1/experience/quanverse/modes");
+      return chuanHoaModes(raw);
+    } catch {
+      return chuanHoaModes(null);
+    }
+  }
+
+  async proposeMode(mode: string): Promise<QuanverseModesState> {
+    await apiSend(`/api/v1/experience/quanverse/modes/${encodeURIComponent(mode)}/propose`);
+    return this.listModes();
+  }
+
+  async confirmMode(mode: string): Promise<QuanverseModesState> {
+    await apiSend(`/api/v1/experience/quanverse/modes/${encodeURIComponent(mode)}/confirm`);
+    return this.listModes();
+  }
+
+  async deactivateMode(mode: string): Promise<QuanverseModesState> {
+    await apiSend(`/api/v1/experience/quanverse/modes/${encodeURIComponent(mode)}/deactivate`);
+    return this.listModes();
+  }
+
+  async getEvidence(): Promise<QuanverseEvidence | null> {
+    try {
+      const raw = await apiGet<unknown>("/api/v1/experience/quanverse/evidence");
+      return chuanHoaEvidence(raw);
+    } catch {
+      return null;
+    }
+  }
+
+  async judgeJev(): Promise<{ evidence: QuanverseEvidence; jev: QuanverseJev } | null> {
+    try {
+      const raw = await apiSend<{ evidence?: unknown; jev?: unknown }>(
+        "/api/v1/experience/quanverse/jev-judge",
+      );
+      const evidence = chuanHoaEvidence(raw.evidence);
+      const jev = chuanHoaJev(raw.jev);
+      if (!evidence || !jev) return null;
+      return { evidence, jev };
+    } catch {
+      return null;
+    }
+  }
+
+  async demoSetup(): Promise<unknown> {
+    return apiSend("/api/v1/experience/quanverse/demo-setup");
+  }
+
+  async demoReset(): Promise<unknown> {
+    return apiSend("/api/v1/experience/quanverse/demo-reset");
+  }
 
   async getViewModel(opts: QuanverseReadOptions): Promise<QuanverseViewModel> {
     const role = (opts.role ?? getRole() ?? "quan_ly") as QuanverseRole;
     const provenance: QuanverseProvenance[] = [];
 
-    const [snap, stations, forecast, brief, lich, homNay] = await Promise.all([
+    const [snap, stations, forecast, brief, lich, homNay, thoiTiet, staff] = await Promise.all([
       doc<SnapshotTho>(
         "Bản chiếu vận hành",
         "/api/v1/experience/quanverse/snapshot",
@@ -297,6 +414,18 @@ export class RealQuanverseRepository implements QuanverseRepository {
         "/api/v1/hom-nay",
         ["viec_cho_toi", "canh_bao_ton"],
       ),
+      doc<ThoiTietTho>(
+        "AI Forecast thời tiết",
+        "/api/v1/thoi-tiet/hom-nay",
+        "/api/v1/thoi-tiet/hom-nay",
+        ["co_du_lieu"],
+      ),
+      doc<StaffOnShiftTho>(
+        "Nhân sự trong ca",
+        "/api/v1/experience/quanverse/staff-on-shift",
+        "/api/v1/experience/quanverse/staff-on-shift",
+        ["names", "count"],
+      ),
     ]);
 
     provenance.push(
@@ -306,6 +435,8 @@ export class RealQuanverseRepository implements QuanverseRepository {
       { label: "Tóm tắt cho AI", endpoint: "/api/v1/experience/quanverse/brief/living_map", ok: brief.ok, status: brief.status, missingFields: brief.missing },
       { label: "Phân công tuần", endpoint: "/api/v1/lich-tuan", ok: lich.ok, status: lich.status, missingFields: lich.missing },
       { label: "Việc và cảnh báo", endpoint: "/api/v1/hom-nay", ok: homNay.ok, status: homNay.status, missingFields: homNay.missing },
+      { label: "AI Forecast thời tiết", endpoint: "/api/v1/thoi-tiet/hom-nay", ok: thoiTiet.ok, status: thoiTiet.status, missingFields: thoiTiet.missing },
+      { label: "Nhân sự trong ca", endpoint: "/api/v1/experience/quanverse/staff-on-shift", ok: staff.ok, status: staff.status, missingFields: staff.missing },
     );
 
     // ── Khu vực: ưu tiên `/stations` (có số tải), bù bằng `/snapshot.zones` ──
@@ -317,6 +448,13 @@ export class RealQuanverseRepository implements QuanverseRepository {
     if (stationsBody?.stations) {
       for (const z of mangHoacRong(stationsBody.stations as readonly unknown[])) {
         const zone = chuanHoaZone(z as Record<string, unknown>);
+        // Chưa có đơn quầy thật → không trình bày tải 0 như "quán rảnh đo được".
+        if (stationsBody.co_du_lieu !== true) {
+          zone.load = null;
+          zone.queue = null;
+          zone.status = "chua_co_du_lieu";
+          zone.alerts = [];
+        }
         zones.push(zone);
         zoneLabelById.set(zone.zoneId, zone.label);
       }
@@ -329,9 +467,22 @@ export class RealQuanverseRepository implements QuanverseRepository {
       }
     }
 
-    // ── Nhân sự đang trực (suy từ lịch tuần — backend chưa có endpoint riêng) ──
+    // ── Nhân sự đang trực: ưu tiên endpoint chuyên dụng, fallback lịch tuần ──
     const { gio, phut, thu } = gioQuanHienTai();
-    const nguoiTruc = suyNguoiTruc(lich.data, gio, phut, thu);
+    const suyTuLich = suyNguoiTruc(lich.data, gio, phut, thu);
+    const staffBody = staff.data;
+    const nguoiTruc = staff.ok && staffBody
+      ? {
+          names: mangHoacRong(staffBody.names as readonly string[]).filter(
+            (n): n is string => typeof n === "string" && n.length > 0,
+          ),
+          count: soHoacNull(staffBody.count) ?? suyTuLich.count,
+          shiftLabel:
+            typeof staffBody.shift_label === "string" && staffBody.shift_label
+              ? staffBody.shift_label
+              : suyTuLich.shiftLabel,
+        }
+      : suyTuLich;
 
     // ── KPI ────────────────────────────────────────────────────────────────
     const chiSo = (stationsBody?.chi_so ?? {}) as Record<string, unknown>;
@@ -492,7 +643,39 @@ export class RealQuanverseRepository implements QuanverseRepository {
       forecastBody?.co_du_lieu === true,
       forecastBody?.so_ngay_du_lieu,
       mangTho(forecastBody?.giao_dich_nhat),
+      {
+        do_tin_cay: forecastBody?.do_tin_cay,
+        du_bao_ngay_mai: mangTho(forecastBody?.du_bao_ngay_mai),
+        dinh_ngay_mai: mangTho(forecastBody?.dinh_ngay_mai),
+        ghi_chu: forecastBody?.ghi_chu,
+      },
     );
+    // AI FORECAST — gắn nhãn ảnh hưởng thời tiết + CTA đề xuất chế độ (không đổi số nhu cầu).
+    const tt = thoiTiet.data;
+    if (tt?.co_du_lieu === true) {
+      const tomTat =
+        typeof tt.anh_huong_quan?.tom_tat === "string" ? tt.anh_huong_quan.tom_tat.trim() : "";
+      const moTa = typeof tt.hien_tai?.mo_ta === "string" ? tt.hien_tai.mo_ta.trim() : "";
+      capacity.weatherHint = tomTat || (moTa ? `Điều chỉnh theo thời tiết: ${moTa}` : null);
+      const mode =
+        typeof tt.anh_huong_quan?.de_xuat_mode === "string"
+          ? tt.anh_huong_quan.de_xuat_mode.trim()
+          : "";
+      if (mode) {
+        capacity.weatherSuggestMode = mode;
+        capacity.weatherSuggestModeLabel =
+          typeof tt.anh_huong_quan?.de_xuat_mode_label === "string" &&
+          tt.anh_huong_quan.de_xuat_mode_label.trim()
+            ? tt.anh_huong_quan.de_xuat_mode_label.trim()
+            : mode;
+      }
+    } else if (tt?.can_cau_hinh === true) {
+      capacity.weatherNeedsLocation = true;
+      capacity.weatherHint =
+        typeof tt.ly_do === "string" && tt.ly_do.trim()
+          ? tt.ly_do.trim()
+          : "Chưa có vị trí quán — lấy GPS hoặc nhập địa chỉ để có tín hiệu thời tiết.";
+    }
 
     // ── Sự kiện ────────────────────────────────────────────────────────────
     const events = chuanHoaEvents(mangTho(snapBody?.events), zoneLabelById);
