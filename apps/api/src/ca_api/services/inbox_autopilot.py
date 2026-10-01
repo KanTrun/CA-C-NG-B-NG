@@ -183,8 +183,11 @@ def _quet_va_quyet_dinh(
             solver_result = {"ok": False, "status": "ERROR", "detail": str(exc)}
         for d in decisions:
             if d.get("id") in item_ids:
-                result = d.get("result")
-                if isinstance(result, dict):
-                    result["tu_dong_xep_lich"] = solver_result
+                # Tên biến khác `result` ở vòng trên: đó là `dict[str, Any]`
+                # trả về từ `_decide_inbox_item`, còn đây là `Any | None` lấy từ
+                # dict — gán chung tên làm mypy strict báo sai kiểu.
+                result_muc = d.get("result")
+                if isinstance(result_muc, dict):
+                    result_muc["tu_dong_xep_lich"] = solver_result
 
     return decisions
