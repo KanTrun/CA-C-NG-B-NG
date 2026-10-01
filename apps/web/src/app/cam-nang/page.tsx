@@ -58,6 +58,14 @@ const LOC_TRANG_THAI = [
   { value: "cho_chu_quan", label: "Chờ chủ quán" },
 ];
 
+const LOC_NGUON = [
+  { value: "that", label: "Luật quán thật" },
+  { value: "mau", label: "Dữ liệu mẫu" },
+  { value: "all", label: "Tất cả" },
+];
+
+const PAGE_SIZE = 12;
+
 export default function CamNangPage() {
   const [token, setToken] = useState("");
   const [manager, setManager] = useState(false);
@@ -67,6 +75,8 @@ export default function CamNangPage() {
   const [expanded, setExpanded] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [statusF, setStatusF] = useState("all");
+  const [nguonF, setNguonF] = useState("that");
+  const [page, setPage] = useState(1);
   const [msg, setMsg] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [chiTiet, setChiTiet] = useState<string[]>([]);
@@ -85,7 +95,9 @@ export default function CamNangPage() {
   const load = useCallback(() => {
     if (!getToken()) return;
     setLoading(true);
-    apiGet<{ items: Luat[]; pipeline?: Pipeline; so_luat_that_quan?: number; co_du_lieu_mau?: boolean }>("/api/v1/cam-nang")
+    apiGet<{ items: Luat[]; pipeline?: Pipeline; so_luat_that_quan?: number; co_du_lieu_mau?: boolean }>(
+      `/api/v1/cam-nang?nguon=${encodeURIComponent(nguonF)}`,
+    )
       .then((d) => {
         setItems((d.items ?? []).filter((x) => x && typeof x.id === "string"));
         if (d.pipeline) setPipeline(d.pipeline);
@@ -94,20 +106,42 @@ export default function CamNangPage() {
       })
       .catch((e) => setError(viError(e, { doing: "mở được cẩm nang quán" })))
       .finally(() => setLoading(false));
-  }, []);
+  }, [nguonF]);
 
   useEffect(() => {
     if (token) load();
   }, [token, load]);
 
+  // Deep-link từ SOP: /cam-nang?id=<luat_id> — mở sẵn điều luật đó.
+  useEffect(() => {
+    try {
+      const id = new URLSearchParams(window.location.search).get("id");
+      if (id) setExpanded(id);
+    } catch {
+      /* ignore */
+    }
+  }, []);
+
+  // Đổi bộ lọc thì về trang 1.
+  useEffect(() => {
+    setPage(1);
+  }, [search, statusF, nguonF, items.length]);
+
   const filtered = useMemo(() => {
     return items.filter((luat) => {
       const text = safeText(luat.cau, "");
-      if (!matchSearch(text, search)) return false;
+      if (!matchSearch(`${text} ${luat.id}`, search)) return false;
       if (statusF !== "all" && luat.trang_thai !== statusF) return false;
       return true;
     });
   }, [items, search, statusF]);
+
+  const tongTrang = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  const trangHienTai = Math.min(page, tongTrang);
+  const pageItems = useMemo(() => {
+    const start = (trangHienTai - 1) * PAGE_SIZE;
+    return filtered.slice(start, start + PAGE_SIZE);
+  }, [filtered, trangHienTai]);
 
   const soThat = pipeline?.so_luat_that_quan ?? 0;
   const canChay = pipeline?.can_chay_8_buoc ?? false;
@@ -183,7 +217,7 @@ export default function CamNangPage() {
         title="Cẩm nang quán"
         meta={`Luật học từ lần sửa thật trong ca. Luật sinh từ quán: ${soThat > 0 ? soThat : "chưa có"}.`}
       />
-      {coMau ? (
+      {coMau && nguonF !== "that" ? (
         <p className="mb-4">
           <FixtureChip />
         </p>
@@ -242,7 +276,28 @@ export default function CamNangPage() {
             ))}
           </select>
         </Field>
+        <Field label="Nguồn">
+          <select
+            className="nq-input"
+            value={nguonF}
+            onChange={(e) => setNguonF(e.target.value)}
+            title="Luật quán thật: loại trừ dữ liệu mẫu demo. Dữ liệu mẫu: chỉ xem đối chiếu."
+          >
+            {LOC_NGUON.map((o) => (
+              <option key={o.value} value={o.value}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+        </Field>
       </div>
+      {!loading && !error ? (
+        <p className="text-sm text-[var(--nq-dim)] mb-3" role="status">
+          {filtered.length} / {items.length} luật
+          {nguonF === "that" ? " (nguồn Thật — đã loại dữ liệu mẫu)" : null}
+          {tongTrang > 1 ? ` · Trang ${trangHienTai}/${tongTrang}` : null}
+        </p>
+      ) : null}
 
       {msg ? <Alert kind="ok">{msg}</Alert> : null}
       {error ? <Alert>{error}</Alert> : null}
@@ -274,14 +329,19 @@ export default function CamNangPage() {
         </div>
 
         <ol className="nq-lawbook__list">
-          {filtered.map((luat, idx) => {
+          {pageItems.map((luat, idx) => {
             const open = expanded === luat.id;
             const text = safeText(luat.cau, "Luật chưa có câu diễn giải");
             const tapSu = typeof luat.tap_su_dung === "number" ? luat.tap_su_dung : 0;
             const apDung = typeof luat.ap_dung === "number" ? luat.ap_dung : 0;
+            const soDieu = (trangHienTai - 1) * PAGE_SIZE + idx + 1;
             return (
-              <li key={luat.id} className={`nq-lawbook__dieu ${open ? "nq-lawbook__dieu--open" : ""}`}>
-                <p className="nq-lawbook__dieu-so">Điều {idx + 1}</p>
+              <li
+                key={luat.id}
+                id={`luat-${luat.id}`}
+                className={`nq-lawbook__dieu ${open ? "nq-lawbook__dieu--open" : ""}`}
+              >
+                <p className="nq-lawbook__dieu-so">Điều {soDieu}</p>
                 <div className="nq-lawbook__dieu-head">
                   <p className="nq-lawbook__dieu-text">{text}</p>
                   <div className="nq-lawbook__dieu-meta">
@@ -336,6 +396,27 @@ export default function CamNangPage() {
             );
           })}
         </ol>
+        {tongTrang > 1 ? (
+          <nav className="mt-4 flex items-center gap-3" aria-label="Phân trang cẩm nang">
+            <Btn
+              variant="ghost"
+              disabled={trangHienTai <= 1}
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+            >
+              Trang trước
+            </Btn>
+            <span className="text-sm text-[var(--nq-dim)]" role="status">
+              Trang {trangHienTai}/{tongTrang}
+            </span>
+            <Btn
+              variant="ghost"
+              disabled={trangHienTai >= tongTrang}
+              onClick={() => setPage((p) => Math.min(tongTrang, p + 1))}
+            >
+              Trang sau
+            </Btn>
+          </nav>
+        ) : null}
       </div>
         }
         aside={

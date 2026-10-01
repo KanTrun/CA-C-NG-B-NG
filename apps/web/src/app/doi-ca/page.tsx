@@ -38,6 +38,21 @@ type Swap = {
   la_nguoi_tham_gia?: boolean;
 };
 
+/** Ô trực sau đổi ca còn thiếu người (server tính theo suất trực cả ô). */
+type ConThieu = {
+  thu: string;
+  khung: string;
+  da_xep: number;
+  can: number;
+  thieu: number;
+};
+
+const NHAN_KHUNG: Record<string, string> = {
+  sang: "sáng",
+  chieu: "chiều",
+  toi: "tối",
+};
+
 /** Phép ĐO rủi ro kẹt ca do server trả — không phải lời khuyên. */
 type RuiRo = {
   tuan_id: string;
@@ -298,12 +313,21 @@ export default function DoiCaPage() {
     }
   }
 
+  function msgSauDoi(res: unknown, macDinh: string): string {
+    const ct = (res as { con_thieu?: ConThieu | null } | null)?.con_thieu;
+    if (ct && ct.thieu > 0) {
+      const khung = NHAN_KHUNG[ct.khung] ?? ct.khung;
+      return `${macDinh} Lưu ý: ô ${ct.thu} · ca ${khung} vẫn thiếu ${ct.thieu} người (${ct.da_xep}/${ct.can} suất) — đổi ca chỉ thay người, cần điều thêm mới hết thiếu.`;
+    }
+    return macDinh;
+  }
+
   async function dongY(id: string) {
     setBusy(true);
     setError(null);
     try {
-      await apiSend(`/api/v1/cho-doi-ca/${encodeURIComponent(id)}/dong-y`, {});
-      setMsg("Đã ghi nhận đồng ý của bạn.");
+      const res = await apiSend(`/api/v1/cho-doi-ca/${encodeURIComponent(id)}/dong-y`, {});
+      setMsg(msgSauDoi(res, "Đã ghi nhận đồng ý của bạn."));
       load();
     } catch (e) {
       setError(viError(e, { doing: "ghi nhận đồng ý đổi ca" }));
@@ -331,8 +355,8 @@ export default function DoiCaPage() {
     setBusy(true);
     setError(null);
     try {
-      await apiSend(`/api/v1/cho-doi-ca/${encodeURIComponent(id)}/duyet`, {});
-      setMsg("Đã duyệt và áp dụng phiếu đổi ca.");
+      const res = await apiSend(`/api/v1/cho-doi-ca/${encodeURIComponent(id)}/duyet`, {});
+      setMsg(msgSauDoi(res, "Đã duyệt và áp dụng phiếu đổi ca."));
       load();
     } catch (e) {
       setError(viError(e, { doing: "duyệt phiếu đổi ca" }));

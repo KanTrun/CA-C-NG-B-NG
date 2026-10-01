@@ -31,12 +31,16 @@ import { getRole } from "../../../../lib/session";
 import {
   type QuanverseActionItem,
   type QuanverseAskResult,
+  type QuanverseEvidence,
+  type QuanverseJev,
   type QuanverseKpi,
   type QuanverseModesState,
   type QuanverseProvenance,
   type QuanverseRole,
   type QuanverseViewModel,
   type QuanverseZone,
+  chuanHoaEvidence,
+  chuanHoaJev,
   mangHoacRong,
   mangTho,
   soHoacNull,
@@ -336,6 +340,37 @@ export class RealQuanverseRepository implements QuanverseRepository {
   async deactivateMode(mode: string): Promise<QuanverseModesState> {
     await apiSend(`/api/v1/experience/quanverse/modes/${encodeURIComponent(mode)}/deactivate`);
     return this.listModes();
+  }
+
+  async getEvidence(): Promise<QuanverseEvidence | null> {
+    try {
+      const raw = await apiGet<unknown>("/api/v1/experience/quanverse/evidence");
+      return chuanHoaEvidence(raw);
+    } catch {
+      return null;
+    }
+  }
+
+  async judgeJev(): Promise<{ evidence: QuanverseEvidence; jev: QuanverseJev } | null> {
+    try {
+      const raw = await apiSend<{ evidence?: unknown; jev?: unknown }>(
+        "/api/v1/experience/quanverse/jev-judge",
+      );
+      const evidence = chuanHoaEvidence(raw.evidence);
+      const jev = chuanHoaJev(raw.jev);
+      if (!evidence || !jev) return null;
+      return { evidence, jev };
+    } catch {
+      return null;
+    }
+  }
+
+  async demoSetup(): Promise<unknown> {
+    return apiSend("/api/v1/experience/quanverse/demo-setup");
+  }
+
+  async demoReset(): Promise<unknown> {
+    return apiSend("/api/v1/experience/quanverse/demo-reset");
   }
 
   async getViewModel(opts: QuanverseReadOptions): Promise<QuanverseViewModel> {

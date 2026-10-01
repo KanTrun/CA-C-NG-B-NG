@@ -2,24 +2,19 @@ import { expect, test } from "@playwright/test";
 import { disableWebgl, loginAs } from "./_helpers";
 
 /**
- * QUÁNVERSE — dữ liệu VẮNG MẶT.
+ * QUÁNVERSE 2.0 — dữ liệu VẮNG MẶT (S3).
  *
- * Yêu cầu gốc: "Không hiển thị '0' nếu thực tế chưa biết dữ liệu. Nếu chưa có
- * dữ liệu: '—' / 'Chưa có dữ liệu'. Không được biến thành số 0 giả."
- *
- * Bài này chặn MỌI nguồn dữ liệu của trang (kể cả nguồn mock/API) rồi khẳng
- * định không ô KPI nào hiện "0". Đây là bài chống hồi quy cho đúng lỗi mà bản
- * cũ mắc: `snap.zones?.length ?? 0` in ra "0" khi chưa tải xong.
+ * Yêu cầu chốt: trống hoàn toàn → KHÔNG gọi JEV, không đoán, không số 0 giả.
+ * Hiện card "CHƯA ĐỦ DỮ LIỆU" + checklist 3 nguồn + CTA tới nghiệp vụ thật.
  */
 
-test.describe("QUÁNVERSE — không có dữ liệu", () => {
+test.describe("QUÁNVERSE 2.0 — không có dữ liệu", () => {
   test.beforeEach(async ({ page }) => {
     await disableWebgl(page);
     await loginAs(page);
   });
 
-  test("API lỗi hết thì KPI hiện — chứ KHÔNG hiện 0", async ({ page }) => {
-    // Chặn mọi lời gọi API của trang.
+  test("API lỗi hết thì hiện S3 chứ KHÔNG hiện 0 giả", async ({ page }) => {
     await page.route("**/api/v1/**", (route) =>
       route.fulfill({ status: 503, contentType: "application/json", body: "{}" }),
     );
@@ -27,114 +22,101 @@ test.describe("QUÁNVERSE — không có dữ liệu", () => {
     await page.goto("/quanverse");
     await expect(page.getByTestId("quanverse-root")).toBeVisible({ timeout: 15_000 });
 
-    // Trang phải render được, không sập.
-    await expect(page.getByTestId("quanverse-kpis")).toBeVisible();
-
-    const soO = page.locator('[data-co-du-lieu="0"]');
-    await expect(soO.first()).toBeVisible();
-
-    // MỌI ô KPI khi vắng dữ liệu phải là "—", tuyệt đối không "0".
-    for (const key of ["staff", "zones", "orders", "queue", "alerts", "upcoming"]) {
-      const cell = page.getByTestId(`kpi-${key}`);
-      const text = (await cell.innerText()).trim();
-      expect(text, `KPI ${key} lộ số 0 giả`).not.toBe("0");
-      expect(text).toBe("—");
-    }
+    await expect(page.getByTestId("quanverse-insufficient")).toBeVisible();
+    await expect(page.getByTestId("insufficient-headline")).toContainText("CHƯA ĐỦ DỮ LIỆU");
+    // Không số 0 giả nào trong card trống.
+    await expect(page.getByTestId("quanverse-insufficient")).not.toContainText("0 đơn");
   });
 
-  test("mọi khối đều có trạng thái trống nói rõ, không để trống im lặng", async ({
-    page,
-  }) => {
+  test("checklist 3 nguồn + CTA tới nghiệp vụ thật", async ({ page }) => {
     await page.route("**/api/v1/**", (route) =>
       route.fulfill({ status: 503, contentType: "application/json", body: "{}" }),
     );
 
     await page.goto("/quanverse");
-    await expect(page.getByTestId("quanverse-root")).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId("insufficient-checklist")).toBeVisible({ timeout: 15_000 });
 
-    // Khối rỗng phải nói ra lý do.
-    await expect(page.getByTestId("actions-empty")).toBeVisible();
-    await expect(page.getByTestId("events-empty")).toBeVisible();
-    // Chuỗi dự báo có HAI trạng thái trống hợp lệ, tuỳ nguồn:
-    //  · "capacity-empty"     — không đọc được chuỗi nào (API lỗi hẳn)
-    //  · "capacity-no-history"— đọc được chuỗi nhưng chưa đủ ngày dữ liệu
-    // Cả hai đều phải nói rõ chưa có dữ liệu; TUYỆT ĐỐI không vẽ đường.
-    const capEmpty = page.getByTestId("capacity-empty");
-    const capNoHistory = page.getByTestId("capacity-no-history");
-    const coMot = (await capEmpty.count()) + (await capNoHistory.count());
-    expect(coMot, "khối dự báo phải có trạng thái trống").toBeGreaterThan(0);
-    if (await capNoHistory.count()) {
-      await expect(capNoHistory).toContainText("Chưa đủ dữ liệu lịch sử để dự báo");
-    } else {
-      await expect(capEmpty).toContainText("Chưa có dữ liệu");
-    }
-    await expect(page.getByTestId("copilot-empty")).toBeVisible();
+    const list = await page.getByTestId("insufficient-checklist").innerText();
+    expect(list).toContain("Đơn hàng");
+    expect(list).toContain("Lịch ca");
+    expect(list).toContain("Tồn kho");
+    await expect(page.getByRole("link", { name: "Ghi đơn đầu" })).toBeVisible();
+    await expect(page.getByRole("link", { name: "Mở Lịch tuần" })).toBeVisible();
   });
 
-  test("nguồn lỗi được khai báo minh bạch", async ({ page }) => {
+  test("S3 không gọi JEV — không verdict, không top3", async ({ page }) => {
     await page.route("**/api/v1/**", (route) =>
       route.fulfill({ status: 503, contentType: "application/json", body: "{}" }),
     );
 
     await page.goto("/quanverse");
-    await expect(page.getByTestId("quanverse-root")).toBeVisible({ timeout: 15_000 });
+    await expect(page.getByTestId("quanverse-insufficient")).toBeVisible({ timeout: 15_000 });
 
-    await expect(page.getByTestId("source-degraded")).toBeVisible();
-    await expect(page.getByTestId("quanverse-provenance")).toBeVisible();
+    await expect(page.getByTestId("quanverse-verdict")).toHaveCount(0);
+    await expect(page.getByTestId("verdict-headline")).toHaveCount(0);
   });
 
-  test("dự báo không vẽ đường khi chưa đủ lịch sử", async ({ page }) => {
+  test("evidence trống 1 phần vẫn vẽ được nhưng khai thiếu (S2)", async ({ page }) => {
     await page.route("**/api/v1/**", (route) =>
       route.fulfill({ status: 503, contentType: "application/json", body: "{}" }),
     );
-
-    await page.goto("/quanverse");
-    await expect(page.getByTestId("quanverse-capacity")).toBeVisible({ timeout: 15_000 });
-    // Có trạng thái trống (một trong hai biến thể) và KHÔNG vẽ svg dự báo.
-    const capEmpty = page.getByTestId("capacity-empty");
-    const capNoHistory = page.getByTestId("capacity-no-history");
-    const coMot = (await capEmpty.count()) + (await capNoHistory.count());
-    expect(coMot, "phải có trạng thái trống cho khối dự báo").toBeGreaterThan(0);
-    // Không có SVG nào vẽ đường dự báo.
-    await expect(page.locator(".nq-qvcap__chart")).toHaveCount(0);
-  });
-
-  test("chuỗi dự báo rỗng có lịch sử nhưng thiếu ngày ⇒ nói thẳng chưa đủ lịch sử", async ({
-    page,
-  }) => {
-    // Hình dạng THẬT khi quán chưa có đơn: `co_du_lieu=false` nhưng `series`
-    // vẫn đủ 16 giờ với nhu_cau = 0. Đây là ca nguy hiểm nhất — nếu UI vẽ đường
-    // thì ra một đường phẳng 0 trông y như dữ liệu thật.
-    //
-    // THỨ TỰ ROUTE QUAN TRỌNG: Playwright khớp route ĐĂNG KÝ SAU CÙNG trước, nên
-    // route CỤ THỂ phải đăng ký SAU route tổng `**/api/v1/**` — nếu không, route
-    // tổng nuốt mất và bài test lại rơi vào nhánh "không đọc được chuỗi nào".
-    await page.route("**/api/v1/**", (route) =>
-      route.fulfill({ status: 503, contentType: "application/json", body: "{}" }),
-    );
-    await page.route("**/api/v1/experience/quanverse/forecast**", (route) =>
+    await page.route("**/api/v1/experience/quanverse/evidence**", (route) =>
       route.fulfill({
         status: 200,
         contentType: "application/json",
         body: JSON.stringify({
-          co_du_lieu: false,
-          so_ngay_du_lieu: 0,
-          series: Array.from({ length: 16 }, (_, i) => ({
-            gio: i + 7,
-            nhu_cau: 0,
-            hang_doi_du_bao: 0,
-          })),
-          giao_dich_nhat: [],
-          nguon: "chua_co_du_lieu",
+          trang_thai: "thieu_1_phan",
+          coverage: { don: "ok", lich: "ok", kho: "thieu" },
+          state: {
+            don_dang_xu_ly: 7,
+            tong_don: 12,
+            quay_pha_tai: 4,
+            quay_pha_muc: 5,
+            quay_pha_canh_bao: "chu_y",
+            nhan_vien_truc: 2,
+            ca_hien_tai: "08:00–12:00",
+            ton_duoi_nguong: [],
+            viec_treo_mo: 0,
+            so_ngay_du_lieu: 12,
+            gio_dinh: [10],
+            tuan_iso: "2026-W40",
+          },
+          candidates: [
+            { id: "A", label: "Mở Lịch tuần", href: "/lich-tuan", source: "Lịch tuần", eligible: false, reason: "Lịch đã đủ." },
+            { id: "E", label: "Không làm gì", href: null, source: "Hệ thống", eligible: true, reason: "Giữ nguyên." },
+          ],
+          nguon: "database_that",
+        }),
+      }),
+    );
+    await page.route("**/api/v1/experience/quanverse/jev-judge**", (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          evidence: {
+            trang_thai: "thieu_1_phan",
+            coverage: { don: "ok", lich: "ok", kho: "thieu" },
+            state: { don_dang_xu_ly: 7 },
+            candidates: [],
+          },
+          jev: {
+            goi_jev: true,
+            verdict: "theo_doi",
+            verdict_label: "Cần theo dõi",
+            p: 0.64,
+            provider: "fallback",
+            latency_ms: 2,
+            ranking: [{ id: "E", p: 1 }],
+            thieu: ["kho"],
+          },
         }),
       }),
     );
 
     await page.goto("/quanverse");
-    await expect(page.getByTestId("capacity-no-history")).toBeVisible({ timeout: 15_000 });
-    await expect(page.getByTestId("capacity-no-history")).toContainText(
-      "Chưa đủ dữ liệu lịch sử để dự báo",
-    );
-    await expect(page.locator(".nq-qvcap__chart")).toHaveCount(0);
+    await expect(page.getByTestId("quanverse-verdict")).toBeVisible({ timeout: 15_000 });
+    // Phải khai đúng phần thiếu, cấm nhắc số kho.
+    await expect(page.getByTestId("verdict-missing")).toContainText("Tồn kho");
   });
 });

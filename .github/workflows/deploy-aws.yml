@@ -172,11 +172,20 @@ jobs:
 
             echo "=== Dung lượng đĩa trước khi pull ==="
             df -h /
+            sudo docker system df 2>/dev/null || true
+            sudo du -sh /var/lib/docker /var/lib/containerd /opt/nhipquan/backups 2>/dev/null || true
 
             # Fail-closed: image đúng SHA phải tồn tại trên GHCR. Bỏ fallback
             # `:latest` — đã có lần nó kéo bản KHÁC với release được duyệt mà
             # workflow vẫn xanh (fail-open). Thiếu image là ĐỎ ngay tại đây.
-            sudo IMAGE_TAG="$target_tag" docker compose pull
+            # Pull TUẦN TỰ từng image (ổ EC2 20GB, thường còn trống ~2GB):
+            # `compose pull` mặc định tải song song api (~800MB) + web cùng lúc,
+            # đỉnh dùng đĩa vượt phần trống và chết giữa chừng với ENOSPC
+            # (2026-10-01: gãy ở ~325MB/787MB dù `df` báo còn 2.3G).
+            # api+worker chung một image nên gộp một lệnh; web và infra riêng.
+            sudo IMAGE_TAG="$target_tag" docker compose pull api worker
+            sudo IMAGE_TAG="$target_tag" docker compose pull web
+            sudo IMAGE_TAG="$target_tag" docker compose pull postgres redis caddy
 
             if sudo IMAGE_TAG="$target_tag" docker compose run --rm --no-deps api sh -c "cd /app/apps/api && alembic -c alembic/alembic.ini upgrade head" &&
                # Khởi động theo thứ tự để giảm giật: api (+postgres/redis) lên

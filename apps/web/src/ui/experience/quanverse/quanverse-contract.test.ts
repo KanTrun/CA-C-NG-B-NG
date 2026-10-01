@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   CHUA_CO_DU_LIEU,
   KHONG_CO_DU_LIEU,
+  chuanHoaEvidence,
+  chuanHoaJev,
   formatSo,
   locActionsTheoZone,
   locEventsTheoZone,
@@ -196,5 +198,43 @@ describe("selection helpers — lọc theo khu vực", () => {
       },
     ];
     expect(zoneNongNhat(zones)).toBe("b");
+  });
+});
+
+describe("QUÁNVERSE 2.0 — evidence / JEV chuẩn hoá", () => {
+  it("evidence đủ: coverage ok + candidates A–E", () => {
+    const ev = chuanHoaEvidence({
+      trang_thai: "du",
+      coverage: { don: "ok", lich: "ok", kho: "ok" },
+      state: { don_dang_xu_ly: 7, ton_duoi_nguong: ["Sữa tươi"], gio_dinh: [10] },
+      candidates: [{ id: "A", label: "Mở Lịch tuần", href: "/lich-tuan", source: "Lịch", eligible: true, reason: "r" }],
+    });
+    expect(ev?.trangThai).toBe("du");
+    expect(ev?.state.donDangXuLy).toBe(7);
+    expect(ev?.candidates).toHaveLength(1);
+  });
+
+  it("evidence rác ⇒ trong, số ⇒ null (không 0 giả)", () => {
+    const ev = chuanHoaEvidence({ trang_thai: "x", coverage: {}, state: {}, candidates: "x" });
+    expect(ev?.trangThai).toBe("trong");
+    expect(ev?.state.donDangXuLy).toBeNull();
+    expect(ev?.candidates).toEqual([]);
+  });
+
+  it("jev verdict lạ ⇒ null; ranking giữ closed-set", () => {
+    expect(chuanHoaJev({ goi_jev: true, verdict: "tu_che", ranking: [{ id: "Z", p: 1 }] })?.verdict).toBeNull();
+    const jev = chuanHoaJev({
+      goi_jev: true, verdict: "can_xu_ly", verdict_label: "Cần xử lý", p: 0.91,
+      provider: "fallback", latency_ms: 3, ranking: [{ id: "C", p: 0.5 }], thieu: ["kho"],
+    });
+    expect(jev?.verdict).toBe("can_xu_ly");
+    expect(jev?.ranking).toEqual([{ id: "C", p: 0.5 }]);
+    expect(jev?.thieu).toEqual(["kho"]);
+  });
+
+  it("trong ⇒ jev không gọi", () => {
+    const jev = chuanHoaJev({ goi_jev: false, verdict: null, p: null, provider: "none", ranking: [] });
+    expect(jev?.goiJev).toBe(false);
+    expect(jev?.provider).toBe("none");
   });
 });

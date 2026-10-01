@@ -112,3 +112,20 @@ data/cache/
 # Mỗi script tự ghi ra khi chạy — KHÔNG track kết quả شم沉着 cũ. Giữ .gitkeep.
 data/out/*
 !data/out/.gitkeep
+# Nén tay output cũ — artifact local, không commit (data/out/* chỉ khớp thư mục).
+data/out.rar
+data/out.zip
+data/out.7z
+
+# Backup DB lẻ ngoài hai bản có chủ đích (quan-pre-phase0, quan-pre-gd10-260913).
+data/backups/quan-pre-dedup-*.db*
+
+# File thử một lần ở root (untracked, không phải mã nguồn).
+nim_test.py
+opencode.json
+scripts/_verify_batch_a.mjs
+
+# Artifact Playwright: trace/video/report chỉ sinh khi e2e đỏ — không commit.
+apps/web/test-results/
+apps/web/playwright-report/
+apps/web/blob-report/
