@@ -4,6 +4,15 @@
 {$DOMAIN} {
 	encode gzip
 
+	# ── Header bảo mật tầng TLS (QA 2026-09-30 N1) ──────────────────────────
+	# HSTS chỉ có ý nghĩa khi browser đi qua HTTPS công khai, nên đặt ở Caddy
+	# (nơi giữ chứng chỉ) thay vì ở Next/API nội bộ (http://web:3000,
+	# http://api:8000). Các header còn lại (nosniff/DENY/CSP/…) do từng tầng tự
+	# đặt vì CSP của API (`default-src 'none'`) khác CSP của web HTML — đặt một
+	# CSP chung ở đây sẽ ghi đè và phá một trong hai. Không thêm `header` cho
+	# CSP/X-Frame ở đây để tránh ghi đè upstream.
+	header Strict-Transport-Security "max-age=31536000; includeSubDomains"
+
 	# ── WebSocket (phải khai TRƯỚC các handle khác) ────────────────────────
 	# Hệ thống có 3 WebSocket:
 	#   /ws/chat              — chat nội bộ (lib/realtime.ts)

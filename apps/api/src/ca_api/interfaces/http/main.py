@@ -210,7 +210,9 @@ async def add_security_headers(request: Request, call_next: Any) -> Any:
     - HSTS: chỉ gửi khi request đã qua HTTPS (qua proxy set `x-forwarded-proto`).
 
     API trả JSON nên CSP tối giản (`default-src 'none'`) là đủ; trang HTML do
-    Next.js phục vụ có CSP riêng ở tầng web.
+    Next.js phục vụ có CSP riêng ở `apps/web/next.config.js` (`headers()`) và
+    HSTS ở `infra/oracle/Caddyfile` (tầng TLS) — không đặt CSP web ở đây để
+    tránh ghi đè lẫn nhau (QA 2026-09-30 N1).
     """
     response = await call_next(request)
     response.headers.setdefault("X-Content-Type-Options", "nosniff")
