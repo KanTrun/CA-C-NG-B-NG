@@ -1,4 +1,4 @@
-﻿"""Intent Parser & Prompt Injection Guard cho AG-COPILOT.
+"""Intent Parser & Prompt Injection Guard cho AG-COPILOT.
 
 Phân loại câu tiếng Việt thành intent trong danh sách whitelist, kèm trích tham số
 và chống prompt injection.
