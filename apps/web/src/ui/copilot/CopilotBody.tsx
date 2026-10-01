@@ -9,7 +9,7 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import { Icon } from "../icons";
 import { chatSounds } from "../../lib/chat-sound";
 import { ActionProposalCard } from "./ActionProposalCard";
-import { Avatar2D, type AvatarMood } from "./Avatar2D";
+import { Avatar2D, AvatarStatic, preloadAvatarHot, preloadAvatarMood, type AvatarMood } from "./Avatar2D";
 import { ChatText } from "./ChatText";
 import type { ChatMessage, Mode } from "./useCopilotChat";
 import { useCopilotVoice, type VoiceProposalData } from "./useCopilotVoice";
@@ -228,6 +228,22 @@ export function CopilotBody({ chat, mode, onClose, onOpenFullPage, onClearHistor
     if (messages.length === 0) return "greeting";
     return "idle";
   })();
+
+  // Preload sprite mood kế tiếp để chuyển mood không giật (chỉ tải theo mood, không tải 89 file).
+  useEffect(() => {
+    preloadAvatarMood(chatMood);
+  }, [chatMood]);
+
+  // Preload các mood nóng khi trình duyệt rảnh (lần đầu mở đã có speaking/listening/processing).
+  useEffect(() => {
+    const ric = (window as unknown as { requestIdleCallback?: (cb: () => void) => void })
+      .requestIdleCallback;
+    if (ric) ric(() => preloadAvatarHot());
+    else {
+      const t = window.setTimeout(() => preloadAvatarHot(), 1500);
+      return () => window.clearTimeout(t);
+    }
+  }, []);
 
   // Bắt đầu cuộc gọi Live ("cho nó bự lên rồi nói chuyện")
   const handleStartLiveCall = useCallback(() => {
@@ -452,6 +468,7 @@ export function CopilotBody({ chat, mode, onClose, onOpenFullPage, onClearHistor
                 showHoloRing={true}
                 showFloorShadow={true}
                 showTooltip={false}
+                priority
               />
             </div>
 
@@ -578,7 +595,9 @@ export function CopilotBody({ chat, mode, onClose, onOpenFullPage, onClearHistor
               mouthOpen={mouthOpen}
               mood={chatMood}
               showBadge={false}
-              showSparkles={true}
+              showSparkles={false}
+              showTooltip={false}
+              priority
             />
             <span className="absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full bg-emerald-400 ring-2 ring-slate-900 animate-pulse" />
           </div>
@@ -641,16 +660,10 @@ export function CopilotBody({ chat, mode, onClose, onOpenFullPage, onClearHistor
             key={msg.id}
             className={`flex gap-2.5 ${msg.sender === "user" ? "justify-end" : "justify-start"}`}
           >
-            {/* Avatar Tinh Linh bên cạnh tin nhắn AI */}
+            {/* Avatar Tinh Linh bên cạnh tin nhắn AI — bản tĩnh (0 interval) để list 20 tin không lag */}
             {msg.sender === "copilot" && (
               <div className="shrink-0 -mt-1 select-none">
-                <Avatar2D
-                  size={34}
-                  speaking={false}
-                  listening={false}
-                  mood={chatMood}
-                  showBadge={false}
-                />
+                <AvatarStatic size={34} mood={chatMood} />
               </div>
             )}
 
@@ -795,7 +808,7 @@ export function CopilotBody({ chat, mode, onClose, onOpenFullPage, onClearHistor
         {(streamingId || (loading && !messages.some((m) => m.id === streamingId))) && (
           <div className="flex gap-2.5 justify-start items-end animate-in fade-in">
             <div className="shrink-0">
-              <Avatar2D size={32} speaking={true} listening={false} mood="processing" showBadge={false} />
+              <AvatarStatic size={32} mood="processing" />
             </div>
             <div className="rounded-2xl rounded-tl-sm bg-slate-900 border border-slate-800 px-4 py-3 flex items-center gap-1.5 shadow-sm">
               <span className="w-1.5 h-1.5 rounded-full bg-amber-400 animate-bounce [animation-delay:-0.3s]" />
