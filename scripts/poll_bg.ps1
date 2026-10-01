@@ -22,12 +22,15 @@
 param(
   [Parameter(Mandatory = $true)][string]$Name,
   [int]$Tail = 25,
-  [int]$WaitSeconds = 0
+  [int]$WaitSeconds = 0,
+  [switch]$WaitAll,
+  [int]$HeartbeatSeconds = 30
 )
 
 $jobDir = Join-Path ([System.IO.Path]::GetTempPath()) "opencode-jobs"
 $log = Join-Path $jobDir "$Name.log"
 $exitFile = Join-Path $jobDir "$Name.exit"
+$startFile = Join-Path $jobDir "$Name.start"
 
 function Get-JobExitCode {
   # Trả $null khi job CHƯA xong. Runner tạo file exit rồi mới ghi nội dung,
@@ -38,18 +41,49 @@ function Get-JobExitCode {
   return $raw.Trim()
 }
 
-$code = Get-JobExitCode
-if ($null -eq $code -and $WaitSeconds -gt 0) {
+function Get-ElapsedSeconds {
+  if (-not (Test-Path -LiteralPath $startFile)) { return $null }
+  $t0 = Get-Content -LiteralPath $startFile -Raw -ErrorAction SilentlyContinue
+  if ([string]::IsNullOrWhiteSpace($t0)) { return $null }
+  try {
+    return [int][math]::Round(((Get-Date) - [datetime]::Parse($t0.Trim())).TotalSeconds)
+  } catch { return $null }
+}
+
+# `-WaitAll`: chờ tới khi job kết thúc, KHÔNG đặt hạn giờ đoán. Nhịp heartbeat
+# để thấy tiến triển thay vì im lặng. Vẫn có trần cứng để không treo vô hạn.
+$deadline = $null
+if ($WaitAll) {
+  $deadline = (Get-Date).AddSeconds(3600)
+} elseif ($WaitSeconds -gt 0) {
   $deadline = (Get-Date).AddSeconds($WaitSeconds)
-  while ($null -eq $code) {
-    if ((Get-Date) -ge $deadline) { break }
-    Start-Sleep -Milliseconds 1500
-    $code = Get-JobExitCode
+}
+
+$code = Get-JobExitCode
+$lastBeat = Get-Date
+while ($null -eq $code -and $null -ne $deadline -and (Get-Date) -lt $deadline) {
+  Start-Sleep -Milliseconds 1500
+  $code = Get-JobExitCode
+  if ($null -ne $deadline -and ((Get-Date) - $lastBeat).TotalSeconds -ge $HeartbeatSeconds) {
+    $lastBeat = Get-Date
+    $el = Get-ElapsedSeconds
+    $tail = if (Test-Path -LiteralPath $log) {
+      (Get-Content -LiteralPath $log -Tail 1 -ErrorAction SilentlyContinue)
+    } else { '' }
+    Write-Output ("--- con chay {0}s | {1}" -f $el, $tail)
   }
 }
 
 if ($null -ne $code) {
-  Write-Output "=== DONE (exit=$code) ==="
+  $el = Get-ElapsedSeconds
+  Write-Output "=== DONE (exit=$code) | thoi gian thuc: ${el}s ==="
+  # Runner ghi exit file NGAY sau khi `Out-File` đóng, nhưng trên đĩa đôi khi
+  # nội dung log chưa flush xong — đọc ra rỗng. Chờ tối đa ~2s cho log có dòng.
+  $logDeadline = (Get-Date).AddSeconds(2)
+  while ((Get-Date) -lt $logDeadline) {
+    if ((Test-Path -LiteralPath $log) -and (Get-Item -LiteralPath $log).Length -gt 0) { break }
+    Start-Sleep -Milliseconds 200
+  }
   if (Test-Path -LiteralPath $log) {
     Get-Content -LiteralPath $log -Tail $Tail
   } else {
@@ -59,6 +93,8 @@ if ($null -ne $code) {
 }
 
 Write-Output "=== DANG CHAY ==="
+$elapsed = Get-ElapsedSeconds
+if ($null -ne $elapsed) { Write-Output "da troi qua: ${elapsed}s" }
 if (Test-Path -LiteralPath $log) {
   Write-Output "log bytes: $((Get-Item -LiteralPath $log).Length)"
   Get-Content -LiteralPath $log -Tail 5

@@ -14,22 +14,33 @@ Cách làm đúng — dùng 2 script trong `scripts/`:
 # 1. Chạy nền (lệnh về NGAY LẬP TỨC, không chặn)
 & scripts/run_bg.ps1 -Name t1 -Command "& '.\.venv312\Scripts\python.exe' -m pytest ... -q"
 
-# 2. Poll — mặc định trả lời trong <1s
-& scripts/poll_bg.ps1 -Name t1        # -> "=== DANG CHAY ===" hoặc "=== DONE (exit=0) ==="
-
-# 2b. Muốn chờ job xong thì DÙNG -WaitSeconds, KHÔNG tự Start-Sleep
-& scripts/poll_bg.ps1 -Name t1 -WaitSeconds 240
+# 2. Poll với -WaitAll: chờ tới khi xong, KHÔNG đặt hạn giờ đoán.
+#    Có heartbeat mỗi 30s + in thời gian thực khi xong.
+& scripts/poll_bg.ps1 -Name t1 -WaitAll
 ```
 
-Quy tắc kèm theo:
+**Không còn chuyện đoán số giây nữa** — cả hai script đo và tự ghi:
 
-- **Không đoán số giây rồi `Start-Sleep`** (kiểu `Start-Sleep 115; poll`): số đó
-  tùy ý, job xong sớm thì chờ phí, job lâu hơn thì phải poll lại. `-WaitSeconds`
-  chờ có hạn, 1.5s/lần, về ngay khi job xong.
+- `run_bg.ps1` ghi mốc bắt đầu, và in ra `LAN TRUOC job nay mat ~Ns` nếu tên job
+  từng chạy (dữ liệu ở `%TEMP%/opencode-jobs/durations.log`).
+- `poll_bg.ps1 -WaitAll` chờ tới khi có exit code, in `thoi gian thuc: Ns`, và
+  heartbeat `--- con chay Ns | <dong log cuoi>` để không im lặng.
+- Dùng **cùng tên job** cho cùng một loại lệnh là tự có mốc thời gian để tham
+  chiếu (vd `-Name py_agents`, `-Name py_api`, `-Name push`).
+
+Cấm dùng `Start-Sleep <số đoán>` rồi poll: số đó tùy ý, job xong sớm thì chờ
+phí, job lâu hơn thì phải poll lại.
+
+Còn hai nguyên tắc cũ:
+
 - **Không mắc `Select-Object -First/-Last` trong lệnh nền** — nó buffer tới cuối
   mới ghi, nên log 0 byte suốt 10 phút và tưởng như treo.
 - Chia nhỏ test theo `-k` để mỗi lần <2 phút khi có thể.
-- Truyền `timeout` lớn KHÔNG cứu được: lệnh vẫn treo khi bị interrupt.
+
+Nếu cần hạn thời gian cứng thì lấy từ `durations.log`, không đoán:
+```powershell
+Get-Content "$env:TEMP\opencode-jobs\durations.log" | Sort-Object { [int]($_ -split ' ')[-1] } -Descending | Select-Object -First 10
+```
 
 ## 2. Test Docker: LUÔN dùng `scripts/docker_stack.py`
 
