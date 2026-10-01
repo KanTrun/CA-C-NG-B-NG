@@ -369,6 +369,14 @@ def test_qr_one_shot() -> None:
 
 
 def test_swap_uses_requester_and_any_recipient() -> None:
+    week = "2026-W50"
+    kv_set("phan_cong", {"w1_c01": ["nv_03"]})
+    kv_set("phan_cong_by_week", {week: {"w1_c01": ["nv_03"]}})
+    kv_set("lich_tuan_lifecycle", {"tuan_iso": week, "trang_thai": "da_cong_bo"})
+    kv_set(
+        "lich_tuan_lifecycle_by_week",
+        {week: {"tuan_iso": week, "trang_thai": "da_cong_bo"}},
+    )
     nv = headers(client, "minh")
     r = client.post(
         "/api/v1/cho-doi-ca",
@@ -486,6 +494,8 @@ def test_swap_consent_by_any_recipient() -> None:
         "lich_tuan_lifecycle_by_week",
         {"2026-W01": {"tuan_iso": "2026-W01", "trang_thai": "da_cong_bo"}},
     )
+    kv_set("phan_cong", {"w1_c01": ["nv_03"]})
+    kv_set("phan_cong_by_week", {"2026-W01": {"w1_c01": ["nv_03"]}})
     opened = client.post(
         "/api/v1/cho-doi-ca",
         json={"a": "nv_03", "b": "all", "ca_id": "w1_c01"},
@@ -560,6 +570,13 @@ def test_swap_tu_choi_idor_protection() -> None:
     ).json()
     headers_outsider = {"Authorization": f"Bearer {reg['token']}"}
 
+    kv_set("phan_cong", {"w1_c01": ["nv_03"]})
+    kv_set("phan_cong_by_week", {"2026-W01": {"w1_c01": ["nv_03"]}})
+    kv_set("lich_tuan_lifecycle", {"tuan_iso": "2026-W01", "trang_thai": "da_cong_bo"})
+    kv_set(
+        "lich_tuan_lifecycle_by_week",
+        {"2026-W01": {"tuan_iso": "2026-W01", "trang_thai": "da_cong_bo"}},
+    )
     opened = client.post(
         "/api/v1/cho-doi-ca",
         json={"a": "nv_03", "b": "nv_02", "c": "nv_01", "ca_id": "w1_c01"},

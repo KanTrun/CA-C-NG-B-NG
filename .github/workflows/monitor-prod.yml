@@ -1,0 +1,44 @@
+name: Monitor production
+
+# Cron giám sát nhipquan.duckdns.org từ ngoài (không cần SSH vào VM):
+# sức khỏe trang + chứng chỉ TLS + DNS. Đỏ là có chuyện — không im lặng.
+on:
+  schedule:
+    - cron: "17 */6 * * *"
+  workflow_dispatch:
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    env:
+      DOMAIN: ${{ vars.NHIPQUAN_DOMAIN || 'nhipquan.duckdns.org' }}
+    steps:
+      - name: Sức khỏe trang + Quánverse
+        run: |
+          set -eu
+          base="https://${DOMAIN}"
+          code_health="$(curl -s -o /dev/null -w '%{http_code}' --retry 3 --max-time 20 "$base/health")"
+          [ "$code_health" = "200" ] || { echo "::error::/health trả $code_health"; exit 1; }
+          code_qv="$(curl -s -o /dev/null -w '%{http_code}' --retry 3 --max-time 20 "$base/quanverse")"
+          [ "$code_qv" = "200" ] || { echo "::error::/quanverse trả $code_qv"; exit 1; }
+          for path in war-room shift-rescue rules spatial-memory; do
+            code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 20 "$base/quanverse/$path")"
+            [ "$code" = "308" ] || { echo "::error::/quanverse/$path trả $code (mong đợi 308)"; exit 1; }
+          done
+          echo "OK health=200 quanverse=200 + 4 route phụ 308"
+
+      - name: Chứng chỉ TLS còn hạn
+        run: |
+          set -eu
+          end="$(echo | openssl s_client -connect "${DOMAIN}:443" -servername "$DOMAIN" 2>/dev/null | openssl x509 -noout -enddate | cut -d= -f2)"
+          exp="$(date -d "$end" +%s)"
+          days="$(( (exp - $(date +%s)) / 86400 ))"
+          echo "TLS hết hạn: $end (còn $days ngày)"
+          [ "$days" -gt 14 ] || { echo "::error::cert còn $days ngày (ngưỡng 14)"; exit 1; }
+
+      - name: DNS phân giải được
+        run: |
+          set -eu
+          ip="$(getent hosts "$DOMAIN" | awk '{print $1}' | head -1)"
+          test -n "$ip" || { echo "::error::DNS không phân giải $DOMAIN (DuckDNS/EC2 đổi IP?)"; exit 1; }
+          echo "DNS $DOMAIN -> $ip"

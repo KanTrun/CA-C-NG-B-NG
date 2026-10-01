@@ -46,6 +46,9 @@ from fastapi.testclient import TestClient
 
 from unit.auth_util import headers
 
+# Nặng solver CP-SAT thật — chạy ở job unit-slow.
+pytestmark = pytest.mark.slow
+
 client = TestClient(app)
 
 

@@ -7,8 +7,22 @@
  * badge "Dữ liệu mô phỏng" hiện ngay trên đầu khối — không giả làm số thật.
  */
 
+import { formatLuc, safeText } from "../../../../lib/present";
 import type { QuanverseTimelineItem, QuanverseTimelineStatus } from "../quanverse-contract";
 import { Card, CardHead, NguonChip } from "./kit";
+
+function hienGio(at: string): string {
+  const raw = safeText(at, "—");
+  if (raw === "—") return raw;
+  if (/^\d{1,2}:\d{2}$/.test(raw.trim())) return raw.trim();
+  // ISO datetime → "DD/MM HH:MM", chuỗi rác → "—" (không Invalid Date).
+  const fm = formatLuc(raw);
+  if (fm !== "—") {
+    const parts = fm.split(" ");
+    return parts.length > 1 ? parts[1] : fm;
+  }
+  return raw;
+}
 
 const NHAN_TT: Record<QuanverseTimelineStatus, string> = {
   sap_toi: "Sắp tới",
@@ -53,7 +67,7 @@ export default function Timeline15({
               className={`nq-qvtl__item nq-qvtl__item--${it.status}`}
               data-trang-thai={it.status}
             >
-              <time className="nq-qvtl__gio">{it.at}</time>
+              <time className="nq-qvtl__gio">{hienGio(it.at)}</time>
               <span className="nq-qvtl__dot" aria-hidden="true" />
               <span className="nq-qvtl__body">
                 <span className="nq-qvtl__title">{it.title}</span>

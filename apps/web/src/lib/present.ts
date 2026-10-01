@@ -589,6 +589,11 @@ export type Lich409Code =
   | "thieu_golden_sop"
   | "qr_da_dung"
   | "swap_da_tu_choi"
+  | "ca_khong_trong_phan_cong_cua_nguoi_nhuong"
+  | "swap_chua_co_nguoi_nhan"
+  | "nguoi_nhuong_khong_trong_ca"
+  | "tuan_khong_hop_le"
+  | "doi_ca_khong_hop_le"
   | "idempotency_conflict"
   | "action_retry_not_safe"
   | "action_decision_conflict"
@@ -678,6 +683,16 @@ const LICH_409: Record<string, string> = {
   // Swap ca
   swap_da_tu_choi:
     "Yêu cầu đổi ca đã bị từ chối.",
+  ca_khong_trong_phan_cong_cua_nguoi_nhuong:
+    "Người nhường không còn giữ ca này — phiếu hỏng, hãy đóng và mở lại.",
+  swap_chua_co_nguoi_nhan:
+    "Phiếu mở cho mọi người nhưng chưa ai nhận — chưa duyệt được.",
+  nguoi_nhuong_khong_trong_ca:
+    "Bạn không giữ ca này trong tuần đã chọn — kiểm tra lại ca và tuần rồi mở lại phiếu.",
+  tuan_khong_hop_le:
+    "Tuần không hợp lệ (đúng dạng 2026-W40). Chọn lại tuần rồi thử lại.",
+  doi_ca_khong_hop_le:
+    "Phiếu đổi ca không hợp lệ (tự đổi cho mình hoặc ca không tồn tại).",
 
   // Copilot / actions
   idempotency_conflict:
@@ -888,10 +903,13 @@ export function hanhViLabel(code: unknown): string {
 }
 
 const SWAP: Record<string, string> = {
-  cho_3_nhanh: "Chờ cả ba nhánh đồng ý",
-  dong_y: "Ba nhánh đã đồng ý",
-  tu_choi: "Có nhánh từ chối",
+  cho_xac_nhan: "Chờ đồng ý",
+  dong_y: "Đã đủ đồng ý",
+  da_duyet: "Đã duyệt",
+  tu_choi: "Đã từ chối",
   huy: "Đã hủy",
+  // Mã cũ còn sót trong dữ liệu lịch sử — giữ để không hiện "Chưa rõ".
+  cho_3_nhanh: "Chờ đồng ý",
 };
 
 export function swapLabel(code: unknown): string {

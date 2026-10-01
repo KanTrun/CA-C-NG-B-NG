@@ -226,7 +226,7 @@ test("Chủ quán có thể xử lý escalation", async ({ page }) => {
   await expect.poll(() => decisions).toEqual([{ quyet_dinh: "duyet" }]);
 });
 
-test("Nhân viên bị chặn khỏi hộp thư Fanpage", async ({ page }) => {
+test("Nhân viên bị chặn khỏi hộp thư Fanpage @smoke", async ({ page }) => {
   await loginAs(page, "nhan_vien");
   await page.goto("/page-quan/fb-inbox");
   await expect(page.getByRole("heading", { name: /Không đủ quyền|Trang này dành cho vai trò khác/ })).toBeVisible();

@@ -5,9 +5,19 @@
  */
 
 import { Icon } from "../../../icons";
-import { formatLuc } from "../../../../lib/present";
+import { formatLuc, safeText } from "../../../../lib/present";
 import type { QuanverseEvent } from "../quanverse-contract";
 import { Card, CardHead, NguonChip } from "./kit";
+
+function hienMoc(occurredAt: string): string {
+  const raw = safeText(occurredAt, "—");
+  if (raw === "—") return raw;
+  // Mapper có thể trả nhãn tương đối "X phút trước" — giữ nguyên, không ép qua Date.
+  if (/phút trước|giờ trước|hôm qua/i.test(raw)) return raw;
+  // "HH:MM" từ fixture — giữ nguyên để không thành "—" oan.
+  if (/^\d{1,2}:\d{2}$/.test(raw.trim())) return raw.trim();
+  return formatLuc(raw);
+}
 
 export default function EventsList({
   events,
@@ -53,7 +63,7 @@ export default function EventsList({
               <span className="nq-qvev__type">{ev.typeLabel}</span>
               <span className="nq-qvev__sum">{ev.summary}</span>
               <span className="nq-qvev__meta">
-                <time className="nq-qvev__time">{formatLuc(ev.occurredAt)}</time>
+                <time className="nq-qvev__time">{hienMoc(ev.occurredAt)}</time>
                 {ev.zoneId ? (
                   <button
                     type="button"

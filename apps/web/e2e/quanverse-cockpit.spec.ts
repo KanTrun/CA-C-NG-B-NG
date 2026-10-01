@@ -12,7 +12,7 @@ test.describe("QUÁNVERSE cockpit", () => {
     await resetExperienceState(page);
   });
 
-  test("chọn khu vực → hiện ZoneFocus và lọc actions", async ({ page }) => {
+  test("chọn khu vực → hiện ZoneFocus và lọc actions @smoke", async ({ page }) => {
     await page.goto("/quanverse");
     await expect(page.getByTestId("quanverse-root")).toBeVisible({ timeout: 15_000 });
 
@@ -39,7 +39,7 @@ test.describe("QUÁNVERSE cockpit", () => {
     await expect(page.getByTestId("actions-filter")).toBeVisible();
   });
 
-  test("hỏi AI grounded hiện câu trả lời + nguồn", async ({ page }) => {
+  test("hỏi AI grounded hiện câu trả lời + nguồn @smoke", async ({ page }) => {
     await page.goto("/quanverse");
     await expect(page.getByTestId("quanverse-copilot")).toBeVisible({ timeout: 15_000 });
 
