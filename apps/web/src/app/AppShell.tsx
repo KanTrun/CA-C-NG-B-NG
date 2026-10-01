@@ -116,6 +116,7 @@ const COPILOT_LAUNCHER_ROUTES = new Set([
   "/handover",
   "/doi-ca",
   "/cam-nang",
+  "/sop",
 ]);
 
 /** `data-tour` để tour hướng dẫn trỏ vào đúng lối vào của từng việc. */

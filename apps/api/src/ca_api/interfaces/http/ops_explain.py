@@ -12,6 +12,7 @@ from __future__ import annotations
 from typing import Annotated, Any
 
 from ca_agents.ag_explain import answer_reflection, build_causal_chain
+from ca_playbook import list_luat
 from fastapi import APIRouter, Header
 from pydantic import BaseModel, Field
 
@@ -19,6 +20,17 @@ from ca_api.interfaces.http.sprint3 import _require_manager, _require_role
 from ca_api.persist import kv_get, kv_mutate
 
 router = APIRouter(tags=["ops_explain"])
+
+
+def _safe_kv_list(key: str) -> list[Any]:
+    value = kv_get(key, [])
+    if isinstance(value, list):
+        return value
+    if isinstance(value, dict):
+        items = value.get("items")
+        if isinstance(items, list):
+            return items
+    return []
 
 
 class ExplainBody(BaseModel):
@@ -37,11 +49,14 @@ def explain_endpoint(
     """Trả chuỗi nhân quả cho câu hỏi "tại sao" (tất định, có bằng chứng)."""
     _require_role(authorization)
 
-    # Đọc dữ liệu thật từ KV store (đảm bảo luôn là list — cam_nang có thể là dict)
-    cam_nang = kv_get("cam_nang", [])
-    luat_list = cam_nang if isinstance(cam_nang, list) else cam_nang.get("items", [])
+    # Luật cẩm nang đọc từ nguồn thật (`cam_nang.json` qua `list_luat`).
+    # Khoá kv "cam_nang" không có route nào ghi vào nên trước đây luôn rỗng,
+    # khiến chuỗi nhân quả không bao giờ thấy luật thật.
+    luat_list = [x for x in list_luat() if isinstance(x, dict)]
     if not luat_list:
-        luat_list = kv_get("ops_predict_rules", [])
+        luat_list = [
+            x for x in _safe_kv_list("ops_predict_rules") if isinstance(x, dict)
+        ]
     audit_raw = kv_get("audit", [])
     audit_list = audit_raw if isinstance(audit_raw, list) else []
     ket_qua_raw = kv_get("ops_twin_scenarios", [])

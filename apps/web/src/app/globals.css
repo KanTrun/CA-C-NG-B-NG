@@ -8267,6 +8267,25 @@ a.nq-bento-surface:active {
   text-underline-offset: 2px;
 }
 
+.nq-sop-copilot__agent-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 0.75rem;
+  margin-top: 0.75rem;
+}
+
+.nq-sop-copilot__agent-note {
+  font-size: 0.78rem;
+  color: var(--nq-ink-muted);
+}
+
+.nq-sop-copilot__ai {
+  display: grid;
+  gap: 1rem;
+  margin-top: 1.5rem;
+}
+
 .nq-sop-copilot__foot a:hover {
   color: var(--nq-fg);
 }

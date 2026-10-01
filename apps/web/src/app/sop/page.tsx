@@ -14,6 +14,9 @@ import {
   Loading,
   Textarea,
 } from "../../ui/kit";
+import { CopilotPane } from "../../ui/copilot/CopilotPane";
+import { AiInsightPanel } from "../../ui/ai/AiInsightPanel";
+import { AskAiBox } from "../../ui/ai/AskAiBox";
 
 type Ans = {
   cau_tra_loi: string;
@@ -65,6 +68,7 @@ export default function SopPage() {
   const [nguonF, setNguonF] = useState("that");
   const resultRef = useRef<HTMLDivElement | null>(null);
   const daTuDongHoi = useRef(false);
+  const [copilotOpen, setCopilotOpen] = useState(false);
 
   useEffect(() => {
     setToken(getToken());
@@ -164,6 +168,14 @@ export default function SopPage() {
           Một câu trả lời rõ ràng từ phiếu và luật đã duyệt — lọc theo ca hôm nay, không bịa.
         </p>
         {ctxHint ? <p className="nq-sop-copilot__ctx-hint">{ctxHint}</p> : null}
+        <div className="nq-sop-copilot__agent-row">
+          <Btn variant="ghost" onClick={() => setCopilotOpen(true)}>
+            Hỏi trợ lý vận hành
+          </Btn>
+          <span className="nq-sop-copilot__agent-note">
+            AG-COPILOT tra cứu quy trình và đề xuất luật mới từ lần sửa thật.
+          </span>
+        </div>
       </header>
 
       <section className="nq-sop-copilot__shell" aria-label="Hỏi cẩm nang">
@@ -353,6 +365,13 @@ export default function SopPage() {
         </span>
         <Link href="/cam-nang">Mở cẩm nang</Link>
       </footer>
+
+      <section className="nq-sop-copilot__ai" aria-label="AI phân tích trang này">
+        <AiInsightPanel page="sop" />
+        <AskAiBox page="sop" />
+      </section>
+
+      <CopilotPane open={copilotOpen} onClose={() => setCopilotOpen(false)} />
     </div>
   );
 }

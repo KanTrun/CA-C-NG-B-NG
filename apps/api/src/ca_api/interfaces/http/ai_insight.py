@@ -24,6 +24,7 @@ import time
 from typing import Annotated, Any
 
 from ca_agents.llm import complete, parse_json_object
+from ca_playbook import list_luat
 from fastapi import APIRouter, Header
 from pydantic import BaseModel, Field
 
@@ -60,6 +61,20 @@ def _safe_list(key: str, limit: int = 20) -> list[dict[str, Any]]:
         return []
 
 
+def _cam_nang_luat() -> list[dict[str, Any]]:
+    """Luật cẩm nang từ nguồn THẬT (``list_luat``).
+
+    Trước đây hai chỗ này đọc ``kv_get("cam_nang")`` — nhưng không route nào
+    ghi vào khoá đó (``cam_nang.json`` mới là nơi lưu, qua ``save_luat``), nên
+    ngữ cảnh luôn rỗng và panel tường thuật chỉ đọc được dữ liệu rác. Đọc thẳng
+    ``list_luat()`` để AI thấy đúng luật đang có hiệu lực / đang chờ chốt.
+    """
+    try:
+        return [x for x in list_luat() if isinstance(x, dict)]
+    except Exception:
+        return []
+
+
 def _gather_context(page: str) -> dict[str, Any]:
     """Ngữ cảnh tất định đọc từ kv cho một trang — KHÔNG suy diễn, chỉ gom lại
     những gì đã có sẵn trên trang đó để LLM tường thuật lại bằng lời."""
@@ -73,9 +88,7 @@ def _gather_context(page: str) -> dict[str, Any]:
     if page == "thu-nghiem-an-toan":
         return {"kich_ban_da_chay": _safe_list("ops_twin_scenarios", 10)}
     if page == "cam-nang":
-        cam_nang = kv_get("cam_nang", [])
-        luat = cam_nang if isinstance(cam_nang, list) else cam_nang.get("items", [])
-        return {"luat": [x for x in luat if isinstance(x, dict)][:20]}
+        return {"luat": _cam_nang_luat()[:20]}
     if page == "inbox":
         items = _safe_list("inbox_rang_buoc", 25)
         return {
@@ -90,9 +103,11 @@ def _gather_context(page: str) -> dict[str, Any]:
     if page == "skills":
         return {}
     if page == "sop":
-        cam_nang = kv_get("cam_nang", [])
-        luat = cam_nang if isinstance(cam_nang, list) else cam_nang.get("items", [])
-        return {"luat_dang_hieu_luc": [x for x in luat if isinstance(x, dict) and x.get("trang_thai") == "hieu_luc"][:20]}
+        return {
+            "luat_dang_hieu_luc": [
+                x for x in _cam_nang_luat() if x.get("trang_thai") == "hieu_luc"
+            ][:20]
+        }
     return {}
 
 
