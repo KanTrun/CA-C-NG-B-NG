@@ -1,6 +1,10 @@
 name: Deploy production to AWS
 
 on:
+  # CHỈ deploy theo chuỗi ci → ghcr → deploy (workflow_run). KHÔNG trigger theo
+  # push: đã đỏ thật (2026-10-01) vì deploy chạy TRƯỚC khi image SHA được build
+  # xong trên GHCR → pull `not found`. Mọi đổi (kể cả infra/**) đều đi qua CI
+  # rồi mới tới đây, nên không mất đường deploy nào.
   workflow_run:
     workflows:
       - "Build & push images to GHCR"
@@ -8,13 +12,6 @@ on:
       - main
     types:
       - completed
-
-  push:
-    branches:
-      - main
-    paths:
-      - ".github/workflows/deploy-aws.yml"
-      - "infra/oracle/**"
 
   workflow_dispatch:
 
@@ -26,7 +23,6 @@ jobs:
   deploy:
     if: >
       github.event_name == 'workflow_dispatch' ||
-      github.event_name == 'push' ||
       github.event.workflow_run.conclusion == 'success'
 
     runs-on: ubuntu-latest
