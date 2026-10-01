@@ -37,6 +37,32 @@ def test_meeting_transcribe_endpoint() -> None:
     assert len(body["segments"]) >= 1
 
 
+def test_merge_interim_transcripts_no_prefix_repetition() -> None:
+    """Interim transcript là tiền tố mở dần — phải thay thế chứ không nối.
+
+    Bug gặp thật 2026-10-01: nối nguyên chuỗi interim tạo bản bóc băng lặp
+    cụm từ ('Good Good morning Good morning, team. Good morning team. Today...').
+    """
+    from ca_agents.ag_meeting.stt_live import _merge_interim_transcripts
+
+    # Tiền tố mở dần → chỉ giữ bản dài nhất
+    assert (
+        _merge_interim_transcripts(
+            ["Good", "Good morning", "Good morning, team.", "Good morning, team. Today we have"]
+        )
+        == "Good morning, team. Today we have"
+    )
+    # Lượt nói mới (không phải tiền tố) → nối tiếp
+    assert (
+        _merge_interim_transcripts(["Xin chào cả team", "Hôm nay kiểm kê kho"])
+        == "Xin chào cả team Hôm nay kiểm kê kho"
+    )
+    # Đoạn rỗng bị bỏ qua
+    assert _merge_interim_transcripts(["", "  ", "Bắt đầu ca"]) == "Bắt đầu ca"
+    # Chuỗi rỗng → rỗng
+    assert _merge_interim_transcripts([]) == ""
+
+
 def test_meeting_analyze_endpoint() -> None:
     ql = headers(client, "lan")
     res = client.post(

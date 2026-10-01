@@ -75,8 +75,14 @@ export default function TreoPage() {
   const [copilotOpen, setCopilotOpen] = useState(false);
   const manager = isManager();
   const staffName = useStaffNameMap();
-  /** nv_xx → tên thật; vai trò/agent giữ nhãn của actorLabel. */
-  const personName = (id?: string | null) => (id && /^nv_\d+$/i.test(id) ? staffName(id) : actorLabel(id));
+  /** nv_xx → tên thật; vai trò/agent giữ nhãn của actorLabel; tên người dùng thật giữ nguyên thay vì bị ẩn thành "Nhân viên trong quán". */
+  const personName = (id?: string | null) => {
+    if (!id) return "";
+    if (/^nv_\d+$/i.test(id)) return staffName(id);
+    const label = actorLabel(id);
+    if (label === "Nhân viên trong quán") return id;
+    return label;
+  };
 
   useEffect(() => {
     setToken(getToken());

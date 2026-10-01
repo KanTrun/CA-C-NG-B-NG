@@ -101,20 +101,43 @@ def resolve_staff_id_with_meta(
     if clean_name in _NAME_STOPWORDS:
         return None, False
 
+    def _ten_hien_thi_candidates(ten: str) -> list[str]:
+        """Tên người dùng để khớp, từ một chuỗi hiển thị.
+
+        users thật hay đặt display_name kèm chức danh, ví dụ
+        "Minh Phạm — Trưởng pha chế (PT)". Chỉ phần trước dấu gạch ngang
+        dài là tên; để nguyên cả chuỗi thì resolve_staff_id không bao giờ
+        khớp và mọi việc giao ca đều mất người nhận (bug gặp thật 2026-10-01).
+        """
+        core = re.split(r"\s+[—–-]\s*", ten.strip())[0]
+        core = re.sub(r"\([^)]*\)", "", core).strip()
+        out = []
+        for candidate in (ten.strip(), core):
+            normalized = re.sub(r"\s+", " ", candidate).lower()
+            if normalized and normalized not in out:
+                out.append(normalized)
+        return out
+
+    def _khop_ten(ten_hien_thi: str, spoken: str) -> bool:
+        for candidate in _ten_hien_thi_candidates(ten_hien_thi):
+            words = candidate.split()
+            first_name = words[-1] if words else ""
+            if (
+                spoken == candidate
+                or spoken == first_name
+                or spoken in words
+                or spoken.endswith(f" {first_name}")
+            ):
+                return True
+        return False
+
     # 1. Exact match or token / first name match with original diacritics
     for nv in staff_list:
         nv_id = str(nv.get("id") or "")
-        nv_ten = str(nv.get("ten") or "").lower()
+        nv_ten = str(nv.get("ten") or "")
         if not nv_ten:
             continue
-        words = nv_ten.split()
-        first_name = words[-1] if words else ""
-        if (
-            clean_name == nv_ten
-            or clean_name == first_name
-            or clean_name in words
-            or clean_name.endswith(f" {first_name}")
-        ):
+        if _khop_ten(nv_ten, clean_name):
             return nv_id, False
 
     # 2. Accent-insensitive fallback (TC-31 / R10: mobile typing without accents e.g. "tuan", "my", "lan")
@@ -122,35 +145,30 @@ def resolve_staff_id_with_meta(
     if clean_no_accent and clean_no_accent not in _NAME_STOPWORDS:
         for nv in staff_list:
             nv_id = str(nv.get("id") or "")
-            nv_ten = str(nv.get("ten") or "").lower()
+            nv_ten = str(nv.get("ten") or "")
             if not nv_ten:
                 continue
-            ten_no_accent = _strip_accents(nv_ten)
-            words_no_accent = ten_no_accent.split()
-            first_name_no_accent = words_no_accent[-1] if words_no_accent else ""
-            if (
-                clean_no_accent == ten_no_accent
-                or clean_no_accent == first_name_no_accent
-                or clean_no_accent in words_no_accent
-                or clean_no_accent.endswith(f" {first_name_no_accent}")
-            ):
+            if _khop_ten(_strip_accents(nv_ten), clean_no_accent):
                 return nv_id, False
 
     # 3. STT Near-miss fuzzy matching (TC-37: Levenshtein distance <= 1 for phonetic hearing errors)
     if allow_fuzzy_stt and clean_no_accent and clean_no_accent not in _NAME_STOPWORDS:
         for nv in staff_list:
             nv_id = str(nv.get("id") or "")
-            nv_ten = str(nv.get("ten") or "").lower()
+            nv_ten = str(nv.get("ten") or "")
             if not nv_ten:
                 continue
             ten_no_accent = _strip_accents(nv_ten)
-            first_name_no_accent = ten_no_accent.split()[-1]
-            if len(clean_no_accent) < 3 or abs(len(clean_no_accent) - len(first_name_no_accent)) > 1:
-                continue
-            dist = _levenshtein(clean_no_accent, first_name_no_accent)
-            max_dist = 1 if len(clean_no_accent) <= 4 else 2
-            if dist <= max_dist:
-                return nv_id, True
+            # So tên cốt lõi (bỏ chức danh sau gạch ngang) — "(sm)" không phải tên
+            candidates_no_accent = _ten_hien_thi_candidates(ten_no_accent)
+            for candidate in candidates_no_accent:
+                first_name_no_accent = candidate.split()[-1]
+                if len(clean_no_accent) < 3 or abs(len(clean_no_accent) - len(first_name_no_accent)) > 1:
+                    continue
+                dist = _levenshtein(clean_no_accent, first_name_no_accent)
+                max_dist = 1 if len(clean_no_accent) <= 4 else 2
+                if dist <= max_dist:
+                    return nv_id, True
 
     return None, False
 
