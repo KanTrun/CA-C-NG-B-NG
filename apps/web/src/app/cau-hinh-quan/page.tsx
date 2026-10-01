@@ -153,6 +153,77 @@ const COPY_LOAD: ErrorCopy = { doing: "đọc được cấu hình quán" };
 
 type ConfigTab = "general" | "address" | "contact" | "operations" | "ai" | "promotions";
 
+type FbStatus = {
+  connected?: boolean;
+  webhook_secret_present?: boolean;
+  auto_send_enabled?: boolean;
+  auto_reservation_enabled?: boolean;
+  llm_mode?: string;
+};
+
+/**
+ * Banner nói rõ chatbot Messenger đang chạy hay không.
+ *
+ * Chủ quán sửa hướng dẫn AI rồi tưởng bot đã dùng — nhưng nếu thiếu App Secret
+ * thì webhook chặn mọi tin, hoặc auto-send đang tắt thì bot không gửi gì.
+ * Hiện ngay trong tab AI để khỏi tưởng "cấu hình chưa chạy".
+ */
+function FbRuntimeBanner() {
+  const [st, setSt] = useState<FbStatus | null>(null);
+
+  useEffect(() => {
+    if (!getToken()) return;
+    let alive = true;
+    apiGet<FbStatus>("/api/v1/page/status")
+      .then((d) => {
+        if (alive) setSt(d);
+      })
+      .catch(() => {
+        // Không đọc được status (chưa đăng nhập / 403) → không hiện banner.
+        if (alive) setSt(null);
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  if (!st) return null;
+
+  const rows: string[] = [];
+  if (st.webhook_secret_present === false) {
+    rows.push(
+      "Thiếu NHIPQUAN_FB_APP_SECRET trong .env — webhook chặn mọi tin của Meta (403). Lấy ở Meta App Dashboard → App Settings → Basic → App Secret, xem docs/runbooks/facebook-page-connect.md §4.",
+    );
+  }
+  if (st.connected === false) {
+    rows.push("Page chưa nối — tin khách nằm hộp thư chờ duyệt, bot không trả lời. Làm theo docs/runbooks/facebook-page-connect.md.");
+  }
+  if (st.auto_send_enabled === false) {
+    rows.push("Tự trả lời đang TẮT — mọi tin vào hộp thư chờ duyệt tay ở /page-quan/fb-inbox.");
+  }
+  if (st.auto_reservation_enabled === false) {
+    rows.push("Đặt bàn tự động đang TẮT — tin đặt bàn chờ quản lý duyệt (câu hỏi số tài khoản vẫn bot trả lời ngay).");
+  }
+  if (st.llm_mode === "replay") {
+    rows.push("CA_AGENT_MODE=replay — không gọi LLM, chỉ trả lời được câu hỏi có sẵn trong template.");
+  }
+  if (rows.length === 0) return null;
+
+  return (
+    <div
+      role="status"
+      className="rounded-lg border-2 border-[var(--nq-warn)] bg-[var(--nq-st-warn-soft)] px-4 py-3 text-sm text-[var(--nq-st-warn-ink)]"
+    >
+      <strong className="font-bold">Chatbot Messenger chưa chạy đúng như bạn nghĩ:</strong>
+      <ul className="mt-1 list-disc space-y-1 pl-5">
+        {rows.map((r) => (
+          <li key={r}>{r}</li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 export default function CauHinhQuanPage() {
   const { toasts, push, dismiss } = useToasts();
   const [loading, setLoading] = useState(true);
@@ -887,6 +958,7 @@ export default function CauHinhQuanPage() {
       {/* TAB 5: HUẤN LUYỆN AI AGENT & SIMULATOR */}
       {tab === "ai" && (
         <section className="space-y-6 rounded-2xl border border-[var(--nq-line)] bg-[var(--nq-surface)] p-6 shadow-sm">
+          <FbRuntimeBanner />
           <div>
             <h2 className="text-base font-bold text-[var(--nq-fg)] flex items-center gap-2">
               <Icon name="bot" className="h-5 w-5 text-[var(--nq-copper)]" />

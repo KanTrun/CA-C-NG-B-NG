@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, type ReactNode } from "react";
 import { apiGet, apiSend } from "../../lib/api";
 import { viError } from "../../lib/present";
 import { getToken, isManager } from "../../lib/session";
@@ -31,6 +31,10 @@ type Status = {
   unreviewed_draft_count?: number;
   webhook_ready?: boolean;
   webhook_detail?: string;
+  webhook_secret_present?: boolean;
+  auto_send_enabled?: boolean;
+  auto_reservation_enabled?: boolean;
+  llm_mode?: string;
 };
 
 type Thread = {
@@ -165,6 +169,55 @@ type TrendItem = {
   nen_tang_lan_toa: string[];
   tu_khoa_hashtag: string[];
 };
+
+/**
+ * Banner canh bao chatbot co chay that khong.
+ *
+ * KHONG phu trung App Secret / Page chua noi: banner `webhook_ready` va chip
+ * trang thai o tren da lo cac truong hop do. Banner nay chi lo cac co KHONG ai
+ * hien: auto-send tat (khach khong nhan gi ca) va dat ban tu dong tat.
+ */
+function PageHealthBanner({ status }: { status: Status | null }) {
+  if (!status) return null;
+
+  const rows: ReactNode[] = [];
+  if (status.auto_send_enabled === false) {
+    rows.push(
+      <>
+        <strong className="font-bold">Tu tra loi dang TAT.</strong> Moi tin khach
+        deu vao hop thu cho duyet tay o{" "}
+        <Link href="/page-quan/fb-inbox" className="underline font-bold">
+          /page-quan/fb-inbox
+        </Link>{" "}
+        — khach khong duoc tra loi gi. Bat lai bang cong tac «Tu tra loi» tren
+        trang do.
+      </>,
+    );
+  }
+  if (status.auto_reservation_enabled === false) {
+    rows.push(
+      <>
+        <strong className="font-bold">Dat ban tu dong dang TAT.</strong> Tin dat
+        ban vao hop thu cho quan ly duyet; cau hoi so tai khoan/chuyen khoan van
+        duoc bot tra loi ngay.
+      </>,
+    );
+  }
+  if (rows.length === 0) return null;
+
+  return (
+    <div
+      role="status"
+      className="rounded-lg border-2 border-[var(--nq-warn)] bg-[var(--nq-st-warn-soft)] px-4 py-3 text-sm text-[var(--nq-st-warn-ink)]"
+    >
+      <ul className="space-y-1">
+        {rows.map((r, i) => (
+          <li key={i}>{r}</li>
+        ))}
+      </ul>
+    </div>
+  );
+}
 
 export default function PageQuanPage() {
   const [token, setToken] = useState("");
@@ -1753,6 +1806,8 @@ export default function PageQuanPage() {
               <span className="font-mono">feed</span> trên Meta App (xem docs/runbooks/facebook-page-connect.md).
             </div>
           ) : null}
+
+          <PageHealthBanner status={status} />
 
           {filteredThreads.length === 0 ? (
             <Empty title="Chưa có hội thoại">

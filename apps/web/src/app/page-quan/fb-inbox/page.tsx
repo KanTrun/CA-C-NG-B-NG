@@ -63,10 +63,29 @@ type Stats = {
 type Policy = {
   auto_send_enabled: boolean;
   jev_enabled?: boolean;
+  auto_reservation_enabled?: boolean;
 };
 
 type StatusFilter = "pending" | "approved" | "rejected" | "all";
 type SourceFilter = "all" | "comment" | "messenger";
+
+/** Nhãn tiếng Việt cho lý do vào hộp thư — để quản lý hiểu vì sao phải duyệt. */
+const REASON_LABEL: Record<string, string> = {
+  reservation_auto_disabled: "Đặt bàn tự động đang tắt",
+  page_chua_live: "Page chưa kết nối",
+  supervisor_downgrade: "Supervisor chưa duyệt",
+  system_failure: "Hệ thống đặt bàn lỗi",
+  fact_not_in_kb_or_price_limit: "Cần duyệt giá",
+  price_above_limit: "Vượt ngưỡng giá cấu hình",
+  promo_not_configured: "Chưa cấu hình khuyến mãi",
+  jev_sensor_failed: "Cảm biến Jev lỗi",
+  health_safety: "Nguy cơ sức khỏe / pháp lý",
+  out_of_scope_internal: "Ngoài phạm vi vận hành",
+};
+
+function reasonLabel(reason: string): string {
+  return REASON_LABEL[reason] ?? reason;
+}
 
 const INTENT_LABEL: Record<string, string> = {
   chao_hoi: "Chào hỏi",
@@ -358,6 +377,48 @@ export default function FbInboxPage() {
           ) : null}
         </Notice>
       ) : null}
+      {policy ? (
+        <Notice>
+          {policy.auto_reservation_enabled
+            ? "Đang cho bot tự chốt đặt bàn (state-machine chạy tới khi chốt chỗ)."
+            : "Đang khóa đặt bàn tự động — tin đặt bàn vào hộp thư chờ quản lý duyệt (lý do \"Đặt bàn tự động tắt\"). Câu hỏi số tài khoản/chuyển khoản vẫn bot trả lời ngay."}
+          {chuQuan ? (
+            <span style={{ display: "inline-block", marginLeft: 12 }}>
+              <Btn
+                variant={policy.auto_reservation_enabled ? "ghost" : undefined}
+                busy={policyBusy}
+                onClick={async () => {
+                  setPolicyBusy(true);
+                  try {
+                    const next = await apiSend<Policy>(
+                      "/api/v1/page/fb-policy",
+                      {
+                        auto_reservation_enabled: !policy.auto_reservation_enabled,
+                        note: "inbox_auto_reservation_toggle",
+                      },
+                      "PUT",
+                    );
+                    setPolicy(next);
+                    push(
+                      next.auto_reservation_enabled
+                        ? "Đã cho bot tự chốt đặt bàn."
+                        : "Đã khóa đặt bàn tự động — tin đặt bàn chờ quản lý duyệt.",
+                    );
+                  } catch (e) {
+                    setError(
+                      viError(e, { doing: "cập nhật trạng thái đặt bàn tự động" }),
+                    );
+                  } finally {
+                    setPolicyBusy(false);
+                  }
+                }}
+              >
+                {policy.auto_reservation_enabled ? "Khóa đặt bàn tự động" : "Cho bot tự đặt bàn"}
+              </Btn>
+            </span>
+          ) : null}
+        </Notice>
+      ) : null}
 
       {error ? <Alert>{error}</Alert> : null}
       {loading ? <Loading skeleton="list">Đang tải hộp thư…</Loading> : null}
@@ -547,7 +608,7 @@ export default function FbInboxPage() {
 
               {Array.isArray(it.flagged_reasons) && it.flagged_reasons.length > 0 ? (
                 <p className="mb-2 text-xs text-[var(--nq-st-warn-ink)]">
-                  Cờ kiểm duyệt: {it.flagged_reasons.join(", ")}
+                  Cờ kiểm duyệt: {it.flagged_reasons.map(reasonLabel).join(", ")}
                 </p>
               ) : null}
 

@@ -341,6 +341,7 @@ def set_fb_policy_runtime(
     auto_send_enabled: bool | None = None,
     auto_price_cap_vnd: int | None = None,
     jev_enabled: bool | None = None,
+    auto_reservation_enabled: bool | None = None,
 ) -> dict[str, Any]:
     """Ghi chính sách runtime (KV + env process) — Chủ quán chỉnh không restart."""
     cur = dict(_policy_runtime())
@@ -358,6 +359,9 @@ def set_fb_policy_runtime(
         # Reset cả sensor lẫn chain để lần gọi sau tạo/ko tạo đúng trạng thái.
         _JEV_SENSOR = None
         _SENSOR_CHAIN = None
+    if auto_reservation_enabled is not None:
+        cur["auto_reservation_enabled"] = bool(auto_reservation_enabled)
+        os.environ["NHIPQUAN_AUTO_RESERVATION"] = "1" if auto_reservation_enabled else "0"
     kv_set(_FB_POLICY_KV, cur)
     return cur
 
@@ -450,6 +454,29 @@ def _kb_has_fact(public_context: dict[str, Any] | None, text: str) -> bool:
         return bool(str(profile.get("wifi_ssid") or "").strip())
     if any(k in low for k in ("giá", "gia", "tiền", "tien", "menu", "bao nhiêu", "bao nhieu")):
         return bool(menu)
+    # Hỏi thanh toán/cọc: "có dữ liệu" nghĩa là quán ĐÃ nhập ít nhất ngân hàng
+    # hoặc STK. Không có thì bot vẫn auto trả lời (trung thực + hotline, không
+    # bịa) nên hàm này chỉ là tín hiệu cho policy, không chặn gì thêm.
+    if any(
+        k in low
+        for k in (
+            "tài khoản",
+            "tai khoan",
+            "stk",
+            "chuyển khoản",
+            "chuyen khoan",
+            "thanh toán",
+            "thanh toan",
+            "cọc",
+            "qr",
+            "momo",
+            "zalopay",
+            "vnpay",
+        )
+    ):
+        return bool(str(profile.get("ngan_hang") or "").strip()) or bool(
+            str(profile.get("stk_ngan_hang") or "").strip()
+        )
     return bool(menu) or bool(profile)
 
 
@@ -528,21 +555,22 @@ def moderate_fb_message(
         }
 
     # L4 — Policy decide (tất định)
-    res_eligible = False
+    # `reservation_auto_eligible` = cờ TỰ ĐỘNG ĐẶT BÀN (KV/env), KHÔNG trộn với
+    # anti-abuse: anti-abuse (đang có lịch / nhẹp lịch) do handle_reservation trả
+    # lời thân thiện ở lượt tiếp theo — không được đẩy hàng đợi chỉ vì chặn lạm
+    # dụng. Cờ này quyết định "có tự chốt bàn hay không", không phải "có hỏi
+    # chuyện đặt bàn hay không".
+    res_eligible = True
     if intent == "dat_ban":
         try:
             from ca_api.services.table_reservation_service import (
                 auto_reservation_enabled,
-                check_anti_abuse,
             )
 
-            if auto_reservation_enabled():
-                allowed, _ = check_anti_abuse(store_id="quan_01", psid=psid)
-                res_eligible = allowed
-            else:
-                res_eligible = False
+            res_eligible = bool(auto_reservation_enabled())
         except Exception:
-            res_eligible = False
+            # Fail-open: lỗi đọc cờ không được chặn khách đặt bàn ngoài ý muốn.
+            res_eligible = True
 
     # L3.5 — Đánh giá Jev một lần (fail-closed nếu tắt/lỗi) — đơn điệu, chỉ
     # thêm leo thang. Ẩn danh hóa state trước khi gửi bên thứ ba (§6).
@@ -590,13 +618,23 @@ def moderate_fb_message(
             flagged = decision.flagged_reasons
 
     # L5 — Supervisor gate cho nhánh auto; hạ xuống queue nếu flag
+    # `owner_policy` = chính sách đặt bàn chủ quán đã cấu hình (ADR-008) để cụm
+    # hứa tài chính chép từ chính sách thật không bị chặn nhầm.
     response: str | None = None
     if decision.action == FbPolicyAction.AUTO_SEND:
         reply, requires_approval, _agent = build_human_response(
             intent, "neutral", guard.sanitized_text, public_context,
             customer_profile={"psid": psid},
         )
-        sup = supervise_outgoing_response(guard.sanitized_text, reply)
+        _prof_gate = (public_context or {}).get("profile")
+        _owner_policy = (
+            str(_prof_gate.get("chinh_sach_dat_ban") or "").strip()
+            if isinstance(_prof_gate, dict)
+            else ""
+        )
+        sup = supervise_outgoing_response(
+            guard.sanitized_text, reply, owner_policy=_owner_policy
+        )
         if not sup.is_approved or requires_approval:
             decision = PolicyDecision(
                 action=FbPolicyAction.QUEUE_REVIEW,

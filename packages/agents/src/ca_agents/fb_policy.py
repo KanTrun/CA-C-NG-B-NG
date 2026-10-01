@@ -22,6 +22,7 @@ AUTO_THRESHOLD: dict[str, float] = {
 AUTO_THRESHOLD_COMMENT = 0.85
 COMMENT_SAFE_INTENTS = frozenset({
     "chao_hoi", "hoi_gio_dia_chi", "hoi_menu_gia", "hoi_khuyen_mai", "dat_ban",
+    "hoi_thanh_toan",
 })
 
 LOW_CONFIDENCE_QUEUE = 0.60
@@ -95,7 +96,9 @@ class PolicyContext:
     kb_has_fact: bool = True
     price_above_limit: bool = False
     recent_messages: tuple[str, ...] = ()
-    reservation_auto_eligible: bool = False
+    # Default True: chỉ fb_moderation truyền giá trị THẬT từ KV/env. Giữ True để
+    # caller cũ (và test) không đột nhiên rơi vào queue vì cờ chưa được truyền.
+    reservation_auto_eligible: bool = True
     booking_system_down: bool = False
     compensation_above_limit: bool = False
     # ── Tín hiệu Jev (kế hoạch JEV v2 §4.2) ─────────────────────────────────
@@ -240,6 +243,12 @@ def decide(
     # 4.4 Hệ thống đặt bàn/POS không đọc được
     if intent == "dat_ban" and ctx.booking_system_down:
         return _queue("system_failure", intent, confidence, sla=SLA_MINUTES_QUEUE_REVIEW)
+
+    # Đặt bàn khi chủ quán TẮT cờ đặt bàn tự động → chờ QL duyệt. Lý do rõ ràng
+    # để quản lý hiểu vì sao hàng nằm trong hộp thư (trước đây bị hạ xuống queue
+    # với reason chung chung `supervisor_downgrade`).
+    if intent == "dat_ban" and not ctx.reservation_auto_eligible:
+        return _queue("reservation_auto_disabled", intent, confidence)
 
     # Vượt ngưỡng giá menu cấu hình -> queue duyệt giá
     if intent == "hoi_menu_gia" and ctx.price_above_limit:

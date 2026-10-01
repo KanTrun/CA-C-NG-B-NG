@@ -258,3 +258,123 @@ def test_policy_put_jev_enabled_kill_switch(api: TestClient, monkeypatch) -> Non
     )
     assert ok2.status_code == 200
     assert fm.fb_jev_enabled() is True
+
+# ── Nhiem vu C: het im lang — treo claim + "nuot" tin khi page chua live ───────
+
+
+def _pending(api: TestClient, user: str = "lan") -> list[dict[str, object]]:
+    r = api.get("/api/v1/page/fb-inbox?status=pending", headers=headers(api, user))
+    assert r.status_code == 200, r.text
+    return list(r.json()["items"])
+
+
+def test_policy_put_auto_reservation_enabled(api: TestClient) -> None:
+    """Chu quan bat/tat dat ban tu dong qua API, khong can sua env + restart."""
+    from ca_api.services import table_reservation_service as trs
+
+    got = api.get("/api/v1/page/fb-policy", headers=headers(api, "lan"))
+    assert got.json()["auto_reservation_enabled"] is True
+
+    off = api.put(
+        "/api/v1/page/fb-policy",
+        json={"auto_reservation_enabled": False, "note": "dat ban cho quan ly duyet"},
+        headers=headers(api, "hung"),
+    )
+    assert off.status_code == 200, off.text
+    assert off.json()["auto_reservation_enabled"] is False
+    assert trs.auto_reservation_enabled() is False
+
+    on = api.put(
+        "/api/v1/page/fb-policy",
+        json={"auto_reservation_enabled": True},
+        headers=headers(api, "hung"),
+    )
+    assert on.status_code == 200
+    assert trs.auto_reservation_enabled() is True
+
+
+def test_webhook_page_chua_live_vao_hoi_thu_khong_nuat(
+    api: TestClient, monkeypatch
+) -> None:
+    """Page chua live: tin DA xac thuc phai nam trong hop thu, khong bi nuot mat.
+
+    Truoc day tra {"ok": false, "detail": "page_chua_live"} => mat hoan toan.
+    """
+    monkeypatch.setenv("NHIPQUAN_PAGE_MODE", "disconnected")
+    monkeypatch.setenv("NHIPQUAN_FB_PAGE_TOKEN", "")
+
+    r = _post(api, "mid_notlive_1", "cho em xin so tai khoan de dat ban")
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["ok"] is True
+    assert body["detail"] == "page_chua_live"
+    assert body["n"] == 1
+
+    pending = _pending(api)
+    assert len(pending) == 1, pending
+    assert "page_chua_live" in pending[0]["flagged_reasons"]
+    # Khong co token Page => tuyet doi khong gui gi ra ngoai.
+    assert api.sent_calls == []
+
+
+def test_webhook_page_chua_live_idempotent_khong_trung(
+    api: TestClient, monkeypatch
+) -> None:
+    """Meta retry cung mot mid khi page chua live => chi mot hang trong hop thu."""
+    monkeypatch.setenv("NHIPQUAN_PAGE_MODE", "disconnected")
+    monkeypatch.setenv("NHIPQUAN_FB_PAGE_TOKEN", "")
+
+    _post(api, "mid_notlive_dup", "cho em xin so tai khoan de dat ban")
+    r2 = _post(api, "mid_notlive_dup", "cho em xin so tai khoan de dat ban")
+    assert r2.json()["n"] == 0
+    assert len(_pending(api)) == 1
+
+
+def test_treo_claim_tra_ve_pending_thay_vi_im_lang(
+    api: TestClient, monkeypatch
+) -> None:
+    """Moderation da claim auto_send (approved) nhung pipeline queue lai.
+
+    Truoc PR nay hang approved duc yen trong DB: khach khong nhan gi, quan ly
+    cung khong thay trong hop thu => im lang tuyet doi. Phai tra ve pending.
+    """
+    from ca_api.interfaces.http import channels as ch
+
+    monkeypatch.setenv("NHIPQUAN_FB_AUTO_SEND", "1")
+    # Circuit breaker mo => pipeline chuyen queue_to_inbox SAU khi moderation
+    # da claim auto_send. Day la duong dan treo claim that.
+    monkeypatch.setattr(ch, "circuit_breaker_open", lambda *a, **k: True)
+
+    r = _post(api, "mid_treo_claim", "hi quan")
+    assert r.status_code == 200, r.text
+    # Khong duoc gui ra ngoai (pipeline chon queue).
+    assert api.sent_calls == []
+
+    pending = _pending(api)
+    assert len(pending) == 1, pending
+    assert pending[0]["status"] == "pending"
+    # Ban nhap phai con de quan ly sua roi gui.
+    assert pending[0]["proposed_response"]
+
+
+def test_page_status_bao_cao_co_ngay_tu_dang(
+    api: TestClient, monkeypatch
+) -> None:
+    """/page/status phai loi 4 co boi canh de UI hien banner thay vi im lang 403."""
+    from ca_api.interfaces.http import channels as ch
+
+    monkeypatch.setenv("NHIPQUAN_FB_APP_SECRET", "secret_test")
+    monkeypatch.setenv("NHIPQUAN_FB_AUTO_SEND", "1")
+    monkeypatch.setenv("NHIPQUAN_AUTO_RESERVATION", "0")
+    body = api.get("/api/v1/page/status", headers=headers(api, "lan")).json()
+    assert body["webhook_secret_present"] is True
+    assert body["auto_send_enabled"] is True
+    assert body["auto_reservation_enabled"] is False
+    assert body["llm_mode"] == "replay"
+
+    # Khong co App Secret => co phai False (khong duoc gia True khi vang).
+    monkeypatch.setenv("NHIPQUAN_FB_APP_SECRET", "")
+    body2 = api.get("/api/v1/page/status", headers=headers(api, "lan")).json()
+    assert body2["webhook_secret_present"] is False
+    assert ch._fb_auto_reservation_enabled() is False
+

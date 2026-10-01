@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import pytest
 from ca_agents.fb_policy import (
+    COMMENT_SAFE_INTENTS,
     PolicyContext,
     decide,
 )
@@ -421,3 +422,46 @@ def test_jev_failed_regex_still_wins() -> None:
     )
     assert d.action == FbPolicyAction.ESCALATE_OWNER
     assert d.reason == "health_safety"
+
+# ── Nhiem vu B/C: dat_ban khi tat auto-reservation + intent hoi_thanh_toan ──────
+
+
+def test_dat_ban_auto_reservation_disabled_queues():
+    """Cờ tự động đặt bàn TẮT → queue với lý do tường minh, không lặng lẽ."""
+    d = decide(
+        "dat_ban",
+        0.92,
+        "đặt bàn 4 người tối nay",
+        ctx(reservation_auto_eligible=False),
+    )
+    assert d.action == FbPolicyAction.QUEUE_REVIEW
+    assert d.reason == "reservation_auto_disabled"
+
+
+def test_dat_ban_auto_reservation_enabled_still_auto():
+    """Cờ BẬT → giữ hành vi cũ (state-machine tự chạy), không đẩy duyệt."""
+    d = decide(
+        "dat_ban",
+        0.92,
+        "đặt bàn 4 người tối nay",
+        ctx(reservation_auto_eligible=True),
+    )
+    assert d.action == FbPolicyAction.AUTO_SEND
+
+
+def test_hoi_thanh_toan_auto_send():
+    """Hỏi STK/thanh toán (đã cấu hình qua profile) → tự trả lời, không cần duyệt."""
+    d = decide(
+        "hoi_thanh_toan",
+        0.90,
+        "cho em xin số tài khoản để đặt bàn",
+        ctx(),
+    )
+    assert d.action == FbPolicyAction.AUTO_SEND
+    assert d.reason == "autonomous_default"
+
+
+def test_hoi_thanh_toan_comment_safe_intent():
+    """Intent thanh toán nằm trong COMMENT_SAFE_INTENTS — comment an toàn được auto."""
+    assert "hoi_thanh_toan" in COMMENT_SAFE_INTENTS
+

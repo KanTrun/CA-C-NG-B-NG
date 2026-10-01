@@ -12,6 +12,8 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
+from ca_agents.guardrails import normalize_text
+
 try:
     from datetime import UTC, datetime
 except ImportError:
@@ -101,9 +103,33 @@ def clean_robotic_phrasing(text: str) -> tuple[str, bool]:
     return cleaned, modified
 
 
-def supervise_outgoing_response(customer_query: str, proposed_response: str) -> SupervisionResult:
+def _owner_policy_allows(response: str, owner_policy: str | None) -> bool:
+    """Cụm hứa tài chính có nằm trong CHÍNH SÁCH chủ quán tự cấu hình không?
+
+    ADR-008: `chinh_sach_dat_ban` do chủ quán nhập là dữ liệu thật có người chịu
+    trách nhiệm → bot chép nguyên văn chính sách đó không phải "hứa hẹn bịa đặt".
+    So khớp bỏ dấu/hoa thường để chịu được cách gõ khác nhau.
+    """
+    if not owner_policy or not str(owner_policy).strip():
+        return False
+    m = _FORBIDDEN_REGEX.search(response or "")
+    if not m:
+        return False
+    frag = normalize_text(m.group(0))
+    return bool(frag) and frag in normalize_text(str(owner_policy))
+
+
+def supervise_outgoing_response(
+    customer_query: str,
+    proposed_response: str,
+    *,
+    owner_policy: str | None = None,
+) -> SupervisionResult:
     """
     Pre-flight safety check on AI-generated response before sending to customer or management.
+
+    `owner_policy`: chính sách chủ quán đã cấu hình (vd `chinh_sach_dat_ban`) —
+    cụm hứa tài chính trùng nguyên văn chính sách này được cho qua (ADR-008).
     """
     if not proposed_response or not proposed_response.strip():
         return SupervisionResult(
@@ -121,7 +147,9 @@ def supervise_outgoing_response(customer_query: str, proposed_response: str) -> 
         )
 
     # 1. Check for unauthorized financial promises or compensations
-    if _FORBIDDEN_REGEX.search(proposed_response):
+    if _FORBIDDEN_REGEX.search(proposed_response) and not _owner_policy_allows(
+        proposed_response, owner_policy
+    ):
         return SupervisionResult(
             is_approved=False,
             sanitized_response="Dạ em đã ghi nhận yêu cầu của mình và sẽ báo Quản lý quán liên hệ hỗ trợ trực tiếp cho mình nha!",
