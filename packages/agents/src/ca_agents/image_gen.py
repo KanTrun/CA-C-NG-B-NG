@@ -152,9 +152,8 @@ def image_edit_available() -> tuple[bool, str]:
         "(miễn phí, không cần thẻ) tại https://dash.cloudflare.com → Workers AI → "
         "“Use REST API” → copy Account ID và API token, rồi dán vào "
         "CLOUDFLARE_ACCOUNT_ID + CLOUDFLARE_API_TOKEN trong .env (được ≈80 ảnh/ngày). "
-        "Trong lúc chờ, dùng chế độ “Giữ nguyên sản phẩm, AI chỉ vẽ nền” hoặc "
-        "“AI vẽ mới” — cả hai "
-        "chạy được ngay."
+        "Trong lúc chờ, dùng chế độ “Giữ nguyên sản phẩm, AI chỉ vẽ nền” — chế độ "
+        "này chạy được ngay."
     )
 
 

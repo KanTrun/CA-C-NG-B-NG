@@ -21,7 +21,6 @@ from typing import Annotated, Any, Literal, cast
 from ca_agents import (
     THONG_DIEP_ANH_KHONG_HOP_LE,
     AdPromptResult,
-    MenuImageResult,
     MenuStyle,
     ProductImageCheck,
     build_ad_prompt,
@@ -29,14 +28,12 @@ from ca_agents import (
     edit_image,
     find_style,
     generate_background_redesign,
-    generate_menu_prompt,
     image_edit_available,
     normalize_slug,
     parse_style,
     style_options,
     validate_product_image,
 )
-from ca_agents.image_gen import generate_image
 from ca_contracts import DongDon, DonQuay, MonNuoc
 from fastapi import APIRouter, File, Header, HTTPException, Response, UploadFile
 from fastapi.responses import FileResponse
@@ -489,17 +486,6 @@ class MenuStyleBody(BaseModel):
     lens: str = Field(min_length=1, max_length=40)
 
 
-class MenuImagePromptBody(BaseModel):
-    """Body cho dựng prompt sinh ảnh từ tên món + phong cách.
-
-    Không cần ảnh tải lên: prompt được lắp tất định từ dữ liệu menu
-    (:func:`ca_agents.menu_prompt.build_menu_prompt`), không gọi LLM.
-    """
-    mo_ta: str = Field(default="", max_length=300)
-    aspect_ratio: Literal["1:1", "4:5", "9:16", "16:9"] = "1:1"
-    style_slug: str = Field(default="", max_length=48)
-
-
 class MenuAdPromptBody(BaseModel):
     """Body cho prompt ảnh quảng cáo dựng từ ẢNH THẬT + lịch sử ý kiến.
 
@@ -507,9 +493,14 @@ class MenuAdPromptBody(BaseModel):
     endpoint này ở mỗi lần người dùng góp ý; ``feedback_history`` là TOÀN BỘ lịch
     sử trong phiên, không phải chỉ ý mới — nhờ vậy ý kiến cũ không liên quan
     (ánh sáng, góc chụp…) vẫn còn trong prompt khi người dùng đổi ý khác.
+
+    Prompt KHÔNG dùng tên món: ảnh gốc là nguồn sự thật duy nhất về sản phẩm.
+    ``container`` là kết quả Bước 1 (loại bao bì AI thị giác nhận ra); trống
+    thì server dùng mô tả trung tính.
     """
     feedback_history: list[str] = Field(default_factory=list, max_length=12)
     style_slug: str = Field(default="", max_length=48)
+    container: str = Field(default="", max_length=60)
 
 
 class MenuAdCheckBody(BaseModel):
@@ -517,49 +508,39 @@ class MenuAdCheckBody(BaseModel):
     original_base64: str = Field(min_length=1, max_length=8_000_000)
 
 
-class MenuImageGenerateBody(BaseModel):
-    """Body cho sinh ảnh thật từ prompt, tuỳ chọn kèm ẢNH THẬT người dùng tải lên.
+class MenuImageSaveBody(BaseModel):
+    """Body lưu ảnh AI vừa tạo làm ảnh đại diện món.
 
-    ``mode``:
-      - ``"from_prompt"`` (mặc định): AI vẽ ảnh mới hoàn toàn từ ``prompt_en``.
-      - ``"edit_photo"``: AI **sửa ảnh thật** trong ``original_base64`` theo
-        ``prompt_en`` (image-to-image). Ảnh gốc là nguồn, không chỉ tham khảo —
-        dùng khi quán đã chụp ly nước và muốn AI dàn dựng lại thành ảnh quảng cáo.
-      - ``"keep_drink"``: tách ly nước (100% pixel gốc) rồi AI vẽ nền mới và ghép
+    Lưu TRỰC TIẾP bytes ảnh đã hiện trên UI (không sinh lại): sinh lại cùng seed
+    vẫn có thể ra ảnh khác hoặc hỏng giữa chừng khiến nút "Lưu" im lặng thất bại.
+    Chấp nhận data-URL (``data:image/png;base64,…``) như UI gửi.
+    """
+
+    image_base64: str = Field(min_length=1, max_length=24_000_000)
+
+
+class MenuImageGenerateBody(BaseModel):
+    """Body cho sinh ảnh quảng cáo từ ẢNH THẬT người dùng tải lên.
+
+    Chỉ còn hai chế độ (đã xoá ``"from_prompt"`` — AI vẽ mới không cần ảnh):
+      - ``"edit_photo"`` (mặc định): AI **sửa ảnh thật** trong ``original_base64``
+        theo ``prompt_en`` (image-to-image). Ảnh gốc là nguồn, không chỉ tham khảo.
+      - ``"keep_drink"``: giữ 100% pixel sản phẩm gốc, AI chỉ vẽ nền mới rồi ghép
         lại bằng Pillow. Không cần provider image-to-image.
 
-    ``prompt_en`` trống thì server tự dựng từ tên món + ``style_slug``.
-    ``feedback_history`` + ``prompt_quang_cao``: khi có, server dựng prompt ảnh
-    quảng cáo từ ẢNH THẬT (template bảo toàn sản phẩm + ý kiến người dùng) thay
-    vì prompt vẽ mới theo tên món — xem ``ca_agents.menu_ad_prompt``.
+    ``original_base64`` BẮT BUỘC ở cả hai chế độ. ``prompt_en`` trống thì server
+    tự dựng từ template bảo toàn sản phẩm + ``feedback_history`` + ``style_slug``
+    (không dùng tên món) — xem ``ca_agents.menu_ad_prompt``.
     """
+
     prompt_en: str = Field(default="", max_length=2000)
     aspect_ratio: Literal["1:1", "4:5", "9:16", "16:9"] = "1:1"
     seed: int | None = Field(default=None, ge=0, le=2_147_483_647)
     save_as_menu_image: bool = False
     style_slug: str = Field(default="", max_length=48)
-    mode: Literal["from_prompt", "edit_photo", "keep_drink"] = "from_prompt"
+    mode: Literal["edit_photo", "keep_drink"] = "edit_photo"
     original_base64: str | None = Field(default=None, max_length=8_000_000)
-    # Bật luồng ảnh quảng cáo từ ảnh thật: prompt = template bảo toàn sản phẩm +
-    # lịch sử ý kiến, thay vì mô tả món bằng lời. Mặc định TẮT để lời gọi cũ giữ
-    # nguyên hành vi (và để test cũ còn ý nghĩa).
-    prompt_quang_cao: bool = False
     feedback_history: list[str] = Field(default_factory=list, max_length=12)
-
-
-def _menu_image_result_to_response(result: MenuImageResult, mon_id: str) -> dict[str, Any]:
-    """Chuyển MenuImageResult thành response dict."""
-    base: dict[str, Any] = {
-        "ok": result.ok,
-        "provider": result.provider,
-        "mon_id": mon_id,
-    }
-    if not result.ok:
-        base["error"] = result.error
-        return base
-    base["prompt_en"] = result.prompt_en
-    base["prompt_vi"] = result.prompt_vi
-    return base
 
 
 def _ad_prompt_to_response(result: AdPromptResult, mon_id: str) -> dict[str, Any]:
@@ -664,15 +645,17 @@ def menu_anh_prompt_quang_cao(
 
     Không gọi mạng: prompt được lắp từ template gốc + ý kiến đã ghi nhận, nên UI
     cập nhật được ngay mỗi lần người dùng gõ thêm một yêu cầu. Mọi ràng buộc bảo
-    toàn sản phẩm (giữ nguyên hình dáng, nhãn, chữ, logo, màu, nắp) luôn có mặt —
+    toàn sản phẩm (giữ nguyên hình dáng, nhãn, chữ, logo, màu, màu nước) luôn có mặt —
     xem :func:`ca_agents.menu_ad_prompt.build_ad_prompt`.
+
+    Prompt KHÔNG dùng tên món: ảnh gốc là nguồn sự thật duy nhất về sản phẩm nên
+    gửi ảnh nước nào thì ra ảnh từ loại nước đó.
     """
     _require_chu_quan(authorization)
     mid = mon_id.strip().lower()
     if not _MON_ID.fullmatch(mid):
         raise HTTPException(status_code=422, detail="ma_mon_khong_hop_le")
-    mon = menu_get(mid)
-    if not mon:
+    if not menu_get(mid):
         raise HTTPException(status_code=404, detail="mon_khong_co")
 
     # Kiểm slug TRƯỚC khi dựng prompt: slug sai mà vẫn trả prompt của phong cách
@@ -683,45 +666,11 @@ def menu_anh_prompt_quang_cao(
 
     style = _resolve_style(style_slug or _style_default_slug())
     result = build_ad_prompt(
-        str(mon.get("ten") or ""),
         feedback_history=list(body.feedback_history),
-        style_prompt=style.to_prompt() if style is not None else "",
+        style_prompt=style.to_prompt_ad() if style is not None else "",
+        container=body.container,
     )
     return _ad_prompt_to_response(result, mid)
-
-
-@router.post("/api/v1/menu/{mon_id}/anh/prompt")
-def menu_anh_prompt(
-    mon_id: str,
-    body: MenuImagePromptBody,
-    authorization: Annotated[str | None, Header()] = None,
-) -> dict[str, Any]:
-    """Dựng prompt sinh ảnh cho một món — tất định, không gọi AI.
-
-    Trả về ngay (không mạng, không chờ) nên UI hiện được prompt để người dùng
-    đọc/sửa trước khi bấm tạo ảnh.
-    """
-    _require_chu_quan(authorization)
-    mid = mon_id.strip().lower()
-    if not _MON_ID.fullmatch(mid):
-        raise HTTPException(status_code=422, detail="ma_mon_khong_hop_le")
-    mon = menu_get(mid)
-    if not mon:
-        raise HTTPException(status_code=404, detail="mon_khong_co")
-
-    # Kiểm tra slug TRƯỚC khi dựng prompt: nếu để sau, người dùng gõ sai slug sẽ
-    # nhận prompt của phong cách mặc định kèm lỗi 422 — khó hiểu và tốn công.
-    style_slug = body.style_slug.strip()
-    if style_slug and _resolve_style(style_slug) is None:
-        raise HTTPException(status_code=422, detail="phong_cach_khong_ton_tai")
-
-    result = generate_menu_prompt(
-        str(mon.get("ten") or ""),
-        mo_ta=body.mo_ta,
-        style=_resolve_style(style_slug or _style_default_slug()),
-        aspect_ratio=body.aspect_ratio,
-    )
-    return _menu_image_result_to_response(result, mid)
 
 
 @router.get("/api/v1/menu/anh/kha-dung")
@@ -735,7 +684,6 @@ def menu_anh_kha_dung(authorization: Annotated[str | None, Header()] = None) -> 
     sua_duoc, ly_do = image_edit_available()
     return {
         "che_do": {
-            "from_prompt": {"kha_dung": True, "ly_do": ""},
             "keep_drink": {"kha_dung": True, "ly_do": ""},
             "edit_photo": {"kha_dung": sua_duoc, "ly_do": ly_do},
         },
@@ -847,18 +795,19 @@ def menu_anh_generate(
     body: MenuImageGenerateBody,
     authorization: Annotated[str | None, Header()] = None,
 ) -> dict[str, Any]:
-    """Sinh ảnh quảng cáo thật từ prompt.
+    """Sinh ảnh quảng cáo từ ẢNH THẬT người dùng tải lên.
 
-    Trả về ảnh JPEG/PNG base64. Nếu để trống ``prompt_en``, server tự dựng prompt
-    tất định từ tên món + phong cách (không cần gọi AI để viết prompt).
+    Trả về ảnh JPEG/PNG base64. ``original_base64`` bắt buộc ở cả hai chế độ.
+    Nếu để trống ``prompt_en``, server tự dựng prompt từ template bảo toàn sản
+    phẩm + ``feedback_history`` + phong cách (không dùng tên món — gửi ảnh nước
+    nào thì ra ảnh từ loại nước đó).
     Nếu ``save_as_menu_image=true`` thì lưu luôn làm ảnh đại diện món.
     """
     _require_chu_quan(authorization)
     mid = mon_id.strip().lower()
     if not _MON_ID.fullmatch(mid):
         raise HTTPException(status_code=422, detail="ma_mon_khong_hop_le")
-    mon = menu_get(mid)
-    if not mon:
+    if not menu_get(mid):
         raise HTTPException(status_code=404, detail="mon_khong_co")
 
     seed = body.seed
@@ -872,44 +821,26 @@ def menu_anh_generate(
         raise HTTPException(status_code=422, detail="phong_cach_khong_ton_tai")
 
     # Prompt: ưu tiên prompt người dùng gửi (đã xem/sửa ở UI); trống thì dựng lại
-    # từ dữ liệu menu. Hai cách dựng, chọn theo ``prompt_quang_cao``:
-    #
-    # * BẬT (luồng ảnh quảng cáo từ ảnh thật): template bảo toàn sản phẩm + ý kiến
-    #   người dùng. Ảnh gốc là nguồn sự thật về sản phẩm nên prompt tuyệt đối
-    #   không mô tả lại hình dáng/nhãn/màu — chỉ tả bối cảnh quanh nó.
-    # * TẮT (mặc định, chế độ "AI vẽ mới"): prompt vẽ lại sản phẩm từ tên món.
+    # từ template bảo toàn sản phẩm + ý kiến người dùng. Ảnh gốc là nguồn sự thật
+    # duy nhất về sản phẩm nên prompt tuyệt đối không mô tả lại hình dáng/nhãn/
+    # màu theo tên món — chỉ tả bối cảnh quanh nó.
     full_prompt = body.prompt_en.strip()
     if not full_prompt:
-        if body.prompt_quang_cao:
-            ad = build_ad_prompt(
-                str(mon.get("ten") or ""),
-                feedback_history=list(body.feedback_history),
-                style_prompt=style.to_prompt() if style is not None else "",
-            )
-            if not ad.ok:
-                raise HTTPException(status_code=422, detail=ad.error)
-            full_prompt = ad.prompt_en
-        else:
-            built = generate_menu_prompt(
-                str(mon.get("ten") or ""),
-                style=style,
-                aspect_ratio=body.aspect_ratio,
-            )
-            if not built.ok:
-                raise HTTPException(status_code=422, detail=built.error)
-            full_prompt = built.prompt_en
+        ad = build_ad_prompt(
+            feedback_history=list(body.feedback_history),
+            style_prompt=style.to_prompt_ad() if style is not None else "",
+        )
+        if not ad.ok:
+            raise HTTPException(status_code=422, detail=ad.error)
+        full_prompt = ad.prompt_en
 
-    # Ảnh gốc: chỉ giải mã khi chế độ cần — tránh tốn CPU và tránh nhận ảnh hỏng
-    # ở chế độ không dùng tới.
-    original_bytes: bytes | None = None
-    if body.mode in {"edit_photo", "keep_drink"}:
-        if not body.original_base64:
-            raise HTTPException(status_code=422, detail="can_anh_goc")
-        original_bytes = _decode_original_image(body.original_base64)
+    # Ảnh gốc bắt buộc: cả hai chế độ còn lại đều dựng từ ảnh thật.
+    if not body.original_base64:
+        raise HTTPException(status_code=422, detail="can_anh_goc")
+    original_bytes = _decode_original_image(body.original_base64)
 
     if body.mode == "edit_photo":
         # AI sửa chính ảnh thật người dùng gửi (image-to-image).
-        assert original_bytes is not None  # đã chặn ở trên
         # Chặn TRƯỚC khi gọi provider: nếu chưa có khoá nào thì mọi lượt gọi đều
         # hỏng, báo ngay kèm cách khắc phục thay vì để người dùng chờ 30 giây rồi
         # nhận lỗi khó hiểu.
@@ -923,9 +854,8 @@ def menu_anh_generate(
             timeout_s=180.0,
             image_filename=f"{mid}{_detect_image_suffix(original_bytes) or '.jpg'}",
         )
-    elif body.mode == "keep_drink":
-        # Giữ 100% pixel ly nước gốc; AI chỉ vẽ nền mới rồi ghép bằng Pillow.
-        assert original_bytes is not None  # đã chặn ở trên
+    else:
+        # keep_drink: giữ 100% pixel sản phẩm gốc; AI chỉ vẽ nền mới rồi ghép bằng Pillow.
         result = generate_background_redesign(
             original_bytes,
             full_prompt,
@@ -933,12 +863,6 @@ def menu_anh_generate(
             aspect_ratio=body.aspect_ratio,
             seed=seed,
             style=style,
-        )
-    else:
-        result = generate_image(
-            full_prompt,
-            aspect_ratio=body.aspect_ratio,
-            seed=seed,
         )
     if not result.ok:
         return {
@@ -978,6 +902,55 @@ def menu_anh_generate(
         payload["saved"] = True
 
     return payload
+
+
+@router.post("/api/v1/menu/{mon_id}/anh/luu")
+def menu_anh_luu(
+    mon_id: str,
+    body: MenuImageSaveBody,
+    authorization: Annotated[str | None, Header()] = None,
+) -> dict[str, Any]:
+    """Lưu ảnh AI đang hiện trên UI làm ảnh đại diện món (không sinh lại).
+
+    Giải mã base64 → kiểm là ảnh đọc được → ghi đè file ảnh của món + cập nhật
+    ``hinh_url``. Thất bại ở bước nào báo rõ bước đó thay vì im lặng.
+    """
+    _require_chu_quan(authorization)
+    mid = mon_id.strip().lower()
+    if not _MON_ID.fullmatch(mid):
+        raise HTTPException(status_code=422, detail="ma_mon_khong_hop_le")
+    if not menu_get(mid):
+        raise HTTPException(status_code=404, detail="mon_khong_co")
+
+    blob = _decode_original_image(body.image_base64)
+    suffix = _detect_image_suffix(blob)
+    if suffix is None:
+        raise HTTPException(status_code=422, detail="anh_goc_khong_hop_le")
+    try:
+        from io import BytesIO
+
+        from PIL import Image
+
+        with Image.open(BytesIO(blob)) as img:
+            img.load()
+            if min(img.size) < 32:
+                raise HTTPException(status_code=422, detail="anh_goc_qua_nho")
+    except HTTPException:
+        raise
+    except Exception:  # noqa: BLE001 — PIL ném nhiều loại lỗi cho ảnh hỏng
+        raise HTTPException(status_code=422, detail="anh_goc_khong_doc_duoc") from None
+
+    try:
+        dest = _menu_image_dir() / f"{mid}{suffix}"
+        for old in _menu_image_dir().glob(f"{mid}.*"):
+            if old != dest:
+                old.unlink(missing_ok=True)
+        dest.write_bytes(blob)
+    except OSError:
+        raise HTTPException(status_code=500, detail="khong_luu_duoc_anh") from None
+    url = f"/api/v1/menu/{mid}/anh"
+    menu_set_hinh(mid, url)
+    return {"ok": True, "mon_id": mid, "hinh_url": url, "saved": True}
 
 
 @router.get("/api/v1/quay/don")

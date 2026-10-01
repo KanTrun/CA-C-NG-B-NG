@@ -164,23 +164,39 @@ class TestAppendFeedback:
 
 class TestBuildAdPrompt:
     def test_ok_va_co_bao_bi(self) -> None:
+        # Mặc định (không truyền container) → mô tả trung tính, không suy từ tên món.
         res = build_ad_prompt("Chai nước ép cam")
         assert res.ok is True
-        assert res.container == "bottle"
-        assert "a bottle placed front-facing and centered" in res.prompt_en
+        assert res.container == ad._CONTAINER_MAC_DINH
+        assert f"a {ad._CONTAINER_MAC_DINH} placed front-facing and centered" in res.prompt_en
 
-    def test_ten_mon_rong_fail_closed(self) -> None:
+    def test_container_tu_buoc_1_duoc_dung(self) -> None:
+        res = build_ad_prompt(container="glass bottle")
+        assert res.ok is True
+        assert res.container == "glass bottle"
+        assert "a glass bottle placed front-facing and centered" in res.prompt_en
+
+    def test_khong_phu_thuoc_ten_mon(self) -> None:
+        """Gửi ảnh nước nào thì ra ảnh từ loại nước đó — tên món không đổi prompt."""
+        a = build_ad_prompt("Cà phê đen", feedback_history=["nền xanh"])
+        b = build_ad_prompt("Nước cam", feedback_history=["nền xanh"])
+        assert a.prompt_en == b.prompt_en
+        assert "black coffee" not in a.prompt_en
+        assert "orange juice" not in b.prompt_en
+
+    def test_ten_mon_rong_van_ok(self) -> None:
+        """Sản phẩm lấy từ ảnh đầu vào nên tên món trống vẫn dựng được prompt."""
         for ten in ("", "   "):
             res = build_ad_prompt(ten)
-            assert res.ok is False
-            assert res.error == "thieu_ten_mon"
-            assert res.prompt_en == ""
+            assert res.ok is True
+            assert res.prompt_en != ""
 
     def test_moi_rang_buoc_luon_co_mat(self) -> None:
-        """Bốn ràng buộc bắt buộc phải có ở MỌI prompt — kể cả khi không có ý kiến."""
+        """Mọi ràng buộc bắt buộc phải có ở MỌI prompt — kể cả khi không có ý kiến."""
         res = build_ad_prompt("Chai nước ép cam")
         assert "front-facing and centered" in res.prompt_en
         assert "Do not change the shape, label, text, logo" in res.prompt_en
+        assert "same drink type" in res.prompt_en
         assert "Environment, lighting, style, mood, camera angle" in res.prompt_en
         assert "No people, no hands" in res.prompt_en
 
@@ -233,7 +249,7 @@ class TestBuildAdPrompt:
 
     def test_prompt_vi_cho_nguoi_dung_doc(self) -> None:
         res = build_ad_prompt("Chai nước ép cam", feedback_history=["nền xanh", "sáng hơn"])
-        assert "Chai nước ép cam" in res.prompt_vi
+        assert "ảnh sản phẩm bạn gửi" in res.prompt_vi
         assert "2" in res.prompt_vi
 
     def test_do_dai_prompt_trong_nguong(self) -> None:
@@ -252,6 +268,52 @@ class TestBuildAdPrompt:
         res = build_ad_prompt("Chai nước ép cam")
         assert "no drink" not in res.prompt_en
         assert "no beverage" not in res.prompt_en
+
+    def test_khong_yeu_cau_giu_nap(self) -> None:
+        """Đồ uống không cần giữ nắp — prompt không được nhắc tới cap/lid."""
+        res = build_ad_prompt(container="glass bottle", feedback_history=["nền xanh"])
+        assert "cap/lid" not in res.prompt_en
+        assert "cap, lid" not in res.prompt_en
+
+    def test_trong_thi_co_boi_canh_mac_dinh(self) -> None:
+        """Chưa có ý kiến lẫn phong cách thì có bối cảnh mặc định cho đỡ trống."""
+        res = build_ad_prompt()
+        assert "wooden cafe table surface" in res.prompt_en
+        assert "bokeh background" in res.prompt_en
+
+    def test_co_y_kien_thi_khong_dung_boi_canh_mac_dinh(self) -> None:
+        """Đã có ý kiến người dùng thì không chèn bối cảnh mặc định nữa."""
+        res = build_ad_prompt(feedback_history=["nền biển"])
+        assert "wooden cafe table surface" not in res.prompt_en
+        assert "seaside background" in res.prompt_en
+
+    def test_giu_dung_loai_do_uong_goc(self) -> None:
+        """Ràng buộc giữ đúng loại đồ uống phải có ở MỌI prompt."""
+        res = build_ad_prompt(container="glass")
+        assert "same drink type" in res.prompt_en
+        assert "never turn it into a different drink or food" in res.prompt_en
+
+    def test_style_prompt_cu_co_negation_bi_lam_sach(self) -> None:
+        """Style prompt cũ (ảnh nền trống, có "no drink") phải bị lọc khi lắp prompt giữ sản phẩm."""
+        from ca_agents.menu_style import parse_style
+
+        style = parse_style(
+            {
+                "slug": "t",
+                "ten": "T",
+                "mo_ta": "",
+                "scene": "cafe_wood",
+                "lighting": "golden_hour",
+                "palette": "warm_wood",
+                "lens": "shallow_85mm",
+            }
+        )
+        assert style is not None
+        res = build_ad_prompt(style_prompt=style.to_prompt())
+        assert "no drink" not in res.prompt_en
+        assert "no beverage" not in res.prompt_en
+        # Bối cảnh của phong cách vẫn được giữ lại.
+        assert "wooden cafe table" in res.prompt_en
 
 
 # ── Bước 1: kiểm ảnh đầu vào ────────────────────────────────────────────────

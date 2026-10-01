@@ -143,6 +143,10 @@ class MenuStyle:
 
         ``extra``: yêu cầu riêng của người dùng đã được viết lại thành mô tả nền
         (đã qua LLM hoặc do người dùng nhập) — nối vào trước phần kỹ thuật.
+
+        Bản này dành cho ảnh NỀN TRỐNG (không có sản phẩm trong khung) nên kèm
+        điều khoản "no drink…" — KHÔNG dùng cho prompt quảng cáo giữ sản phẩm
+        (xem :meth:`to_prompt_ad`).
         """
         parts = [
             f"empty cafe background scene: {SCENES[self.scene]}",
@@ -154,6 +158,25 @@ class MenuStyle:
             parts.insert(1, extra.strip()[:600])
         parts.append(_QUALITY_SUFFIX)
         return ", ".join(parts) + ", " + _NEGATION
+
+    def to_prompt_ad(self, *, extra: str = "") -> str:
+        """Mô tả phong cách cho prompt ẢNH QUẢNG CÁO giữ sản phẩm.
+
+        Khác :meth:`to_prompt`: KHÔNG có tiền tố "empty background scene" và
+        KHÔNG có điều khoản "no drink, no beverage…" — hai thứ đó bảo model
+        xoá sản phẩm khỏi ảnh (đã gây lỗi gửi ảnh matcha latte mà ra ảnh bánh).
+        Chỉ tả bối cảnh/ánh sáng/palette/ống kính quanh sản phẩm.
+        """
+        parts = [
+            f"cafe setting with {SCENES[self.scene]} as the backdrop",
+            LIGHTINGS[self.lighting],
+            f"color palette of {PALETTES[self.palette]}",
+            LENSES[self.lens],
+        ]
+        if extra.strip():
+            parts.insert(1, extra.strip()[:600])
+        parts.append(_QUALITY_SUFFIX)
+        return ", ".join(parts)
 
     def to_dict(self) -> dict[str, str]:
         return {

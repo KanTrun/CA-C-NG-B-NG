@@ -1,10 +1,11 @@
 # mypy: disable-error-code="no-untyped-def,no-untyped-call,type-arg,no-any-return,unused-ignore"
 """Test HTTP cho luồng ảnh quảng cáo từ ẢNH THẬT — quy trình 4 bước.
 
-Ba endpoint mới:
+Các endpoint:
   * `POST /api/v1/menu/{id}/anh/kiem-tra`       — Bước 1, kiểm ảnh đầu vào
   * `POST /api/v1/menu/{id}/anh/prompt-quang-cao` — Bước 3/4, lắp prompt từ ý kiến
-  * `POST /api/v1/menu/{id}/anh/generate` + `prompt_quang_cao=true`
+  * `POST /api/v1/menu/{id}/anh/generate`       — sinh ảnh từ ảnh thật (2 chế độ)
+  * `POST /api/v1/menu/{id}/anh/luu`            — lưu ảnh đang hiện làm ảnh món
 
 Không gọi mạng: Bước 1 được neo bằng cách chặn `validate_product_image` (nó mới
 là chỗ gọi AI thị giác), còn prompt là tất định.
@@ -296,11 +297,42 @@ class TestPromptQuangCao:
         body = res.json()
         assert body["ok"] is True
         assert body["provider"] == "local-template"
-        assert body["bao_bi"] == "bottle"
-        assert "a bottle placed front-facing and centered" in body["prompt_en"]
+        # Mặc định: mô tả trung tính, không suy từ tên món.
+        assert body["bao_bi"] == "liquid product container"
+        assert "a liquid product container placed front-facing and centered" in body[
+            "prompt_en"
+        ]
         # Ràng buộc bảo toàn sản phẩm — điều kiện sống còn của luồng này.
         assert "Do not change the shape, label, text, logo" in body["prompt_en"]
         assert "No people, no hands" in body["prompt_en"]
+
+    def test_container_tu_buoc_1_duoc_dung(self) -> None:
+        hung = _tao_mon("Cà phê đen")
+        body = client.post(
+            f"/api/v1/menu/{_MON}/anh/prompt-quang-cao",
+            json={"feedback_history": [], "container": "glass bottle"},
+            headers=hung,
+        ).json()
+        assert body["bao_bi"] == "glass bottle"
+        assert "a glass bottle placed front-facing and centered" in body["prompt_en"]
+
+    def test_khong_phu_thuoc_ten_mon(self) -> None:
+        """Chọn món cà phê đen nhưng gửi ảnh nước nào cũng ra loại nước đó."""
+        hung = _tao_mon("Cà phê đen")
+        a = client.post(
+            f"/api/v1/menu/{_MON}/anh/prompt-quang-cao",
+            json={"feedback_history": ["nền xanh"]},
+            headers=hung,
+        ).json()["prompt_en"]
+        hung = _tao_mon("Nước cam")
+        b = client.post(
+            f"/api/v1/menu/{_MON}/anh/prompt-quang-cao",
+            json={"feedback_history": ["nền xanh"]},
+            headers=hung,
+        ).json()["prompt_en"]
+        assert a == b
+        assert "black coffee" not in a
+        assert "orange juice" not in b
 
     def test_prompt_khong_mo_ta_lai_san_pham(self) -> None:
         """Prompt phải KHÔNG chứa điều khoản cấm đồ uống (sẽ xoá sản phẩm khỏi ảnh)."""
@@ -396,20 +428,13 @@ class TestPromptQuangCao:
         )
         assert res.status_code == 422
 
-    def test_ten_mon_rong_fail_closed(self) -> None:
-        """Món không có tên dùng được → KHÔNG trả prompt, báo lỗi rõ.
-
-        Endpoint dựng prompt theo cùng contract với ``/anh/prompt`` (200 kèm
-        ``ok=false``), không phải 422: đây là endpoint "dựng prompt", và UI đã có
-        nhánh xử lý ``ok=false`` cho cả hai. Điều bắt buộc là **không bao giờ trả
-        prompt rỗng** để model vẽ bừa.
-        """
+    def test_ten_mon_rong_van_dung_duoc_prompt(self) -> None:
+        """Sản phẩm lấy từ ảnh đầu vào nên tên món không quyết định prompt."""
         _reset_styles()
         hung = headers(client, "hung")
-        # Tên toàn khoảng trắng bị contract MonNuoc chuẩn hoá thành rỗng.
         client.put(
             "/api/v1/menu/mon_ad_khong_ten",
-            json={"ten": "   ", "gia": 10000, "bom": {"ly": 1}},
+            json={"ten": "Món test", "gia": 10000, "bom": {"ly": 1}},
             headers=hung,
         )
         res = client.post(
@@ -419,44 +444,52 @@ class TestPromptQuangCao:
         )
         assert res.status_code == 200
         body = res.json()
-        assert body["ok"] is False
-        assert body["error"] == "thieu_ten_mon"
-        assert "prompt_en" not in body, "không được trả prompt rỗng cho model"
+        assert body["ok"] is True
+        assert body["prompt_en"] != ""
 
 
-# ── Cờ `prompt_quang_cao` trên endpoint sinh ảnh ────────────────────────────
+# ── Endpoint sinh ảnh chỉ còn hai chế độ dùng ảnh thật ─────────────────────
 
 
 class TestGenerateVoiPromptQuangCao:
     """Sinh ảnh thật cần provider — chỉ kiểm nhánh CHẶN (không gọi mạng)."""
 
-    def test_can_anh_goc_khi_che_do_dung_anh(self) -> None:
+    def test_can_anh_goc_khi_thieu_anh(self) -> None:
         hung = _tao_mon()
         res = client.post(
             f"/api/v1/menu/{_MON}/anh/generate",
-            json={"mode": "edit_photo", "prompt_quang_cao": True, "feedback_history": []},
+            json={"mode": "edit_photo", "feedback_history": []},
             headers=hung,
         )
         assert res.status_code == 422
         assert res.json()["detail"] == "can_anh_goc"
 
-    def test_prompt_rong_va_ten_mon_rong_thi_422(self) -> None:
+    def test_keep_drink_cung_can_anh_goc(self) -> None:
         hung = _tao_mon()
         res = client.post(
             f"/api/v1/menu/{_MON}/anh/generate",
-            json={"prompt_en": "", "prompt_quang_cao": True},
+            json={"mode": "keep_drink", "feedback_history": []},
             headers=hung,
         )
-        # Tên món có sẵn nên prompt dựng được → đi tới provider. Điều cần khẳng
-        # định: KHÔNG phải 422 vì prompt rỗng.
-        assert res.status_code == 200
+        assert res.status_code == 422
+        assert res.json()["detail"] == "can_anh_goc"
+
+    def test_prompt_rong_thi_tu_dung_tu_anh(self) -> None:
+        hung = _tao_mon()
+        res = client.post(
+            f"/api/v1/menu/{_MON}/anh/generate",
+            json={"prompt_en": ""},
+            headers=hung,
+        )
+        # Thiếu ảnh → 422 can_anh_goc (chặn trước khi dựng prompt/provider).
+        assert res.status_code == 422
+        assert res.json()["detail"] == "can_anh_goc"
 
     def test_qua_nhieu_y_kien_tren_generate_422(self) -> None:
         hung = _tao_mon()
         res = client.post(
             f"/api/v1/menu/{_MON}/anh/generate",
             json={
-                "prompt_quang_cao": True,
                 "feedback_history": ["nền xanh"] * 20,
                 "mode": "edit_photo",
                 "original_base64": _png_b64(),
@@ -465,14 +498,106 @@ class TestGenerateVoiPromptQuangCao:
         )
         assert res.status_code == 422
 
-    def test_co_prompt_nguoi_dung_gui_thi_dung_prompt_do(self) -> None:
-        """Prompt người dùng sửa tay được ưu tiên hơn prompt dựng tự động."""
+    def test_mode_ve_moi_bi_loai_bo(self) -> None:
+        """Chế độ `from_prompt` đã xoá — gửi lên phải 422, không rơi về mặc định."""
         hung = _tao_mon()
         res = client.post(
             f"/api/v1/menu/{_MON}/anh/generate",
-            json={"prompt_en": "", "prompt_quang_cao": False},
+            json={"prompt_en": "x", "mode": "from_prompt", "original_base64": _png_b64()},
             headers=hung,
         )
-        # Chế độ mặc định (from_prompt) + tên món có sẵn → dựng prompt vẽ mới,
-        # đi tới provider (200 kèm ok=false nếu không có khoá).
+        assert res.status_code == 422
+
+
+# ── Lưu ảnh đang hiện làm ảnh đại diện món ─────────────────────────────────
+
+
+class TestLuuAnh:
+    """`POST /anh/luu` lưu TRỰC TIẾP bytes đã hiện (không sinh lại)."""
+
+    def test_luu_anh_thanh_cong(self) -> None:
+        hung = _tao_mon()
+        res = client.post(
+            f"/api/v1/menu/{_MON}/anh/luu",
+            json={"image_base64": _png_b64()},
+            headers=hung,
+        )
         assert res.status_code == 200
+        body = res.json()
+        assert body["ok"] is True
+        assert body["saved"] is True
+        assert body["hinh_url"] == f"/api/v1/menu/{_MON}/anh"
+
+    def test_chap_nhan_data_url(self) -> None:
+        """UI gửi data-URL (`data:image/png;base64,…`) — tiền tố phải được bóc."""
+        hung = _tao_mon()
+        res = client.post(
+            f"/api/v1/menu/{_MON}/anh/luu",
+            json={"image_base64": f"data:image/png;base64,{_png_b64()}"},
+            headers=hung,
+        )
+        assert res.status_code == 200
+        assert res.json()["ok"] is True
+
+    def test_base64_hong_422(self) -> None:
+        hung = _tao_mon()
+        res = client.post(
+            f"/api/v1/menu/{_MON}/anh/luu",
+            json={"image_base64": "khong-phai-base64!!!"},
+            headers=hung,
+        )
+        assert res.status_code == 422
+
+    def test_khong_phai_anh_422(self) -> None:
+        import base64
+
+        hung = _tao_mon()
+        rac = base64.b64encode(b"day khong phai anh").decode("ascii")
+        res = client.post(
+            f"/api/v1/menu/{_MON}/anh/luu",
+            json={"image_base64": rac},
+            headers=hung,
+        )
+        assert res.status_code == 422
+
+    def test_mon_khong_ton_tai_404(self) -> None:
+        _reset_styles()
+        hung = headers(client, "hung")
+        res = client.post(
+            "/api/v1/menu/mon_khong_co_that/anh/luu",
+            json={"image_base64": _png_b64()},
+            headers=hung,
+        )
+        assert res.status_code == 404
+
+    def test_requires_chu_quan(self) -> None:
+        _tao_mon()
+        minh = headers(client, "minh")
+        assert (
+            client.post(
+                f"/api/v1/menu/{_MON}/anh/luu",
+                json={"image_base64": _png_b64()},
+                headers=minh,
+            ).status_code
+            == 403
+        )
+
+    def test_luu_xong_doc_duoc_ngay_va_hien_trong_menu(self) -> None:
+        """Lưu xong thì GET ảnh trả đúng bytes đã lưu + menu liệt kê hinh_url."""
+        hung = _tao_mon()
+        raw = _png_bytes(600, 600)
+        import base64
+
+        b64 = base64.b64encode(raw).decode("ascii")
+        res = client.post(
+            f"/api/v1/menu/{_MON}/anh/luu",
+            json={"image_base64": b64},
+            headers=hung,
+        )
+        assert res.json()["hinh_url"] == f"/api/v1/menu/{_MON}/anh"
+        anh = client.get(f"/api/v1/menu/{_MON}/anh")
+        assert anh.status_code == 200
+        assert anh.content == raw
+        items = client.get("/api/v1/menu/quan-tri", headers=hung).json()["items"]
+        mon = next(m for m in items if m["id"] == _MON)
+        assert mon["hinh_url"] == f"/api/v1/menu/{_MON}/anh"

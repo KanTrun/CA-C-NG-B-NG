@@ -187,8 +187,9 @@ test("tạo ảnh xong → Bước 4 hỏi chỉnh thêm và cho chốt ảnh", 
     await expect(page.getByText(/Đã chốt ảnh/).first()).toBeVisible();
 });
 
-test("chưa chọn ảnh thì ô ý kiến Bước 2 KHÔNG hiện", async ({ page }) => {
+test("chưa chọn ảnh thì nút tạo ảnh bị khoá và báo cần ảnh", async ({ page }) => {
     await mo_khu_tao_anh(page);
-    // Không chọn ảnh → vẫn ở chế độ "AI vẽ mới", ô ý kiến quảng cáo không áp dụng.
-    await expect(page.getByLabel(/Bước 2/)).toHaveCount(0);
+    // Không còn chế độ "AI vẽ mới" — chưa chọn ảnh thì nút tạo ảnh khoá + báo cần ảnh.
+    await expect(page.getByRole("button", { name: "Tạo ảnh (AI)" })).toBeDisabled();
+    await expect(page.getByText(/Chọn ảnh sản phẩm ở Bước 1 để bật nút tạo ảnh/)).toBeVisible();
 });

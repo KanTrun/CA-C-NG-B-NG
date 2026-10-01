@@ -40,8 +40,8 @@ const EMPTY: FormState = {
 };
 
 // Types cho tính năng sinh ảnh quảng cáo.
-// Prompt dựng tất định ở server từ tên món + phong cách (không gọi AI để viết
-// prompt), nên response chỉ có prompt và lỗi — không còn "phân tích ảnh".
+// Prompt dựng tất định ở server từ template bảo toàn sản phẩm + ý kiến người
+// dùng (không dùng tên món — ảnh gốc là nguồn sự thật duy nhất về sản phẩm).
 type PromptResult = {
   ok: boolean;
   prompt_en?: string;
@@ -50,7 +50,7 @@ type PromptResult = {
   provider?: string;
   /** Cụm ý kiến bị lọc vì phá ràng buộc bảo toàn sản phẩm (chỉ có ở prompt quảng cáo). */
   bo_qua?: string[];
-  /** Loại bao bì suy từ tên món ("bottle", "jar"…). */
+  /** Loại bao bì từ kết quả kiểm ảnh Bước 1 ("bottle", "jar"…). */
   bao_bi?: string;
 };
 
@@ -80,18 +80,15 @@ type ImageGenState = {
   styleSlug: string;
   aspectRatio: string;
   moTa: string;
-  /** Ba cách tạo ảnh — xem `MenuImageGenerateBody.mode` ở API. */
-  mode: "from_prompt" | "edit_photo" | "keep_drink";
-  /** Ảnh thật của quán — cần cho `edit_photo` và `keep_drink`.
-   *  Chọn ảnh ở Bước 1 thì chuyển sang "Luồng ảnh quảng cáo" (xem `adFlow`). */
+  /** Hai cách tạo ảnh từ ảnh thật — xem `MenuImageGenerateBody.mode` ở API. */
+  mode: "edit_photo" | "keep_drink";
+  /** Ảnh thật của quán — BẮT BUỘC ở cả hai chế độ còn lại. */
   photoFile: File | null;
   photoPreviewUrl: string | null;
   /**
-   * Luồng ảnh quảng cáo 4 bước có đang bật không.
-   *
-   * Bật ngay khi người dùng chọn ảnh sản phẩm (Bước 1). Khi đó prompt được lắp
-   * bằng template bảo toàn sản phẩm + lịch sử ý kiến, KHÔNG phải mô tả món bằng
-   * lời — nhờ vậy chai/lọ của quán ra đúng là chai/lọ của quán.
+   * Luồng ảnh quảng cáo 4 bước — luôn bật (mọi ảnh đều dựng từ ảnh thật bằng
+   * template bảo toàn sản phẩm + lịch sử ý kiến, KHÔNG mô tả món bằng lời —
+   * nhờ vậy gửi ảnh nước nào thì ra ảnh từ loại nước đó).
    */
   adFlow: boolean;
   /** Bước 1 đã qua chưa (ảnh đạt kiểm tra, hoặc chưa kiểm được vì thiếu khoá). */
@@ -106,6 +103,8 @@ type ImageGenState = {
   feedbackDraft: string;
   /** Cụm ý kiến bị lọc ở lần lắp prompt gần nhất. */
   boQua: string[];
+  /** Loại bao bì từ Bước 1 (AI thị giác) — gửi kèm để prompt gọi đúng dạng sản phẩm. */
+  baoBi: string;
   /** Người dùng đã bấm "Chốt ảnh" — kết thúc phiên chỉnh sửa. */
   chotAnh: boolean;
 };
@@ -183,16 +182,17 @@ function emptyImgGen(): ImageGenState {
     styleSlug: "",
     aspectRatio: "1:1",
     moTa: "",
-    mode: "from_prompt",
+    mode: "edit_photo",
     photoFile: null,
     photoPreviewUrl: null,
-    adFlow: false,
+    adFlow: true,
     checked: false,
     checkError: null,
     checkNote: "",
     feedbackHistory: [],
     feedbackDraft: "",
     boQua: [],
+    baoBi: "",
     chotAnh: false,
   };
 }
@@ -247,7 +247,7 @@ function anhLoiTiengViet(code: string, provider: string): string {
     return "Ảnh bạn gửi không phải là ảnh sản phẩm dạng nước (chai/lọ/bình chứa chất lỏng). Vui lòng gửi lại ảnh sản phẩm rõ nét để mình xử lý.";
   }
   if (c.includes("thieu_key_sua_anh")) {
-    return "Chưa có khoá để AI sửa ảnh thật. Vào phần cài đặt dán khoá Cloudflare miễn phí (hoặc dùng chế độ “AI vẽ mới”), rồi thử lại.";
+    return "Chưa có khoá để AI sửa ảnh thật. Vào phần cài đặt dán khoá Cloudflare miễn phí (hoặc dùng chế độ “Giữ nguyên sản phẩm, AI chỉ vẽ nền”), rồi thử lại.";
   }
   if (c.includes("http_401") || c.includes("http_403") || c.includes("unauthorized")) {
     return `Chưa được phép gọi ${nguon}. Kiểm tra lại khoá API trong phần cài đặt rồi thử lại; nếu vẫn vậy báo quản lý.`;
@@ -275,7 +275,21 @@ function anhLoiTiengViet(code: string, provider: string): string {
  */
 function loiTaoAnh(e: unknown, doing: string): string {
   if (e instanceof ThieuBuocError || e instanceof ImageGenError) return e.message;
+  const backendCu = backendCuMsg(e);
+  if (backendCu) return backendCu;
   return viError(e, { doing });
+}
+
+/**
+ * 404 từ route ảnh mới (`prompt-quang-cao`, `generate`, `luu`) nghĩa là máy chủ
+ * API đang chạy bản code cũ (trước khi xoá chế độ vẽ mới) — báo rõ để người dùng
+ * khởi động lại backend thay vì nhận câu chung chung rồi tưởng nút bị hỏng.
+ */
+function backendCuMsg(e: unknown): string | null {
+  if (e instanceof ApiError && e.status === 404) {
+    return "Máy chủ API đang chạy bản code cũ (thiếu tính năng ảnh quảng cáo mới). Dừng server backend, cập nhật code mới rồi chạy lại.";
+  }
+  return null;
 }
 
 function slugFromName(name: string): string {
@@ -290,9 +304,11 @@ function slugFromName(name: string): string {
     .slice(0, 48);
 }
 
-function MenuThumb({ mon, selected }: { mon: Mon; selected: boolean }) {
+function MenuThumb({ mon, selected, bust }: { mon: Mon; selected: boolean; bust?: number }) {
   const [err, setErr] = useState(false);
-  const src = menuImageUrl(mon.id, mon.hinh_url);
+  // `bust` đổi sau mỗi lần lưu ảnh để trình duyệt không dùng thumbnail cache cũ
+  // (endpoint ảnh để Cache-Control tới 1 giờ — không có là lưu xong vẫn thấy ảnh cũ).
+  const src = menuImageUrl(mon.id, mon.hinh_url) + (bust ? `?t=${bust}` : "");
   return (
     <div className="relative aspect-square w-full overflow-hidden rounded-[var(--nq-radius-bubble)] border border-[var(--nq-line)] bg-[var(--nq-surface-hi)]">
       {!err ? (
@@ -328,6 +344,9 @@ export default function MenuPage() {
   // trang để UI khoá lựa chọn không khả thi — người dùng không phải chọn xong mới
   // biết là thiếu khoá.
   const [modeInfo, setModeInfo] = useState<Record<string, { kha_dung: boolean; ly_do: string }>>({});
+  // Cache-buster thumbnail theo món — đổi sau mỗi lần lưu ảnh để trình duyệt
+  // tải lại ảnh mới ngay thay vì dùng bản cache cũ.
+  const [imgBust, setImgBust] = useState<Record<string, number>>({});
 
   const isExisting = useMemo(
     () => Boolean(form.id && items.some((m) => m.id === form.id)),
@@ -446,15 +465,12 @@ export default function MenuPage() {
     }
   }
 
-  // ── Sinh ảnh quảng cáo ─────────────────────────────────────────────────
-  // Hai luồng, khác nhau ở chỗ prompt có mô tả SẢN PHẨM hay không:
+  // ── Sinh ảnh quảng cáo từ ẢNH THẬT (4 bước) ──────────────────────────────
+  // Ảnh gốc là nguồn sự thật duy nhất về sản phẩm, prompt CHỈ tả bối cảnh +
+  // ràng buộc bảo toàn (hình dáng, nhãn, chữ, logo, màu, màu nước). Nhờ vậy gửi ảnh
+  // nước nào thì ra ảnh từ loại nước đó — không còn phụ thuộc tên món đang chọn.
   //
-  // * "AI vẽ mới" (không ảnh): prompt mô tả món bằng lời → model vẽ lại sản phẩm.
-  // * "Ảnh quảng cáo từ ảnh thật" (4 bước): ảnh gốc là nguồn sự thật về sản phẩm,
-  //   prompt CHỈ tả bối cảnh + ràng buộc bảo toàn (hình dáng, nhãn, chữ, logo,
-  //   màu, nắp). Nhờ vậy chai/lọ của quán ra đúng là chai/lọ của quán.
-  //
-  // Cả hai dựng prompt TẤT ĐỊNH ở server — bấm là ra ngay, không gọi AI viết prompt.
+  // Prompt dựng TẤT ĐỊNH ở server — bấm là ra ngay, không gọi AI viết prompt.
 
   /** POST JSON tới API rồi trả JSON; dịch lỗi mạng/HTTP thành ApiError. */
   async function postJson<T>(path: string, body: unknown): Promise<T> {
@@ -479,41 +495,26 @@ export default function MenuPage() {
     return (await res.json()) as T;
   }
 
-  /** Gọi server dựng prompt (nhanh, không mạng ra ngoài) để hiện cho người dùng. */
-  async function buildPrompt(
-    overrides: Partial<Pick<ImageGenState, "styleSlug" | "aspectRatio" | "moTa">> = {},
-  ): Promise<PromptResult> {
-    const styleSlug = overrides.styleSlug ?? imgGen.styleSlug;
-    const aspectRatio = overrides.aspectRatio ?? imgGen.aspectRatio;
-    const moTa = overrides.moTa ?? imgGen.moTa;
-    const data = await postJson<PromptResult>(`/api/v1/menu/${form.id.trim()}/anh/prompt`, {
-      mo_ta: moTa,
-      aspect_ratio: aspectRatio,
-      ...(styleSlug ? { style_slug: styleSlug } : {}),
-    });
-    if (!data.ok) {
-      throw new ImageGenError(String(data.error ?? "unknown"), String(data.provider ?? ""));
-    }
-    return data;
-  }
-
   /**
    * BƯỚC 3 + BƯỚC 4 — lắp prompt ảnh quảng cáo từ lịch sử ý kiến.
    *
    * Gửi TOÀN BỘ `feedback_history` (không phải chỉ ý mới nhất): ý kiến cũ không
    * liên quan (ánh sáng, góc chụp…) phải còn trong prompt khi người dùng đổi ý
    * khác. Server tự đặt ý kiến mới nhất ở cuối prompt để nó thắng khi mâu thuẫn.
+   * Prompt không dùng tên món — sản phẩm lấy từ ảnh đầu vào.
    */
   async function buildAdPrompt(
-    overrides: Partial<Pick<ImageGenState, "styleSlug" | "feedbackHistory">> = {},
+    overrides: Partial<Pick<ImageGenState, "styleSlug" | "feedbackHistory" | "baoBi">> = {},
   ): Promise<PromptResult> {
     const styleSlug = overrides.styleSlug ?? imgGen.styleSlug;
     const history = overrides.feedbackHistory ?? imgGen.feedbackHistory;
+    const container = overrides.baoBi ?? imgGen.baoBi;
     const data = await postJson<PromptResult>(
       `/api/v1/menu/${form.id.trim()}/anh/prompt-quang-cao`,
       {
         feedback_history: history,
         ...(styleSlug ? { style_slug: styleSlug } : {}),
+        ...(container ? { container } : {}),
       },
     );
     if (!data.ok) {
@@ -540,67 +541,35 @@ export default function MenuPage() {
     }
   }
 
-  /** Mở khu sinh ảnh và hiện prompt ngay (không cần ảnh gốc). */
+  /** Mở khu sinh ảnh — yêu cầu chọn ảnh sản phẩm thật trước (không còn vẽ mới). */
   async function openImageGen() {
     if (!isExisting) {
       setImgGen((s) => ({ ...s, error: "Lưu món lần đầu trước." }));
       return;
     }
-    setImgGen((s) => ({ ...s, step: "prompt", busy: true, error: null }));
-    try {
-      const data = await buildPrompt();
-      setImgGen((s) => ({
-        ...s,
-        step: "prompt",
-        busy: false,
-        promptEn: data.prompt_en ?? "",
-        promptVi: data.prompt_vi ?? "",
-      }));
-    } catch (e) {
-      setImgGen((s) => ({
-        ...s,
-        step: "idle",
-        busy: false,
-        error: loiTaoAnh(e, "dựng prompt"),
-      }));
-    }
+    // Mở form ở bước chọn ảnh, chưa có prompt (prompt chỉ dựng từ ảnh + ý kiến).
+    setImgGen((s) => ({ ...s, step: "prompt", busy: false, error: null }));
   }
 
-  /** Đổi phong cách/mô tả → dựng lại prompt ngay để người dùng thấy trước. */
-  async function refreshPrompt(next: Partial<Pick<ImageGenState, "styleSlug" | "aspectRatio" | "moTa">>) {
+  /** Đổi phong cách/tỷ lệ → dựng lại prompt quảng cáo ngay để người dùng thấy trước. */
+  async function refreshPrompt(next: Partial<Pick<ImageGenState, "styleSlug" | "aspectRatio">>) {
     setImgGen((s) => ({ ...s, ...next }));
     if (!isExisting) return;
-    // Ở luồng ảnh thật, prompt do Bước 3 dựng từ lịch sử ý kiến — gọi lại đây chỉ
-    // để đồng bộ phong cách, KHÔNG dựng lại từ tên món (làm vậy là mất ràng buộc
-    // bảo toàn sản phẩm và model sẽ vẽ lại chai thành một sản phẩm khác).
-    if (imgGen.adFlow) {
-      try {
-        const data = await buildAdPrompt({ ...next, feedbackHistory: imgGen.feedbackHistory });
-        setImgGen((s) => ({
-          ...s,
-          promptEn: data.prompt_en ?? s.promptEn,
-          promptVi: data.prompt_vi ?? s.promptVi,
-          boQua: data.bo_qua ?? [],
-          error: null,
-        }));
-      } catch (e) {
-        setImgGen((s) => ({ ...s, error: loiTaoAnh(e, "dựng prompt") }));
-      }
-      return;
-    }
+    // Prompt do Bước 3 dựng từ lịch sử ý kiến + phong cách — KHÔNG dựng từ tên
+    // món (làm vậy là mất ràng buộc bảo toàn và model vẽ sai sản phẩm).
+    // Chưa có ảnh thì chưa dựng prompt (tránh prompt không gắn với sản phẩm nào).
+    if (!imgGen.photoFile) return;
     try {
-      const data = await buildPrompt(next);
+      const data = await buildAdPrompt({ ...next, feedbackHistory: imgGen.feedbackHistory });
       setImgGen((s) => ({
         ...s,
         promptEn: data.prompt_en ?? s.promptEn,
         promptVi: data.prompt_vi ?? s.promptVi,
+        boQua: data.bo_qua ?? [],
         error: null,
       }));
     } catch (e) {
-      setImgGen((s) => ({
-        ...s,
-        error: loiTaoAnh(e, "dựng prompt"),
-      }));
+      setImgGen((s) => ({ ...s, error: loiTaoAnh(e, "dựng prompt") }));
     }
   }
 
@@ -635,31 +604,23 @@ export default function MenuPage() {
     extra: Record<string, unknown> = {},
     promptOverride?: string,
   ) {
+    // Ảnh thật bắt buộc ở cả hai chế độ còn lại — thiếu thì báo rõ bước còn thiếu.
+    if (!imgGen.photoFile) {
+      throw new ThieuBuocError(
+        "Cần ảnh sản phẩm thật để tạo ảnh quảng cáo. Bấm ô “Ảnh sản phẩm thật tại quán” ở trên để chọn ảnh.",
+      );
+    }
     const body: Record<string, unknown> = {
       // Gửi prompt đang hiện trên UI (người dùng có thể đã sửa tay); trống thì
-      // server tự dựng lại — theo luồng ảnh quảng cáo nếu `prompt_quang_cao`.
+      // server tự dựng lại từ template bảo toàn sản phẩm + lịch sử ý kiến.
       prompt_en: promptOverride ?? imgGen.promptEn,
       aspect_ratio: imgGen.aspectRatio,
       mode: imgGen.mode,
       ...(imgGen.styleSlug ? { style_slug: imgGen.styleSlug } : {}),
-      // Ở luồng ảnh thật, prompt trống thì server dựng từ template + lịch sử ý
-      // kiến (không phải từ tên món) — nên phải gửi kèm cả hai.
-      ...(imgGen.adFlow && imgGen.mode !== "from_prompt"
-        ? { prompt_quang_cao: true, feedback_history: imgGen.feedbackHistory }
-        : {}),
+      feedback_history: imgGen.feedbackHistory,
       ...extra,
     };
-    // Hai chế độ cần ảnh thật: edit_photo (AI sửa ảnh) và keep_drink (giữ sản phẩm).
-    if (imgGen.mode !== "from_prompt") {
-      if (!imgGen.photoFile) {
-        // Lỗi do người dùng chưa làm đủ bước — phải nói RÕ bước còn thiếu, không
-        // để rơi vào câu chung chung "không tạo được ảnh".
-        throw new ThieuBuocError(
-          "Chế độ này cần ảnh sản phẩm thật. Bấm ô “Ảnh sản phẩm thật tại quán” ở trên để chọn ảnh, hoặc đổi sang chế độ “AI vẽ mới”.",
-        );
-      }
-      body.original_base64 = await fileToDataUrl(imgGen.photoFile);
-    }
+    body.original_base64 = await fileToDataUrl(imgGen.photoFile);
     let res: Response;
     try {
       res = await fetch(
@@ -723,15 +684,25 @@ export default function MenuPage() {
     if (!imgGen.generatedUrl) return;
     setImgGen((s) => ({ ...s, busy: true, error: null }));
     try {
-      // Sinh LẠI với đúng seed đang hiện để ảnh lưu trùng ảnh đã xem, rồi lưu
-      // luôn làm ảnh đại diện món trong cùng một lượt gọi.
-      const data = await requestGenerateImage({
-        seed: imgGen.generatedSeed,
-        save_as_menu_image: true,
-      });
+      // Lưu TRỰC TIẾP ảnh đang hiện (không sinh lại): sinh lại cùng seed vẫn có
+      // thể ra ảnh khác hoặc hỏng giữa chừng khiến nút "Lưu" im lặng thất bại.
+      const data = await postJson<{ ok: boolean; hinh_url?: string }>(
+        `/api/v1/menu/${form.id.trim()}/anh/luu`,
+        { image_base64: imgGen.generatedUrl },
+      );
+      if (!data.hinh_url) throw new Error("missing_hinh_url");
+      const monId = form.id.trim();
       setForm((f) => ({ ...f, hinh_url: data.hinh_url ?? f.hinh_url }));
+      // Đổi cache-buster để thumbnail món này tải lại ảnh mới ngay (kẻo trình
+      // duyệt còn giữ ảnh cũ trong cache rồi tưởng là lưu không ăn).
+      setImgBust((m) => ({ ...m, [monId]: Date.now() }));
       setMsg("Đã lưu ảnh quảng cáo làm ảnh đại diện món.");
-      setImgGen((s) => ({ ...emptyImgGen(), styleSlug: s.styleSlug, aspectRatio: s.aspectRatio }));
+      setImgGen((s) => ({
+        ...emptyImgGen(),
+        styleSlug: s.styleSlug,
+        aspectRatio: s.aspectRatio,
+        mode: s.mode,
+      }));
       void load();
     } catch (e) {
       setImgGen((s) => ({
@@ -742,43 +713,43 @@ export default function MenuPage() {
     }
   }
 
-  /** Chọn ảnh thật của quán: tạo preview + nhớ file, rồi chạy BƯỚC 1 (kiểm ảnh). */
+  /** Chọn ảnh thật của quán: tạo preview, dựng prompt ngay, rồi chạy BƯỚC 1 (kiểm ảnh). */
   function handlePickPhoto(file: File | null) {
-    setImgGen((s) => {
-      if (s.photoPreviewUrl) URL.revokeObjectURL(s.photoPreviewUrl);
-      if (!file) {
-        // Bỏ ảnh = thoát luồng ảnh quảng cáo, quay về "AI vẽ mới".
+    if (!file) {
+      // Bỏ ảnh = chưa đủ điều kiện tạo ảnh (ảnh bắt buộc).
+      setImgGen((s) => {
+        if (s.photoPreviewUrl) URL.revokeObjectURL(s.photoPreviewUrl);
         return {
           ...s,
           photoFile: null,
           photoPreviewUrl: null,
-          adFlow: false,
+          adFlow: true,
           checked: false,
           checkError: null,
           checkNote: "",
           feedbackHistory: [],
           feedbackDraft: "",
           boQua: [],
+          baoBi: "",
+          promptEn: "",
+          promptVi: "",
         };
-      }
-      // Chọn ảnh xong thì chuyển sang chế độ dùng ảnh — nhưng CHỈ khi chế độ đó
-      // chạy được. Tự chuyển sang chế độ thiếu khoá thì người dùng bấm là hỏng
-      // ngay, dù họ không hề chọn nó.
-      let mode = s.mode;
-      if (mode === "from_prompt") {
-        mode = !modeBlocked("edit_photo")
-          ? "edit_photo"
-          : !modeBlocked("keep_drink")
-            ? "keep_drink"
-            : "from_prompt";
-      }
-      // Có ảnh sản phẩm → bật luồng ảnh quảng cáo (Bước 1 đang chạy). Lịch sử ý
-      // kiến reset vì đây là sản phẩm/ảnh khác.
+      });
+      return;
+    }
+    // Giữ tham số của lần chọn này trong closure — state `imgGen` trong closure
+    // là bản render hiện tại nên đọc ở đây, KHÔNG đọc trong callback async (stale).
+    const monId = form.id.trim();
+    const styleSlug = imgGen.styleSlug;
+    const preview = URL.createObjectURL(file);
+    // Có ảnh sản phẩm → chạy Bước 1. Lịch sử ý kiến reset vì đây là sản phẩm/ảnh khác.
+    // Prompt báo "đang dựng" ngay để ô prompt không bao giờ trống.
+    setImgGen((s) => {
+      if (s.photoPreviewUrl) URL.revokeObjectURL(s.photoPreviewUrl);
       return {
         ...s,
         photoFile: file,
-        photoPreviewUrl: URL.createObjectURL(file),
-        mode,
+        photoPreviewUrl: preview,
         adFlow: true,
         checked: false,
         checkError: null,
@@ -786,16 +757,61 @@ export default function MenuPage() {
         feedbackHistory: [],
         feedbackDraft: "",
         boQua: [],
+        baoBi: "",
+        promptEn: "",
+        promptVi: "Đang dựng prompt từ ảnh…",
         chotAnh: false,
         error: null,
       };
     });
-    if (!file) return;
-    // BƯỚC 1 — chạy nền: người dùng vẫn thấy preview ngay, không phải chờ AI.
+    // Chạy nền: người dùng vẫn thấy preview ngay, không phải chờ.
     void (async () => {
+      const baoLoiDungPrompt = (e: unknown, xoaPrompt: boolean) => {
+        // Phải báo rõ, không được nuốt lỗi khiến ô prompt trống mà người dùng
+        // không biết vì sao (kể cả trường hợp backend chạy bản code cũ).
+        const msg = backendCuMsg(e) ?? loiTaoAnh(e, "dựng prompt");
+        setImgGen((s) => {
+          if (s.photoFile !== file) return s;
+          // Lần dựng lại (kèm bao bì) mà lỗi thoáng qua thì giữ prompt đã có —
+          // chỉ xoá khi lần dựng đầu tiên thất bại hoặc backend bản cũ.
+          const canXoa = xoaPrompt || (e instanceof ApiError && e.status === 404);
+          return canXoa ? { ...s, promptEn: "", promptVi: "", error: msg } : { ...s, error: msg };
+        });
+      };
+      const dungPrompt = async (baoBi: string, xoaPromptKhiLoi = true) => {
+        try {
+          const data = await postJson<PromptResult>(`/api/v1/menu/${monId}/anh/prompt-quang-cao`, {
+            feedback_history: [],
+            ...(styleSlug ? { style_slug: styleSlug } : {}),
+            ...(baoBi ? { container: baoBi } : {}),
+          });
+          if (data.ok) {
+            setImgGen((s) => {
+              // Người dùng đã đổi ảnh khác trong lúc chờ → kết quả này không còn giá trị.
+              if (s.photoFile !== file) return s;
+              return {
+                ...s,
+                promptEn: data.prompt_en ?? "",
+                promptVi: data.prompt_vi ?? "",
+                boQua: data.bo_qua ?? [],
+                error: null,
+              };
+            });
+          } else {
+            baoLoiDungPrompt(
+              new ImageGenError(String(data.error ?? "unknown"), String(data.provider ?? "")),
+              xoaPromptKhiLoi,
+            );
+          }
+        } catch (e) {
+          baoLoiDungPrompt(e, xoaPromptKhiLoi);
+        }
+      };
+      // 1. Dựng prompt ngay, không chờ kiểm ảnh.
+      await dungPrompt("");
+      // 2. BƯỚC 1 — kiểm ảnh.
       const ketQua = await checkProductImage(file);
       setImgGen((s) => {
-        // Người dùng đã đổi ảnh khác trong lúc chờ → kết quả này không còn giá trị.
         if (s.photoFile !== file) return s;
         if (ketQua === null) {
           return {
@@ -818,8 +834,13 @@ export default function MenuPage() {
           checked: true,
           checkError: null,
           checkNote: ketQua.ghi ?? "",
+          baoBi: ketQua.bao_bi ?? "",
         };
       });
+      // 3. Dựng lại prompt kèm bao bì nhận ra được (nếu có).
+      if (ketQua && ketQua.ok && ketQua.bao_bi) {
+        await dungPrompt(ketQua.bao_bi, false);
+      }
     })();
   }
 
@@ -907,7 +928,7 @@ export default function MenuPage() {
                 className={`nq-menu-card ${form.id === mon.id ? "nq-menu-card--on" : ""}`}
                 onClick={() => select(mon)}
               >
-                <MenuThumb mon={mon} selected={form.id === mon.id} />
+                <MenuThumb mon={mon} selected={form.id === mon.id} bust={imgBust[mon.id]} />
                 <div>
                   <strong className="block text-sm">{mon.ten}</strong>
                   <p className="nq-muted text-xs">
@@ -994,8 +1015,8 @@ export default function MenuPage() {
                       Tạo ảnh quảng cáo (AI)
                     </Btn>
                     <p className="nq-muted text-xs">
-                      Cần ảnh sản phẩm thật. Muốn AI tự vẽ ảnh mới từ tên món (không cần ảnh) thì
-                      chọn chế độ &ldquo;AI vẽ mới&rdquo; ở bước sau.
+                      Bắt buộc có ảnh sản phẩm thật — AI dàn dựng từ chính ảnh bạn gửi nên gửi
+                      ảnh nước nào thì ra ảnh từ loại nước đó.
                     </p>
                   </div>
                 )}
@@ -1020,8 +1041,8 @@ export default function MenuPage() {
                           }}
                         />
                         <p className="nq-muted mt-1 text-xs">
-                          JPG/PNG/WebP, cạnh ngắn từ 200px. Chọn ảnh thì AI dàn dựng từ ảnh thật;
-                          bỏ trống thì AI vẽ mới theo tên món.
+                          JPG/PNG/WebP, cạnh ngắn từ 200px. Bắt buộc chọn ảnh — AI dàn dựng từ
+                          chính ảnh này, không vẽ mới theo tên món.
                         </p>
                       </div>
 
@@ -1079,14 +1100,11 @@ export default function MenuPage() {
                             Giữ nguyên sản phẩm, AI chỉ vẽ nền
                             {modeBlocked("keep_drink") ? " — chưa dùng được" : ""}
                           </option>
-                          <option value="from_prompt">AI vẽ mới hoàn toàn (không dùng ảnh)</option>
                         </select>
                         <p className="nq-muted mt-1 text-xs">
                           {imgGen.mode === "edit_photo"
                             ? "AI dựng lại chính ảnh bạn chụp: đổi ánh sáng, nền, bố cục — nhưng giữ nguyên hình dáng, nhãn, chữ, logo và màu sản phẩm."
-                            : imgGen.mode === "keep_drink"
-                              ? "Sản phẩm giữ 100% pixel gốc (không AI vẽ lại), chỉ nền thay bằng cảnh mới kèm bóng đổ."
-                              : "Không dùng ảnh chụp; AI vẽ từ tên món (nhanh nhất, 1–4 giây) — không đảm bảo giống sản phẩm thật."}
+                            : "Sản phẩm giữ 100% pixel gốc (không AI vẽ lại), chỉ nền thay bằng cảnh mới kèm bóng đổ."}
                         </p>
                         {/* Nói rõ VÌ SAO chế độ đang chọn không chạy được + cách khắc phục. */}
                         {modeBlocked(imgGen.mode) ? (
@@ -1170,32 +1188,11 @@ export default function MenuPage() {
                         </div>
                       ) : null}
 
-                      {/* Ô này chỉ có tác dụng ở chế độ "AI vẽ mới" (mô tả thêm cho prompt
-                          vẽ lại sản phẩm). Ở luồng ảnh quảng cáo, ý kiến đi qua khối
-                          Bước 2/4 bên dưới — hiện thêm ô này sẽ là một điều khiển
-                          không làm gì, người dùng gõ vào rồi thắc mắc sao ảnh không đổi. */}
-                      {!imgGen.adFlow ? (
-                        <div>
-                          <label className="nq-muted text-xs" htmlFor="aigen-mota">
-                            Mô tả thêm (tùy chọn)
-                          </label>
-                          <Input
-                            id="aigen-mota"
-                            className="mt-1"
-                            value={imgGen.moTa}
-                            placeholder="Ví dụ: thêm lá bạc hà và đá viên"
-                            disabled={imgGen.busy}
-                            onChange={(e) => setImgGen((s) => ({ ...s, moTa: e.target.value }))}
-                            onBlur={() => void refreshPrompt({})}
-                          />
-                        </div>
-                      ) : null}
                     </div>
 
                     {/* BƯỚC 2 (lần đầu) / BƯỚC 4 (chỉnh sửa) — thu ý kiến bằng lời thường.
                         Người dùng KHÔNG cần viết prompt kỹ thuật: chỉ mô tả ý tưởng, phần
                         dịch sang tiếng Anh và ràng buộc bảo toàn sản phẩm do máy chủ lo. */}
-                    {imgGen.adFlow ? (
                       <div className="rounded-[var(--nq-radius-bubble)] border border-[var(--nq-line)] bg-[var(--nq-surface-hi)] p-3 space-y-3">
                         <div>
                           <label className="nq-muted text-xs" htmlFor="aigen-feedback">
@@ -1219,7 +1216,7 @@ export default function MenuPage() {
                           />
                           <p className="nq-muted mt-1 text-xs">
                             Mô tả bằng lời thường (bối cảnh, ánh sáng, phong cách, tâm trạng).
-                            Sản phẩm luôn giữ nguyên hình dáng, nhãn, chữ, logo, màu và nắp.
+                            Sản phẩm luôn giữ nguyên hình dáng, nhãn, chữ, logo và màu nước.
                           </p>
                         </div>
                         <Btn
@@ -1264,7 +1261,6 @@ export default function MenuPage() {
                           </p>
                         ) : null}
                       </div>
-                    ) : null}
 
                     {/* Prompt: xem và sửa tay trước khi tạo ảnh */}
                     <details className="group" open>
@@ -1296,13 +1292,19 @@ export default function MenuPage() {
                       </div>
                     </details>
 
+                    {!imgGen.photoFile ? (
+                      <p className="nq-muted text-xs">
+                        Chọn ảnh sản phẩm ở Bước 1 để bật nút tạo ảnh — AI dàn dựng từ chính
+                        ảnh bạn gửi.
+                      </p>
+                    ) : null}
                     <div className="flex gap-2 pt-2 border-t border-[var(--nq-line)]">
                       <Btn
                         variant="primary"
                         onClick={() => void handleGenerateImage()}
                         busy={imgGen.busy}
                         busyLabel="Đang vẽ ảnh…"
-                        disabled={Boolean(imgGen.checkError)}
+                        disabled={Boolean(imgGen.checkError) || !imgGen.photoFile}
                         block
                       >
                         Tạo ảnh (AI)
@@ -1347,7 +1349,6 @@ export default function MenuPage() {
                     {/* BƯỚC 4 — hỏi người dùng có muốn chỉnh thêm không, và lặp lại
                         Bước 2→3 cho tới khi họ chốt. Ảnh gốc vẫn nằm trong phiên nên
                         người dùng KHÔNG phải gửi lại ảnh. */}
-                    {imgGen.adFlow ? (
                       <div className="rounded-[var(--nq-radius-bubble)] border border-[var(--nq-line)] bg-[var(--nq-surface-hi)] p-3 space-y-3">
                         {imgGen.chotAnh ? (
                           <p className="text-sm text-[var(--nq-fg)]">
@@ -1370,7 +1371,6 @@ export default function MenuPage() {
                           {imgGen.chotAnh ? "Đã chốt ảnh này" : "Không cần chỉnh gì thêm — chốt ảnh"}
                         </Btn>
                       </div>
-                    ) : null}
 
                     <div className="flex flex-col gap-2 pt-2 border-t border-[var(--nq-line)]">
                       <Btn variant="primary" onClick={() => void handleSaveGeneratedImage()} busy={imgGen.busy} block>

@@ -8,7 +8,7 @@ sản phẩm từ đầu — hợp cho chế độ "AI vẽ mới", nhưng mỗi
 Module này làm việc của luồng "úp ảnh thật → AI dàn dựng lại": ảnh gốc là **nguồn
 sự thật duy nhất** về sản phẩm, prompt chỉ được mô tả **bối cảnh/ánh sáng/phong
 cách**, và luôn kèm ràng buộc bảo toàn sản phẩm (hình dáng, nhãn, chữ, logo, màu
-bao bì, nắp). Nhờ vậy ảnh quảng cáo ra đúng là chai/lọ của quán, không phải một
+bao bì, màu nước — không yêu cầu giữ nắp). Nhờ vậy ảnh quảng cáo ra đúng là chai/lọ của quán, không phải một
 sản phẩm na ná do model tự nghĩ ra.
 
 Bốn bước của quy trình, ánh xạ vào hàm
@@ -57,13 +57,13 @@ logger = logging.getLogger(__name__)
 # Áp cho MỌI loại bao bì đựng chất lỏng (chai/lọ/bình/hộp/túi/ly), KHÔNG đặc
 # trưng riêng cho một sản phẩm nào. Giữ nguyên cấu trúc ba phần:
 #   1. mở bài — ảnh chụp sản phẩm chuyên nghiệp, chính diện, căn giữa;
-#   2. ràng buộc bảo toàn sản phẩm — tuyệt đối không đổi hình dáng/nhãn/chữ/logo/màu/nắp;
+#   2. ràng buộc bảo toàn sản phẩm — tuyệt đối không đổi hình dáng/nhãn/chữ/logo/màu/màu nước (không yêu cầu giữ nắp);
 #   3. chỗ chèn ý kiến người dùng (bối cảnh, ánh sáng, phong cách, tâm trạng).
 # Đổi bất kỳ câu nào ở đây là đổi kết quả của MỌI ảnh quảng cáo đã tạo.
 _TEMPLATE_OPEN = (
     "A professional product photograph of a {container} placed front-facing and centered "
     "in the frame. Preserve the exact original shape, label design, text, logo, color, "
-    "cap/lid, material, and liquid color of the product — do not alter, distort, "
+    "material, and liquid color of the product — do not alter, distort, "
     "redesign, or reinterpret any physical feature of the product itself. The product "
     "must remain fully recognizable and identical to the source image. Only the "
     "environment, background, lighting, and mood may be changed as described below."
@@ -109,12 +109,13 @@ _BAO_BI: dict[str, str] = {
 }
 
 # ── RÀNG BUỘC BẮT BUỘC ─────────────────────────────────────────────────────
-# Bốn ràng buộc của quy trình, KHÔNG BAO GIỜ BỎ, kể cả ở lần chỉnh sửa thứ N.
+# Năm ràng buộc của quy trình, KHÔNG BAO GIỜ BỎ, kể cả ở lần chỉnh sửa thứ N.
 # Viết thành hằng số để test khẳng định được từng điều khoản còn nguyên vẹn, và
 # để không ai vô tình xoá khi sửa phần lắp prompt bên dưới.
 _RANG_BUOC = (
     "The product stays front-facing and centered — same orientation as the source image.",
-    "Do not change the shape, label, text, logo, packaging color, liquid color, or cap/lid.",
+    "Do not change the shape, label, text, logo, packaging color, or liquid color.",
+    "Keep the same drink type as the source image (for example a matcha latte stays a matcha latte, never turn it into a different drink or food).",
     "Environment, lighting, style, mood, camera angle, surface and surrounding props may change.",
     "No people, no hands, and no extra text or logo overlaid on the product.",
 )
@@ -122,6 +123,14 @@ _RANG_BUOC = (
 _KET = (
     "High resolution, realistic, commercial product photography quality, sharp focus on "
     "the product, clean composition."
+)
+
+# Bối cảnh mặc định khi người dùng chưa góp ý gì và quán chưa chọn phong cách.
+# Không có nó, model mặc định vẽ nền trắng trơn khiến ảnh trống trải. Người dùng
+# muốn nền trơn thì gõ "nền trắng" — ý kiến đó sẽ thay thế mặc định này.
+_BOI_CANH_MAC_DINH = (
+    "placed on a warm rustic wooden cafe table surface, soft natural daylight "
+    "with gentle bokeh background"
 )
 
 # Từ khoá cấm trong phần ý kiến người dùng: model đọc được là sẽ vẽ lại sản phẩm
@@ -526,30 +535,56 @@ def append_feedback(history: list[str], moi: str) -> list[str]:
     return history[-_MAX_Y_KIEN_LICH_SU:]
 
 
+def _lam_sach_style_prompt(style_prompt: str) -> str:
+    """Loại điều khoản "không có đồ uống" khỏi prompt phong cách khi lắp prompt giữ sản phẩm.
+
+    Nguyên nhân: ``MenuStyle.to_prompt()`` dành cho ảnh NỀN TRỐNG nên chứa
+    ``"absolutely no drink, no beverage…"``. Lọt cụm đó vào prompt quảng cáo là
+    bảo model xoá sản phẩm — đã gây lỗi gửi ảnh matcha latte mà ra ảnh bánh.
+    Hàm này cắt bỏ đuôi negation và đổi tiền tố "empty … background scene"
+    thành mô tả bối cảnh quanh sản phẩm. Prompt đã sạch thì trả nguyên.
+    """
+    sp = style_prompt.strip()
+    if not sp:
+        return ""
+    # Cắt đuôi negation của cả hai mẫu (menu_style._NEGATION và bg _BG_NEGATION).
+    cut = sp.lower().find("absolutely no drink")
+    if cut != -1:
+        sp = sp[:cut].rstrip().rstrip(",")
+    sp = sp.replace("empty cafe background scene:", "cafe setting with")
+    return sp.strip().rstrip(",")
+
+
 def build_ad_prompt(
-    mon_ten: str,
+    mon_ten: str = "",
     *,
     feedback_history: list[str] | None = None,
     style_prompt: str = "",
+    container: str = "",
 ) -> AdPromptResult:
     """Lắp prompt quảng cáo hoàn chỉnh theo cấu trúc template gốc (Bước 3).
 
+    Ảnh gốc là nguồn sự thật duy nhất về sản phẩm — prompt KHÔNG mô tả lại
+    sản phẩm theo tên món, chỉ tả bối cảnh/ánh sáng/phong cách + ràng buộc
+    bảo toàn. ``mon_ten`` được giữ lại vì tương thích ngược nhưng bị bỏ qua;
+    loại bao bì lấy từ ``container`` (kết quả Bước 1) hoặc dùng mô tả trung
+    tính khi không có.
+
     Args:
-        mon_ten: Tên món — dùng để gọi đúng LOẠI bao bì trong prompt.
+        mon_ten: (Deprecated, bỏ qua) — giữ để lời gọi cũ không vỡ.
         feedback_history: Toàn bộ ý kiến người dùng đã ghi nhận (Bước 2 + Bước 4).
         style_prompt: Mô tả phong cách của quán (từ :class:`ca_agents.menu_style.MenuStyle`),
             đã là tiếng Anh. Nối vào phần bối cảnh.
+        container: Mô tả bao bì từ kết quả kiểm ảnh (Bước 1); trống → dùng
+            mô tả trung tính.
 
     Returns:
-        AdPromptResult — ``ok=False`` kèm ``error`` khi tên món trống (fail-closed,
-        không bao giờ sinh ảnh từ prompt rỗng).
+        AdPromptResult — luôn ``ok=True`` (không còn fail theo tên món vì
+        sản phẩm lấy từ ảnh đầu vào).
     """
-    ten = mon_ten.strip()
-    if not ten:
-        return AdPromptResult(ok=False, error="thieu_ten_mon")
-
-    container = loai_bao_bi(ten)
-    parts = [_TEMPLATE_OPEN.format(container=container)]
+    _ = mon_ten
+    chosen = container.strip()[:60] or _CONTAINER_MAC_DINH
+    parts = [_TEMPLATE_OPEN.format(container=chosen)]
 
     bo_qua: list[str] = []
     dich: list[str] = []
@@ -559,10 +594,15 @@ def build_ad_prompt(
             dich.append(text)
         bo_qua.extend(skipped)
 
-    if style_prompt.strip():
-        dich.append(style_prompt.strip()[:400])
+    cleaned_style = _lam_sach_style_prompt(style_prompt)
+    if cleaned_style:
+        dich.append(cleaned_style[:400])
     if dich:
         parts.append(" ".join(dich))
+    else:
+        # Chưa có ý kiến lẫn phong cách thì dựng sẵn một bối cảnh ấm để ảnh
+        # không ra nền trắng trơn trống trải.
+        parts.append(_BOI_CANH_MAC_DINH)
 
     parts.append(" ".join(_RANG_BUOC))
     # Ý kiến mâu thuẫn: model ưu tiên mệnh đề đứng SAU, nên nhắc lại ý kiến MỚI
@@ -574,14 +614,14 @@ def build_ad_prompt(
 
     parts.append(_KET)
 
-    prompt_vi = f"Ảnh quảng cáo cho {ten}"
+    prompt_vi = "Ảnh quảng cáo dựng từ ảnh sản phẩm bạn gửi"
     if dich:
         prompt_vi += f" — theo {len(dich)} yêu cầu của bạn"
     return AdPromptResult(
         ok=True,
         prompt_en=" ".join(parts),
         prompt_vi=prompt_vi,
-        container=container,
+        container=chosen,
         bo_qua=tuple(bo_qua),
     )
 
