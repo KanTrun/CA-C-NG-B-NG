@@ -873,22 +873,107 @@ def test_bugfix_parse_thu_cn_no_false_positive() -> None:
 
 
 def test_bugfix_propose_time_off_ly_do_extraction() -> None:
-    """BUG7: ly_do phải trích phần lý do thật sau dấu phẩy hoặc strip cụm mở đầu."""
+    """ly_do phải trích đúng lý do thật, KHÔNG tự bịa và KHÔNG nuốt token ca/ngày.
+
+    Đổi so với hành vi cũ: khi câu không nêu lý do thì `ly_do` là `""` + cờ
+    `thieu_ly_do`, thay vì điền sẵn "bận". Điền "bận" biến đơn nghỉ thành đơn
+    vô nghĩa khi tới tay quản lý duyệt, và copilot không bao giờ hỏi lại.
+    """
     from ca_agents.ag_copilot.intent_parser import parse_intent
 
     # Có dấu phẩy → lấy phần sau
     p = parse_intent("toi ban thu 5, co thi")
     assert "toi ban thu 5" not in p.params["ly_do"], f"Preamble leaked into ly_do: {p.params['ly_do']!r}"
     assert "co thi" in p.params["ly_do"], f"Reason not extracted: {p.params['ly_do']!r}"
+    assert p.params["thieu_ly_do"] is False
 
     # Không có dấu phẩy → bỏ cụm mở đầu "tôi bận thu X"
     p2 = parse_intent("xin nghi thu 4 vi ly do gia dinh")
     # Không còn giữ nguyên toàn câu
     assert p2.params["ly_do"] != "xin nghi thu 4 vi ly do gia dinh", "Regex did not strip preamble"
 
-    # Không có lý do → mặc định "bận"
+    # Không có lý do → KHÔNG tự bịa, phải bật cờ để copilot hỏi lại
     p3 = parse_intent("toi ban thu 3")
-    assert p3.params["ly_do"] == "bận", f"Default ly_do must be 'bận': {p3.params['ly_do']!r}"
+    assert p3.params["ly_do"] == "", f"Must not fabricate a reason: {p3.params['ly_do']!r}"
+    assert p3.params["thieu_ly_do"] is True
+    assert p3.clarification_needed is True, "Phai hoi lai ly do thay vi bia 'ban'"
+    assert p3.clarification_question, "Phai co cau hoi lam ro"
+
+
+def test_time_off_ly_do_khong_chua_token_ca_va_ngay() -> None:
+    """Lý do phải SẠCH: không lọn ca/ngày, không chôn lý do thật sau chúng.
+
+    Trước đây `re.sub` chồng chỉ biết bỏ "thứ X" nên "nghi ca sang thu 3 vi con
+    ong" cho lý do "sang thu 3 vi con ong" — lý do thật ("con ong") bị chìm sau
+    cụm ca/ngày và quản lý đọc đơn không hiểu nghỉ vì cái gì.
+    """
+    from ca_agents.ag_copilot.intent_parser import parse_intent
+
+    cases = [
+        ("nghi ca sang thu 3 vi con ong", "con ong"),
+        ("toi xin nghi ca toi thu 6 vi benh", "benh"),
+        ("em xin nghi buoi chieu thu 5 vi di don ba vao vien", "di don ba vao vien"),
+        ("em xin nghi thu 5 do benh", "benh"),
+    ]
+    for cau, expected in cases:
+        ly_do = parse_intent(cau).params["ly_do"]
+        assert ly_do == expected, f"{cau!r} → {ly_do!r}, mong doi {expected!r}"
+        for tu in ("ca ", "buoi ", "thu ", "thứ ", "vì ", "vi "):
+            assert tu not in ly_do, f"Token thoi gian lot vao ly_do: {ly_do!r}"
+
+
+def test_time_off_thieu_ly_do_khong_tao_proposal() -> None:
+    """Thiếu lý do → copilot HỎI LẠI, không tạo đề xuất để quản lý duyệt."""
+    from ca_agents.ag_copilot import run_copilot
+
+    res = run_copilot(
+        "em xin nghi buoi chieu thu 5",
+        context={"store_id": "quan_01", "user_id": "nv_03", "user_role": "nhan_vien"},
+    )
+    assert res.action_proposal is None, "Khong duoc tao de xuat khi thieu ly do"
+    assert "lý do" in res.reply_text, f"Phai hoi ly do: {res.reply_text!r}"
+    assert "bận" not in res.reply_text.replace("có việc bận", ""), "Khong duoc bia ly do"
+
+
+def test_time_off_tra_loi_luot_hai_giu_ngay_va_khung_gio() -> None:
+    """NV trả lời câu hỏi lý do ở lượt 2 → ngày/ca lượt 1 phải được giữ."""
+    from ca_agents.ag_copilot import run_copilot
+
+    ctx = {
+        "store_id": "quan_01",
+        "user_id": "nv_03",
+        "user_role": "nhan_vien",
+        "active_date": "2026-09-30",
+        "recent_messages": ["em xin nghi buoi chieu thu 5"],
+        "cho_phep_noi_ly_do": True,
+    }
+    res = run_copilot("di kham benh", context=ctx)
+    assert res.action_proposal is not None, "Lượt 2 phải ra được đề xuất"
+    diff = res.action_proposal.payload_diff
+    assert diff["ly_do"] == "di kham benh", f"Lý do sai: {diff['ly_do']!r}"
+    assert diff["thu"] == "T5", f"Mất thứ của lượt 1: {diff['thu']!r}"
+    assert (diff["start"], diff["end"]) == ("12:00", "17:30"), "Mất khung giờ của lượt 1"
+
+
+def test_time_off_khong_hoi_ly_do_khi_khong_phai_luot_tra_loi() -> None:
+    """Không có cổng `cho_phep_noi_ly_do` → câu trả lời không bị nuốt im lặng.
+
+    Cổng này do API/UI bật khi lượt trước copilot thực sự hỏi lý do. Nếu bật hời
+    thì mọi câu ngắn sau một lượt xin nghỉ đều bị bắt thành lý do.
+    """
+    from ca_agents.ag_copilot import run_copilot
+
+    res = run_copilot(
+        "di kham benh",
+        context={
+            "store_id": "quan_01",
+            "user_id": "nv_03",
+            "user_role": "nhan_vien",
+            "recent_messages": ["em xin nghi buoi chieu thu 5"],
+        },
+    )
+    assert res.intent == "OUT_OF_SCOPE"
+    assert res.action_proposal is None
 
 
 def test_bugfix_reply_when_tool_fails_with_confirmation_required(monkeypatch) -> None:

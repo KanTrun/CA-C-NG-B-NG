@@ -222,6 +222,15 @@ export function CopilotDrawer({ open, onClose }: CopilotDrawerProps = {}) {
           message: text,
           channel: "web",
           recent_messages: messages.slice(-3).map((m) => m.text),
+          // Lượt trước copilot hỏi lý do nghỉ → câu này là câu trả lời.
+          cho_phep_noi_ly_do: messages
+            .slice(0, -1)
+            .reverse()
+            .some(
+              (m) =>
+                m.sender === "copilot" &&
+                m.text.includes("cho em xin lý do xin nghỉ"),
+            ),
         }),
       });
 

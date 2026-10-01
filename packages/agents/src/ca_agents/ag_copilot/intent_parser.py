@@ -9,6 +9,14 @@ import re
 from dataclasses import dataclass
 from typing import Any
 
+from ca_agents.ag_copilot.timeoff_parse import (
+    CA_RANGE,
+    parse_ca_range,
+    parse_thu,
+    parse_thu_tuong_doi,
+    trich_ly_do,
+)
+
 # Intent enum string constants
 SCHEDULE_SOLVE = "SCHEDULE_SOLVE"
 APPROVE_SHIFT_SWAP = "APPROVE_SHIFT_SWAP"
@@ -627,72 +635,17 @@ def parse_tuan_tu_van_ban(
     if mac_dinh_tuan_sau:
         return {"tuan": _iso_week(_add_week(active_date, 1))}
     return {"tuan": _iso_week(active_date)}
-_THU_CAN = {
-    # Dạng dài — match bằng substring an toàn (không bị ambiguity)
-    "thứ 2": "T2", "thứ hai": "T2", "thu 2": "T2", "thu hai": "T2",
-    "thứ 3": "T3", "thứ ba": "T3", "thu 3": "T3", "thu ba": "T3",
-    "thứ 4": "T4", "thứ tư": "T4", "thu 4": "T4", "thu tu": "T4",
-    "thứ 5": "T5", "thứ năm": "T5", "thu 5": "T5", "thu nam": "T5",
-    "thứ 6": "T6", "thứ sáu": "T6", "thu 6": "T6", "thu sau": "T6",
-    "thứ 7": "T7", "thứ bảy": "T7", "thu 7": "T7", "thu bay": "T7",
-    "chủ nhật": "CN", "chu nhat": "CN",
-}
-
-# Viết tắt ngắn (t2..t7, cn) dùng regex word-boundary để tránh false positive.
-# BUG2 fix: pattern này match cả đầu câu lẫn giữa câu.
-# BUG3 fix: cn chỉ match khi là từ riêng, không phải prefix/suffix của từ khác.
-_THU_ABBREV: list[tuple[str, str]] = [
-    (r"\bt2\b", "T2"), (r"\bt3\b", "T3"), (r"\bt4\b", "T4"),
-    (r"\bt5\b", "T5"), (r"\bt6\b", "T6"), (r"\bt7\b", "T7"),
-    # Không có 'cn': quá mơ hồ (viết tắt 'công nhân', 'chi nhánh'...).
-    # 'chu nhat' / 'chủ nhật' trong _THU_CAN đã bao phủ đủ.
-]
-_THU_ABBREV_COMPILED = [(re.compile(pat, re.IGNORECASE), val) for pat, val in _THU_ABBREV]
 
 
-def _parse_thu(text_lower: str) -> str:
-    """Trích thứ trong tuần (T2..CN) từ câu tiếng Việt thường."""
-    t = " ".join(str(text_lower or "").split())
-    # Ưu tiên dạng dài (không bị ambiguity) — dùng substring match
-    for cu, thu in _THU_CAN.items():
-        if cu in t:
-            return thu
-    # Dạng viết tắt — dùng regex word-boundary để tránh false positive
-    for pat, thu in _THU_ABBREV_COMPILED:
-        if pat.search(t):
-            return thu
-    return ""
-
-
-# Khung giờ chuẩn của ca — phải khớp `_busy_to_availability` (sprint3.py) và
-# `_CA_RANGE_TIMEOFF` (ag_copilot/tool_registry.py). Đây là điểm phân biệt
-# "bận 1 ca" với "bận cả ngày" cho câu báo bận qua chat.
-_CA_RANGE_INTENT: dict[str, tuple[str, str]] = {
-    "sang": ("06:30", "12:00"),
-    "chieu": ("12:00", "17:30"),
-    "toi": ("17:30", "22:30"),
-}
-
-
-def _parse_ca_range(text_lower: str) -> tuple[str, str] | None:
-    """Trích khung giờ bận (start, end) từ câu; None nếu chỉ nêu thứ."""
-    t = " ".join(str(text_lower or "").split())
-    range_m = re.search(
-        r"(\d{1,2})(?:[:h](\d{2})?)\s*(?:đến|-|tới|toi|den)\s*(\d{1,2})(?:[:h](\d{2})?)",
-        t,
-        re.IGNORECASE,
-    )
-    if range_m:
-        h1, m1 = int(range_m.group(1)), int(range_m.group(2) or 0)
-        h2, m2 = int(range_m.group(3)), int(range_m.group(4) or 0)
-        return f"{h1:02d}:{m1:02d}", f"{h2:02d}:{m2:02d}"
-    if "ca sáng" in t or "ca sang" in t or "buổi sáng" in t or "buoi sang" in t:
-        return _CA_RANGE_INTENT["sang"]
-    if "ca chiều" in t or "ca chieu" in t or "buổi chiều" in t or "buoi chieu" in t:
-        return _CA_RANGE_INTENT["chieu"]
-    if "ca tối" in t or "ca toi" in t or "buổi tối" in t or "buoi toi" in t:
-        return _CA_RANGE_INTENT["toi"]
-    return None
+# ── Parse xin nghỉ / báo bận ────────────────────────────────────────────────
+# Logic nằm trong `timeoff_parse` để `tool_registry` dùng CHUNG — trước đây có
+# hai bản `_parse_thu`/`_parse_ca_range` copy-paste, lệch nhau theo thời gian nên
+# cùng một câu có thể ra hai kết quả tuỳ chỗ gọi. Các tên bên dưới giữ lại để
+# không phá vỡ import cũ (test + `tool_registry`).
+_parse_thu = parse_thu
+_parse_ca_range = parse_ca_range
+_parse_thu_tuong_doi = parse_thu_tuong_doi
+_CA_RANGE_INTENT = CA_RANGE
 
 
 
@@ -805,6 +758,116 @@ def _extract_survey_params(text: str) -> tuple[dict[str, Any], str | None]:
         "channel_mode": channel_mode,
         "include_substitutes": True,
     }, None
+
+
+# ── Làm rõ (clarification) khi thiếu tham số bắt buộc ────────────────────────
+# Các intent mutating đã từ lâu set cờ `thieu_*` trong `params` (thieu_noi_dung,
+# thieu_treo_id, thieu_thong_tin, thieu_khoang_ban, thieu_swap_id…) nhưng KHÔNG
+# có bước nào đọc chúng: `clarification_needed` chỉ bật qua ngưỡng confidence.
+# Hệ quả là khi thiếu thông tin, copilot vẫn chạy tool, tool fail-closed rồi
+# người dùng nhận câu "chưa tạo được đề xuất" — vòng vo, không biết phải bổ
+# sung gì. Nay có bước chung: thấy cờ thiếu thì hỏi lại đúng thứ đang thiếu.
+
+CAU_HOI_TIME_OFF_LY_DO = (
+    "Dạ cho em xin lý do xin nghỉ với ạ? Anh/chị nói giúp em cụ thể "
+    "(vd: «vì đi khám bệnh», «vì việc gia đình») để em lập đề xuất cho quản lý duyệt ạ."
+)
+CAU_HOI_TIME_OFF_NGAY = (
+    "Dạ anh/chị cho em biết cụ thể ngày nào bận ạ "
+    "(vd: «thứ 5», «buổi chiều thứ 5», «ngày mai») ạ?"
+)
+CAU_HOI_TIME_OFF_CA_NHAY = (
+    "Dạ anh/chị cho em biết ngày nào bận và lý do xin nghỉ với ạ? "
+    "Anh/chị nói một câu tự nhiên là được, vd: «thứ 5 buổi chiều, vì đi khám bệnh» ạ."
+)
+
+_CAU_HOI_LAM_RO: dict[str, dict[str, str]] = {
+    PROPOSE_HANGING_TASK: {
+        "thieu_noi_dung": "Dạ anh/chị treo việc gì ạ? Anh/chị mô tả ngắn nội dung việc để em ghi lại ạ.",
+    },
+    PROPOSE_HANDOVER: {
+        "thieu_noi_dung": "Dạ anh/chị gửi nội dung bàn giao ca giúp em ạ.",
+    },
+    PROPOSE_TASK_COMPLETE: {
+        "thieu_treo_id": "Dạ việc treo cần đánh dấu xong có mã (vd: «treo_a1b2») — anh/chị gửi em mã nhé ạ?",
+    },
+    PROPOSE_MENU_UPDATE: {
+        "thieu_thong_tin": (
+            "Dạ anh/chị muốn làm gì với món nào ạ? "
+            "Vd: «sửa giá bún bò thành 35000», «ẩn món cà phê», «thêm món bạc xỉu giá 45000» ạ."
+        ),
+    },
+    PROPOSE_ORDER_TRANSITION: {
+        "thieu_thong_tin": (
+            "Dạ anh/chị cho em mã đơn và muốn chuyển sang trạng thái nào ạ "
+            "(vd: «đơn dq_a1b2 chuyển sang đang pha» hoặc «hủy đơn dq_a1b2» vì khách đổi ý) ạ?"
+        ),
+    },
+    PROPOSE_PIN: {
+        "thieu_thong_tin": "Dạ anh/chị muốn ghim ca nào cho nhân viên nào ạ? (vd: «ghim ca w1_c01 cho Minh»)",
+    },
+    PROPOSE_TKB_CONFIRM: {
+        "thieu_khoang_ban": (
+            "Dạ anh/chị cho em khoảng bận cụ thể ạ? "
+            "Vd: «T2 07:00-12:00, T4 18:00-22:00» hoặc gửi ảnh thời khóa biểu ạ."
+        ),
+    },
+    PROPOSE_SWAP_CONSENT: {
+        "thieu_swap_id": "Dạ anh/chị cho em mã yêu cầu đổi ca cần đồng ý (vd: «sw_a1b2c3») ạ?",
+    },
+    PROPOSE_CONSUMPTION_RECORD: {
+        "thieu_so_luong": (
+            "Dạ anh/chị ghi giúp em số lượng và tên hàng ạ? "
+            "Vd: «3 khay sữa tươi», «còn 2 hộp bánh mì» ạ."
+        ),
+    },
+}
+
+
+def copilot_dang_hoi_ly_do(reply_text: str) -> bool:
+    """`reply_text` của copilot có phải câu hỏi xin lý do nghỉ không?
+
+    Cổng `cho_phep_noi_ly_do` cần biết chính xác lượt trước copilot có đang
+    hỏi lý do không — nếu bật hời, mọi câu ngắn sau một lượt xin nghỉ đều bị
+    bắt thành lý do ("hieu roi", "ok"…) và copilot tự bịa đơn nghỉ.
+    """
+    t = " ".join(str(reply_text or "").lower().split())
+    return bool(t) and t == _chuan_hoa_cau_hoi(CAU_HOI_TIME_OFF_LY_DO)
+
+
+def _chuan_hoa_cau_hoi(text: str) -> str:
+    return " ".join(str(text or "").lower().split())
+
+
+def _cau_hoi_lam_ro(intent: str, params: dict[str, Any]) -> str | None:
+    if intent == PROPOSE_TIME_OFF:
+        thieu_ngay = bool(params.get("thieu_thu"))
+        thieu_ly_do = bool(params.get("thieu_ly_do"))
+        if thieu_ngay and thieu_ly_do:
+            return CAU_HOI_TIME_OFF_CA_NHAY
+        if thieu_ngay:
+            return CAU_HOI_TIME_OFF_NGAY
+        if thieu_ly_do:
+            return CAU_HOI_TIME_OFF_LY_DO
+        return None
+    for flag, question in _CAU_HOI_LAM_RO.get(intent, {}).items():
+        if params.get(flag):
+            return question
+    return None
+
+
+# Gộp lý do giữa hai lượt khi NV trả lời câu hỏi làm rõ.
+def _trich_ly_do_time_off(text: str, recent_text: str) -> str:
+    """Lý do nghỉ của lượt này, có tính tới lượt trước khi NV chỉ trả lời.
+
+    `recent_text` rỗng = không được phép mượn lượt trước. Nối hai lượt bằng
+    DẤU PHẨY để `trich_ly_do` lấy đúng đoạn sau dấu phẩy làm lý do (đoạn trước
+    là lệnh xin nghỉ + ngày đã nói ở lượt trước).
+    """
+    ly_do = trich_ly_do(text)
+    if ly_do or not recent_text.strip():
+        return ly_do
+    return trich_ly_do(f"{recent_text}, {text}")
 
 
 def parse_intent(message: str, context: dict[str, Any] | None = None) -> IntentParseResult:
@@ -954,6 +1017,23 @@ def parse_intent(message: str, context: dict[str, Any] | None = None) -> IntentP
             matched_intent = SEND_MAIL
             matched_conf = 0.88
             inferred_from_context = True
+        elif (
+            context.get("cho_phep_noi_ly_do")
+            and any(
+                kw in recent_text
+                for iname, keywords, _ in _INTENT_KEYWORDS
+                if iname == PROPOSE_TIME_OFF
+                for kw in keywords
+            )
+            and "?" not in lower
+        ):
+            # NV đang TRẢ LỜI câu hỏi "lý do nghỉ là gì ạ?" của lượt trước.
+            # Cổng `cho_phep_noi_ly_do` do API/đồng UI bật khi lượt trước copilot
+            # thực sự hỏi lý do — không bật thì câu này rơi vào OUT_OF_SCOPE và
+            # lý do NV vừa cung cấp bị bỏ rơi.
+            matched_intent = PROPOSE_TIME_OFF
+            matched_conf = 0.88
+            inferred_from_context = True
 
     # Nếu có đính kèm ảnh và người dùng hỏi về lịch/TKB hoặc chỉ gửi ảnh
     attachments = list(context.get("attachments") or [])
@@ -1008,16 +1088,27 @@ def parse_intent(message: str, context: dict[str, Any] | None = None) -> IntentP
         params["cau_hoi"] = text
 
     elif matched_intent == PROPOSE_TIME_OFF:
-        # Trích thứ + lý do từ chính câu nói ("tôi bận thứ 5, có thi").
-        thu = _parse_thu(lower)
+        # Trích thứ + khung giờ + lý do từ chính câu nói ("tôi bận thứ 5, có thi").
+        active_date = _active_date(context)
+        # Lượt này đã nêu ngày/ca thì lấy ngay lượt này — KHÔNG đụng lịch sử, để
+        # "xin nghỉ thứ 7" không bị lượt trước nhắc "thứ 5" kéo theo. Chỉ khi
+        # lượt này KHÔNG có gì (NV đang trả lời câu hỏi "lý do là gì?") mới
+        # mượn ngày/ca từ lượt trước qua `recent_text`.
+        if _parse_thu(lower) or _parse_ca_range(lower):
+            nguon = lower
+        else:
+            nguon = f"{recent_text} {lower}"
+        thu = _parse_thu(nguon)
+        # "xin nghỉ buổi chiều nay" không có "thứ X" → suy thứ từ ngày quán.
+        if not thu:
+            thu = _parse_thu_tuong_doi(nguon, active_date)
         if thu:
             params["thu"] = thu
         # Nêu ca/khung giờ → chỉ bận khung đó, KHÔNG nghỉ cả ngày.
-        ca_range = _parse_ca_range(lower)
+        ca_range = _parse_ca_range(nguon)
         if ca_range:
             params["start"], params["end"] = ca_range
         # Gắn tuan_id — trước đây thiếu nên ràng buộc nghỉ rơi tuần sai.
-        active_date = _active_date(context)
         tuan_params = parse_tuan_tu_van_ban(
             f"{recent_text} {lower}",
             active_date=active_date,
@@ -1025,34 +1116,16 @@ def parse_intent(message: str, context: dict[str, Any] | None = None) -> IntentP
             uu_tien=lower,
         )
         params["tuan_id"] = tuan_params.get("tuan")
-        ly_do_raw = text.strip()
-        # BUG7 fix: trích phần lý do sau dấu ',' hoặc ':' đầu tiên nếu có.
-        # Regex cũ dùng lazy {0,40}? → match 0 ký tự → không strip được gì.
-        m_comma = re.search(r"[,:](.+)$", ly_do_raw)
-        if m_comma:
-            ly_do = m_comma.group(1).strip()
-        else:
-            # Không có dấu phẩy → bỏ cụm mở đầu ở đầu câu (anchor ^, count=1)
-            ly_do = re.sub(
-                r"^(?:tôi|toi|em|mình|minh)?\s*"
-                r"(?:xin nghỉ|xin nghi|nghỉ ca|nghi ca|xin nghi ca|bận|ban|không đi làm|khong di lam"
-                r"|không đi được|khong di duoc|không rảnh|khong ranh)"
-                r"(?:\s+(?:thứ\s*\d|thu\s*\d|thứ\s*[a-z]+|thu\s*[a-z]+|t[2-7]|chủ nhật|chu nhat))?"
-                r"(?:\s*(?:vì|vi|do|bởi|boi))?\s*",
-                "",
-                ly_do_raw,
-                count=1,
-                flags=re.IGNORECASE,
-            ).strip()
-            # Pass 2: nếu còn sót "thứ X" / "t2" ở đầu sau khi bỏ cụm mở đầu
-            ly_do = re.sub(
-                r"^(?:thứ\s*\d|thu\s*\d|thứ\s*[a-z]+|thu\s*[a-z]+|t[2-7]|chủ nhật|chu nhat)\s*(?:vì|vi|do|bởi|boi)?\s*",
-                "",
-                ly_do,
-                count=1,
-                flags=re.IGNORECASE,
-            ).strip()
-        params["ly_do"] = (ly_do[:200] or "bận")
+        # Lý do: lấy đúng phần NV nói, KHÔNG tự điền "bận". Trước đây thiếu lý
+        # do thì điền "bận" → đơn tới tay quản lý mang lý do vô nghĩa, và cụm
+        # ca/ngày ("buổi chiều thứ 5") lọt vào lý do làm lý do thật bị chôn.
+        # Chỉ gộp lượt trước khi đang trả lời câu hỏi làm rõ — nếu gộp vô điều
+        # kiện thì "xin nghỉ thứ 7" sẽ mượn nhầm lý do của "thứ 5" ở lượt trước.
+        params["ly_do"] = _trich_ly_do_time_off(
+            text, recent_text if inferred_from_context else ""
+        )
+        params["thieu_ly_do"] = not params["ly_do"]
+        params["thieu_thu"] = not thu
 
     elif matched_intent == GENERATE_DAILY_BRIEF:
         params["ngay"] = _active_date(context).isoformat()
@@ -1311,7 +1384,20 @@ def parse_intent(message: str, context: dict[str, Any] | None = None) -> IntentP
     elif matched_intent == GET_SERPAPI_QUOTA:
         pass
 
-    # 4. Confidence thresholds:
+    # 4. Thiếu tham số bắt buộc → hỏi lại đúng thứ đang thiếu.
+    # Đặt TRƯỚC ngưỡng confidence: câu nhận diện intent chắc chắn (0.92) vẫn
+    # phải hỏi khi thiếu lý do/ngày — đây là chỗ cũ để lọt "tự điền bận".
+    cau_hoi = _cau_hoi_lam_ro(matched_intent, params)
+    if cau_hoi is not None:
+        return IntentParseResult(
+            intent=matched_intent,
+            confidence=matched_conf,
+            params=params,
+            clarification_needed=True,
+            clarification_question=cau_hoi,
+        )
+
+    # 5. Confidence thresholds:
     # >= 0.75: regular
     # 0.5 <= conf < 0.75: clarification
     # < 0.5: OUT_OF_SCOPE

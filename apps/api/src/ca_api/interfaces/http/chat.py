@@ -284,16 +284,53 @@ def get_messages(
     return {"items": messages, "limit": limit, "before_id": before_id}
 
 
+def _copilot_dang_hoi_ly_do(history: list[dict[str, Any]]) -> bool:
+    """Tin ngay TRƯỚC tin hiện tại có phải copilot đang hỏi lý do nghỉ không?
+
+    `send_message` đã lưu tin của NV vào DB trước khi gọi hàm này, nên tin cuối
+    cùng của `history` là tin NV vừa gửi — lượt đang xử lý. Chỉ nhìn tin liền
+    trước: nếu giữa lượt hỏi lý do và lượt trả lời có tin của người khác thì
+    bật cổng sẽ bắt nhầm.
+    """
+    from ca_agents.ag_copilot.intent_parser import copilot_dang_hoi_ly_do
+
+    if len(history) < 2:
+        return False
+    return copilot_dang_hoi_ly_do(str(history[-2].get("content") or ""))
+
+
 async def _reply_copilot_bg(conv_id: str, prompt: str, sess: dict[str, Any]) -> None:
     try:
         from ca_agents.ag_copilot import run_copilot
+
+        # Lịch sử hội thoại THẬT. Trước đây truyền `[]` cứng nên multi-turn
+        # không bao giờ chạy: câu NV nói ở lượt trước (ví dụ "em xin nghỉ buổi
+        # chiều thứ 5") không có trong context, nên khi copilot hỏi lại lý do
+        # thì lượt sau không mượn được ngày/ca đã nói → NV phải nói lại từ đầu.
+        from ca_api.persist import chat_messages_list
+
+        nv_id = str(sess.get("nv_id") or "")
+        history = [
+            m for m in chat_messages_list(conv_id, limit=8)
+            if isinstance(m, dict) and str(m.get("content") or "").strip()
+        ]
+        # CHỈ lấy tin của CHÍNH người đang nhắn. Hội thoại có thể có nhiều
+        # thành viên: đưa tin của người khác vào context copilot là lộ nội
+        # của họ (vd nhân viên khác nhắn "xin nghỉ vì bệnh" rồi nhân viên này
+        # gõ @copilot — nguyên văn tin của người kia sẽ vào lời gọi agent).
+        recent = [
+            str(m["content"]).strip()
+            for m in history
+            if str(m.get("sender_id") or "") == nv_id
+        ][-3:]
         verified_context = {
             "store_id": sess.get("store_id", "quan_01"),
             "user_id": sess.get("nv_id", "system"),
             "user_role": sess.get("role", "nhan_vien"),
             "active_date": ngay_hom_nay_vn(),
             "channel": "chat",
-            "recent_messages": [],
+            "recent_messages": recent,
+            "cho_phep_noi_ly_do": _copilot_dang_hoi_ly_do(history),
         }
         res = run_copilot(prompt, verified_context)
         reply_content = res.reply_text if res else "Tôi đã nhận được yêu cầu."

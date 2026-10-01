@@ -16,7 +16,6 @@ from __future__ import annotations
 import json
 import logging
 import os
-import re
 from collections.abc import Callable
 from dataclasses import dataclass
 
@@ -28,6 +27,12 @@ except ImportError:
     UTC = timezone.utc
 from pathlib import Path
 from typing import Any, Literal, cast
+
+from ca_agents.ag_copilot.timeoff_parse import (
+    CA_RANGE,
+    parse_ca_range,
+    parse_thu,
+)
 
 WHITELISTED_INTENTS = {
     "SCHEDULE_SOLVE": "tool_solve_weekly_schedule",
@@ -2437,62 +2442,12 @@ def tool_propose_page_draft(
 
 
 # ── PROPOSE_TIME_OFF: NV báo bận/xin nghỉ cho chính mình ────────────────────
-
-_THU_MAP_TIMEOFF = {
-    "thứ 2": "T2", "thứ hai": "T2", "t2": "T2",
-    "thứ 3": "T3", "thứ ba": "T3", "t3": "T3",
-    "thứ 4": "T4", "thứ tư": "T4", "t4": "T4",
-    "thứ 5": "T5", "thứ năm": "T5", "t5": "T5",
-    "thứ 6": "T6", "thứ sáu": "T6", "t6": "T6",
-    "thứ 7": "T7", "thứ bảy": "T7", "t7": "T7",
-    "chủ nhật": "CN", "chu nhat": "CN", "cn": "CN",
-}
-
-
-def _parse_thu_tu_tin(text: str) -> str:
-    """Trích ngày trong tuần từ tin nhắn tự do (deterministic, tier-1)."""
-    t = " ".join(str(text or "").lower().split())
-    for cu, thu in _THU_MAP_TIMEOFF.items():
-        if cu in t:
-            return thu
-    return ""
-
-
-# Khung giờ chuẩn của ca — NGUỒN DUY NHẤT cho phần parse tin nhắn tự do.
-# Phải khớp `_busy_to_availability` (sprint3.py) để "bận ca sáng" chặn đúng
-# ca sáng mà trang /tkb vẫn dùng cùng một định nghĩa.
-_CA_RANGE_TIMEOFF: dict[str, tuple[str, str]] = {
-    "sang": ("06:30", "12:00"),
-    "chieu": ("12:00", "17:30"),
-    "toi": ("17:30", "22:30"),
-}
-
-
-def _parse_ca_range(text: str) -> tuple[str, str] | None:
-    """Trích khung giờ bận từ tin nhắn tự do.
-
-    Trả ``(start, end)`` khi người nói nêu RÕ khung giờ (ca sáng/chiều/tối hoặc
-    khoảng "7h-11h30"); trả ``None`` khi chỉ nói tới thứ (bận cả ngày).
-    """
-    t = " ".join(str(text or "").lower().split())
-    range_m = re.search(
-        r"(\d{1,2})(?:[:h](\d{2})?)\s*(?:đến|-|tới|toi|den)\s*(\d{1,2})(?:[:h](\d{2})?)",
-        t,
-        re.IGNORECASE,
-    )
-    if range_m:
-        h1 = int(range_m.group(1))
-        m1 = int(range_m.group(2) or 0)
-        h2 = int(range_m.group(3))
-        m2 = int(range_m.group(4) or 0)
-        return f"{h1:02d}:{m1:02d}", f"{h2:02d}:{m2:02d}"
-    if "ca sáng" in t or "ca sang" in t or "buổi sáng" in t or "buoi sang" in t:
-        return _CA_RANGE_TIMEOFF["sang"]
-    if "ca chiều" in t or "ca chieu" in t or "buổi chiều" in t or "buoi chieu" in t:
-        return _CA_RANGE_TIMEOFF["chieu"]
-    if "ca tối" in t or "ca toi" in t or "buổi tối" in t or "buoi toi" in t:
-        return _CA_RANGE_TIMEOFF["toi"]
-    return None
+# Logic parse (thứ / khung giờ) nằm ở `timeoff_parse` — NGUỒN DUY NHẤT, dùng
+# chung với `intent_parser`. Trước đây có hai bản copy-paste lệch nhau nên
+# cùng một câu có thể ra hai kết quả tuỳ vào chỗ gọi.
+_parse_thu_tu_tin = parse_thu
+_parse_ca_range = parse_ca_range
+_CA_RANGE_TIMEOFF = CA_RANGE
 
 
 def tool_propose_time_off(
@@ -2510,8 +2465,14 @@ def tool_propose_time_off(
     khung đó; chỉ nêu **thứ** thì bận cả ngày. Khung giờ được trả trong payload
     (`start`/`end`) để `copilot.py` ghi đúng `cap_nhat_tkb` và solver chỉ loại
     đúng ca, không xoá cả ngày.
+
+    Fail-closed: thiếu thứ hoặc thiếu lý do thì KHÔNG tạo đề xuất. Trước đây
+    thiếu lý do được điền sẵn "bận" — đơn tới tay quản lý mang lý do vô nghĩa
+    và không ai biết cần hỏi NV điều gì.
     """
-    raw = thu or kwargs.get("raw_message") or ly_do
+    # `raw_message` ưu tiên `thu`: nếu lấy `thu` (chỉ "T5") làm raw thì
+    # `_parse_ca_range("T5")` rỗng → mất khung giờ ở đường gọi trực tiếp.
+    raw = kwargs.get("raw_message") or thu or ly_do
     thu = _parse_thu_tu_tin(raw) or thu
     if not thu:
         return ToolExecutionResult(
@@ -2524,6 +2485,18 @@ def tool_propose_time_off(
             requires_confirmation=False,
             error="missing_thu",
         )
+    ly_do = (ly_do or "").strip()[:200]
+    if not ly_do:
+        return ToolExecutionResult(
+            success=False,
+            tool_name="tool_propose_time_off",
+            intent="PROPOSE_TIME_OFF",
+            data={},
+            summary="Dạ cho em xin lý do xin nghỉ với ạ? (vd: «vì đi khám bệnh», «vì việc gia đình»)",
+            explanation="Không có lý do thì quản lý không đủ căn cứ duyệt nghỉ.",
+            requires_confirmation=False,
+            error="thieu_ly_do",
+        )
     # Khung giờ ưu tiên từ tham số (intent parser đã tách); nếu không có thì tự
     # parse lại từ câu gốc (đường gọi trực tiếp có raw_message).
     ca_range = (start, end) if (start and end) else _parse_ca_range(raw)
@@ -2533,7 +2506,7 @@ def tool_propose_time_off(
         "nv_id": user_id,
         "thu": thu,
         "tuan_id": tuan_id,
-        "ly_do": (ly_do or "").strip()[:200] or "bận",
+        "ly_do": ly_do,
     }
     if ca_range:
         payload["start"], payload["end"] = ca_range
@@ -2547,7 +2520,7 @@ def tool_propose_time_off(
         tool_name="tool_propose_time_off",
         intent="PROPOSE_TIME_OFF",
         data=payload,
-        summary=f"Đề xuất ghi nhận: {user_id} bận {muc} tuần {tuan_id} (lý do: {payload['ly_do']}).",
+        summary=f"Đề xuất ghi nhận: {user_id} bận {muc} tuần {tuan_id} (lý do: {ly_do}).",
         explanation="Sau khi quản lý duyệt, ràng buộc áp vào lượt xếp lịch tới — AI không tự sửa lịch.",
         requires_confirmation=True,
         source_snapshot=build_live_snapshot("PROPOSE_TIME_OFF", store_id),

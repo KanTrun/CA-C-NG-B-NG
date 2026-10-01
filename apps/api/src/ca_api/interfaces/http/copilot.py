@@ -152,6 +152,10 @@ class MessageRequestBody(BaseModel):
     channel: str = "web"
     recent_messages: list[str] = Field(default_factory=list, max_length=3)
     attachments: list[dict[str, Any]] = Field(default_factory=list)
+    # Lượt trước copilot đã hỏi "lý do xin nghỉ là gì?" → lượt này NV đang trả
+    # lời. Không có cờ này thì câu trả lời rơi vào OUT_OF_SCOPE và bị bỏ rơi
+    # (lỗi lượt trước đã truyền `recent_messages: []` cứng ở chat/voice).
+    cho_phep_noi_ly_do: bool = False
 
 
 class ExecuteActionBody(BaseModel):
@@ -482,6 +486,7 @@ def copilot_message(
         "active_date": ngay_hom_nay_vn(),
         "channel": body.channel,
         "recent_messages": body.recent_messages,
+        "cho_phep_noi_ly_do": body.cho_phep_noi_ly_do,
         "attachments": body.attachments,
     }
 
@@ -542,6 +547,7 @@ def copilot_message_stream(
         "active_date": ngay_hom_nay_vn(),
         "channel": body.channel,
         "recent_messages": body.recent_messages,
+        "cho_phep_noi_ly_do": body.cho_phep_noi_ly_do,
         "attachments": body.attachments,
     }
 

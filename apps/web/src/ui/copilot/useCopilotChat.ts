@@ -350,14 +350,24 @@ export function useCopilotChat(mode: Mode = "pane") {
 
       try {
         const token = getToken();
-        const recent = messagesRef.current
-          .filter((m) => m.sender === "user")
-          .slice(-3)
-          .map((m) => m.text);
+        // Chỉ lấy tin của NGƯỜI DÙNG: `recent_messages` là ngữ cảnh để agent
+        // hiểu câu lệnh trước, tin của copilot không phải lệnh của NV.
+        const ganDay = messagesRef.current.filter((m) => m.sender === "user");
+        const recent = ganDay.slice(-3).map((m) => m.text);
+        // Lượt trước copilot đã hỏi "lý do xin nghỉ là gì?" → câu này là câu TRẢ
+        // LỜI. Không báo thì agent rơi vào ngoài phạm vi và lý do NV vừa nói
+        // bị bỏ rơi.
+        const lastCopilot = [...messagesRef.current]
+          .reverse()
+          .find((m) => m.sender === "copilot");
+        const choPhepNoiLyDo = lastCopilot
+          ? lastCopilot.text.includes("cho em xin lý do xin nghỉ")
+          : false;
         const payload = JSON.stringify({
           message: text,
           channel: mode === "page" ? "web-page" : "web",
           recent_messages: recent,
+          cho_phep_noi_ly_do: choPhepNoiLyDo,
           attachments: attachments || [],
         });
 
