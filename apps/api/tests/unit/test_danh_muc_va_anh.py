@@ -268,3 +268,132 @@ def test_menu_get_tra_dung_mon_vua_upsert() -> None:
     assert mon is not None
     assert mon["gia"] == 12345
     assert mon["bom"] == {"tra": 8}
+
+
+# ── Ràng buộc dữ liệu menu/đơn (chặt lỗi đợt 8) ─────────────────────────────
+#
+# Ba lỗi dưới đây đều từng làm màn hình quầy hỏng mà không có một dòng cảnh báo
+# nào, nên phải có test giữ. Nguồn gốc chung: dữ liệu quầy được ghi từ nhiều nơi
+# (API, seeder Quảnverse, script dọn) mà không có một chỗ nào kiểm tra hình dạng.
+
+
+def test_menu_khong_co_mon_trung_ten() -> None:
+    """Hai món cùng tên ở hai giá là lỗi dữ liệu, không phải hai món.
+
+    Đã xảy ra thật: `mon_den` "Cà phê đen" 25.000 cạnh `fx_mon_ca_phe_den`
+    "Ca phe den" 29.000, `mon_da` "Bạc xỉu" cạnh `fx_mon_bac_xiu`. Nhân viên
+    không biết chọn cái nào, và báo cáo doanh thu tách đôi cho cùng một ly.
+    """
+    ten = [m["ten"].strip().casefold() for m in menu_list(gom_an=True)]
+    trung = sorted({t for t in ten if ten.count(t) > 1})
+    assert not trung, f"menu có món trùng tên: {trung}"
+
+
+def test_moi_mon_trong_menu_co_nhom_hop_le() -> None:
+    """`nhom` phải là mã trong danh mục, hoặc rỗng để tầng đọc tự suy.
+
+    Mã lạ thì UI bỏ qua món đó (`quay/page.tsx` chỉ vẽ nhóm có trong
+    `NHOM_MON_THU_TU`) → món biến mất khỏi quầy im lặng. Migration 0018 và
+    `PUT /api/v1/menu/{id}` đã chặn, test này giữ cho dữ liệu cũ trong DB.
+    """
+    hop_le = {"ca_phe", "tra", "sinh_to", "banh", "nuoc_dong_chai", "nguyen_lieu", ""}
+    la = {m["id"]: m.get("nhom", "") for m in menu_list(gom_an=True)}
+    ngoai = {k: v for k, v in la.items() if v not in hop_le}
+    assert not ngoai, f"món có nhóm ngoài danh mục: {ngoai}"
+
+
+def test_ten_mon_tieng_viet_co_dau() -> None:
+    """Món tiếng Việt phải viết có dấu — tên là thứ nhân viên đọc để gọi món.
+
+    Fixture `fx_mon_*` từng ghi "Ca phe den", "Combo sang", "Matcha sua"…
+    Tên không dấu thì nhân viên gọi cho khách sai tên món.
+    """
+    import unicodedata
+
+    for m in menu_list(gom_an=True):
+        ten = m["ten"]
+        khoa = unicodedata.normalize("NFD", ten.replace("đ", "d").replace("Đ", "D"))
+        khoa = "".join(c for c in khoa if not unicodedata.combining(c)).casefold().strip()
+        assert ten.strip().casefold() != khoa, f"{m['id']} tên mất dấu: {ten!r}"
+
+
+def test_don_luon_co_day_du_ten_va_so_luong() -> None:
+    """Mọi dòng đơn phải đủ `{mon_id,ten,so_luong,gia}`.
+
+    Seeder Quảnverse từng ghi `[{"mon": ..., "sl": ...}]` khiến UI đọc
+    `line.ten` và `line.so_luong` ra `undefined`: phiếu pha chế trống chỉ còn
+    dấu "×" và không hủy được. Đây là test chặt đúng lỗi đó.
+    """
+    from ca_api.persist import don_list
+    from ca_api.services.quanverse_demo import setup
+
+    # Gọi `setup()` để khẳng định này KHÔNG rỗng: nếu chỉ đọc `don_list()` mà DB
+    # test chưa có đơn nào thì vòng lặp không chạy lần nào và test luôn xanh —
+    # đúng kiểu test tự nó không bắt được gì.
+    setup()
+
+    for don in don_list():
+        assert don["dong"], f"đơn {don['id']} không có dòng món nào"
+        for dong in don["dong"]:
+            assert dong.get("mon_id"), f"đơn {don['id']} thiếu mon_id"
+            assert dong.get("ten"), f"đơn {don['id']} thiếu tên món"
+            assert isinstance(dong.get("so_luong"), int), f"đơn {don['id']} thiếu so_luong"
+            assert isinstance(dong.get("gia"), int), f"đơn {don['id']} thiếu gia"
+            assert dong["so_luong"] >= 1, f"đơn {don['id']} có so_luong < 1"
+
+
+def test_don_luon_dung_ma_thanh_toan() -> None:
+    """`thanh_toan` phải là mã trong `DonQuay`, nếu không UI hiện "Chưa rõ".
+
+    Seeder từng ghi `"chua_tt"` (mã thật là `chua_thu`) nên mọi đơn demo hiện
+    "Chưa rõ thanh toán" — thông tin mất hoàn toàn trên màn hình.
+    """
+    from ca_api.persist import don_list
+
+    hop_le = {"tien_mat", "da_ck", "chua_thu"}
+    la = {d["id"]: d["thanh_toan"] for d in don_list() if d["thanh_toan"] not in hop_le}
+    assert not la, f"đơn có mã thanh toán không hợp lệ: {la}"
+
+
+def test_setup_quanverse_viet_don_dung_hinh_dang() -> None:
+    """`quanverse_demo.setup()` phải ghi đơn đúng hình dạng, chạy lại cũng vậy.
+
+    Đây là nơi sinh ra dữ liệu hỏng, nên chặn ngay tại đây thay vì đợi migration
+    0018 dọn hậu quả. Idempotent: gọi hai lần phải không sinh thêm đơn.
+    """
+    from ca_api.persist import don_list
+    from ca_api.services.quanverse_demo import setup
+
+    truoc = {d["id"] for d in don_list() if d["id"].startswith("demo_qv_")}
+    a = setup()
+    b = setup()
+    assert a["orders_created"] == 0 or not truoc, "chạy lại vẫn tạo đơn mới"
+    assert b["orders_created"] == 0, "chạy lần hai vẫn tạo đơn mới"
+
+    hop_le = {"tien_mat", "da_ck", "chua_thu"}
+    for don in don_list():
+        if not don["id"].startswith("demo_qv_"):
+            continue
+        assert don["thanh_toan"] in hop_le, f"{don['id']} thanh toán sai: {don['thanh_toan']}"
+        assert don["dong"], f"{don['id']} không có dòng món"
+        for dong in don["dong"]:
+            assert set(dong) >= {"mon_id", "ten", "so_luong", "gia"}, f"{don['id']} dong thiếu khoá"
+            assert dong["ten"], f"{don['id']} tên món rỗng"
+
+
+def test_quanverse_demo_don_co_mon_that_khong_phai_ten_bia() -> None:
+    """Đơn demo phải trỏ tới món ĐANG CÓ trong menu, không tự bịa tên.
+
+    Bản trước ghi cứng tên "Ca phe sua" không kèm `mon_id`; món đó còn không
+    tồn tại sau khi menu được dọn, nên tiêu thụ BOM không ghi được cho đơn đó.
+    """
+    from ca_api.persist import don_list
+    from ca_api.services.quanverse_demo import setup
+
+    setup()
+    co_mon = {m["id"] for m in menu_list()}
+    for don in don_list():
+        if not don["id"].startswith("demo_qv_"):
+            continue
+        for dong in don["dong"]:
+            assert dong["mon_id"] in co_mon, f"{don['id']} trỏ môn không có: {dong['mon_id']}"

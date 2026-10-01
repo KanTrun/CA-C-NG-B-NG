@@ -20,27 +20,58 @@ def _tuan() -> str:
 
 
 def setup() -> dict[str, Any]:
-    from ca_api.persist import don_get, don_insert, kv_get, kv_set
+    from ca_api.persist import don_get, don_insert, don_update, kv_get, kv_set, menu_list
 
     now = datetime.now(UTC)
     created_orders = 0
+    repaired_orders = 0
     order_ids: list[str] = []
+    # Lấy món thật từ menu để đơn demo có tên CÓ DẤU và đúng shape `DongDon`.
+    # Bản trước ghi cứng `[{"mon": "Ca phe sua", "sl": 1}]` — sai cả tên (mất
+    # dấu) lẫn cả hình dạng: `mon`/`sl` thay vì `mon_id`/`ten`/`so_luong`/`gia`.
+    # Hậu quả trên `/pha`: phiếu trống chỉ còn dấu "×" vì `ten` và `so_luong`
+    # đều undefined. `thanh_toan: "chua_tt"` cũng không phải mã hợp lệ (mã thật
+    # là `chua_thu`) nên mọi đơn demo hiện "Chưa rõ thanh toán".
+    mon_list = [m for m in menu_list() if not int(m.get("an") or 0)]
+    # Ưu tiên món bán cho khách, bỏ nhóm nguyên liệu pha chế (gói bán theo — quay
+    # nội bộ không ghi đơn bán mấy món đó).
+    ban_khach = [m for m in mon_list if m.get("nhom") != "nguyen_lieu"] or mon_list
+
     # 10 đơn demo: 7 đang xử lý (cho_pha/dang_pha) + 3 xong, rải giờ hôm nay.
     for i in range(10):
         oid = f"{_PREFIX}don_{i:02d}"
         order_ids.append(oid)
-        if don_get(oid):
-            continue
         trang_thai = "cho_pha" if i < 4 else ("dang_pha" if i < 7 else "xong")
-        luc = now.isoformat()
+        mon = ban_khach[i % len(ban_khach)] if ban_khach else None
+        dong = (
+            [
+                {
+                    "mon_id": str(mon["id"]),
+                    "ten": str(mon["ten"]),
+                    "so_luong": (i % 3) + 1,
+                    "gia": int(mon["gia"]),
+                }
+            ]
+            if mon
+            else []
+        )
+        thanh_toan = ("chua_thu", "tien_mat", "da_ck")[i % 3]
+        cu = don_get(oid)
+        if cu:
+            # Đơn demo đã có: chỉ VÁ nếu nó sai shape (bản cũ đã ghi hỏng và
+            # chạy lại demo không được tự sửa thì dữ liệu hỏng tồn đọng mãi).
+            if cu.get("thanh_toan") in {"", "chua_tt", "cho_tt"} or not cu.get("dong"):
+                don_update({**cu, "thanh_toan": thanh_toan, "dong": dong})
+                repaired_orders += 1
+            continue
         don_insert({
             "id": oid,
             "nv_id": "nv_01",
             "trang_thai": trang_thai,
-            "thanh_toan": "chua_tt",
-            "dong": [{"mon": "Ca phe sua", "sl": 1}],
+            "thanh_toan": thanh_toan,
+            "dong": dong,
             "ly_do_huy": None,
-            "luc": luc,
+            "luc": now.isoformat(),
         })
         created_orders += 1
 
@@ -89,6 +120,7 @@ def setup() -> dict[str, Any]:
         "setup": True,
         "tuan_iso": tuan,
         "orders_created": created_orders,
+        "orders_repaired": repaired_orders,
         "orders_total_demo": len(order_ids),
         "shifts_added": added_shifts,
         "inventory_items": len(demo_items),

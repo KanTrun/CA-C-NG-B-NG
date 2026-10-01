@@ -32,7 +32,7 @@ from ca_agents import (
 )
 from ca_agents.image_gen import generate_image
 from ca_contracts import DongDon, DonQuay, MonNuoc
-from fastapi import APIRouter, File, Header, HTTPException, Response, UploadFile
+from fastapi import APIRouter, File, Header, HTTPException, Query, Response, UploadFile
 from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
@@ -202,10 +202,18 @@ def _dong_theo_menu(rows: list[DongDatBody]) -> list[dict[str, Any]]:
 
 
 def _can_cham_don(don: dict[str, Any], authorization: str | None) -> dict[str, str]:
-    s = _require_dang_ca(authorization)
-    if s["role"] == "nhan_vien" and don["nv_id"] != s["nv_id"]:
-        raise HTTPException(status_code=403, detail="khong_phai_don_ca_minh")
-    return s
+    """Ai đã điểm danh thì chạm được mọi đơn của ca.
+
+    Trước đây chặn `nhan_vien` thao tác đơn không phải của mình (`403
+    khong_phai_don_ca_minh`). Điều đó đúng với "ghi đơn của tôi" nhưng SAI với
+    bàn pha: quán có nhiều người pha, ca bàn giao tiếp nhau, và đơn lúc bàn giao
+    vẫn mang `nv_id` của người ghi. Nếu giữ chặn thì bàn pha là danh sách riêng
+    của từng người chứ không phải hàng đợi chung — người nhận ca sau không thấy
+    đơn dở dang của ca trước và không pha nổi.
+
+    `_require_dang_ca` đã là điều kiện đủ: đã điểm danh thì được làm việc.
+    """
+    return _require_dang_ca(authorization)
 
 
 def _ghi_tieu_thu_uoc_luong(don: dict[str, Any], ai: str) -> None:
@@ -225,6 +233,11 @@ def _ghi_tieu_thu_uoc_luong(don: dict[str, Any], ai: str) -> None:
                 {
                     "id": f"ttq_{uuid.uuid4().hex[:10]}",
                     "hang": hang,
+                    # Món gây ra dòng trừ kho này: sổ tiêu thụ phải nối được
+                    # "cafe_g 24 g" ngược về "Cà phê sữa ×2" thay vì chỉ ra mã BOM.
+                    "mon_id": mon["id"],
+                    "mon_ten": mon["ten"],
+                    "mon_so_luong": int(dong["so_luong"]),
                     "so_luong": so_luong,
                     "don_vi": _DON_VI_BOM.get(hang, "đơn vị"),
                     "duoi_nguong": False,
@@ -238,13 +251,29 @@ def _ghi_tieu_thu_uoc_luong(don: dict[str, Any], ai: str) -> None:
 
 
 def _don_cho_role(
-    authorization: str | None, *, trang_thai: str | None = None
+    authorization: str | None,
+    *,
+    trang_thai: str | None = None,
+    tu: str | None = None,
+    limit: int = 200,
 ) -> list[dict[str, Any]]:
-    s = _require_dang_ca(authorization)
-    items = don_list(trang_thai=trang_thai)
-    if s["role"] == "nhan_vien":
-        return [x for x in items if x["nv_id"] == s["nv_id"]]
-    return items
+    """Đơn của ca — HÀNG ĐỢI CHUNG, không lọc theo người gọi.
+
+    Bàn pha phải là một hàng đợi chung của cả ca: ai đã điểm danh cũng thấy hết,
+    đúng như việc nới `_can_cham_don`. Lọc `nv_id == s["nv_id"]` như bản trước
+    biến `/pha` thành danh sách riêng của từng nhân viên — người vào ca sau không
+    thấy đơn ca trước còn dở.
+
+    `tu` lọc theo mốc thời gian cho cột "đã xong"/"đã hủy" (đơn dở dang từ hôm
+    qua vẫn phải pha được nên KHÔNG lọc ngày cho chờ pha/đang pha). `limit` chặn
+    endpoint trả nguyên bảng `don_quay`: bản trước không chặn nên cột "Đã xong"
+    vẽ mọi đơn kể từ lúc bảng còn trống.
+
+    Tên người ghi KHÔNG gắn ở đây (tra cứu từng dòng là N+1); web đã có
+    `useStaffNameMap` để dựng map id → tên một lần.
+    """
+    _require_dang_ca(authorization)
+    return don_list(trang_thai=trang_thai, tu=tu, limit=limit)
 
 
 @router.get("/api/v1/menu")
@@ -280,13 +309,20 @@ def menu_luu(
         raise HTTPException(status_code=422, detail="ma_mon_khong_hop_le")
     cu = menu_get(mid)
     du_lieu = body.model_dump()
+    # Chặn `nhom` ngoài danh mục NGAY TẠI ĐÂY. Bản trước nhận mọi chuỗi ≤40 ký
+    # tự do, còn UI chỉ vẽ nhóm có trong `NHOM_MON_THU_TU` → món rơi vào mã lạ
+    # biến mất khỏi quầy KHÔNG một dòng cảnh báo. Sửa ở tầng ghi rẻ hơn nhiều so
+    # với truy ra món mất mà không ai biết vì sao.
+    nhom = str(du_lieu.get("nhom") or "").strip()
+    if nhom and nhom not in _NHOM_HOP_LE:
+        raise HTTPException(status_code=422, detail="nhom_khong_hop_le")
     # PUT không gửi `bom`/`nhom`/`hinh_url` thì GIỮ giá trị đang có, không xoá.
     # Bug QA đợt 5: quản lý chỉ sửa giá nhưng `bom` về `{}` → mất định mức
     # nguyên liệu, tiêu thụ BOM ngừng ghi cho món đó. Chỉ khi món CHƯA tồn tại
     # mới thực sự rỗng.
     if du_lieu.get("bom") is None:
         du_lieu["bom"] = (cu or {}).get("bom") or {}
-    if not str(du_lieu.get("nhom") or "").strip():
+    if not nhom:
         du_lieu["nhom"] = str((cu or {}).get("nhom") or "")
     if not str(du_lieu.get("hinh_url") or "").strip():
         du_lieu["hinh_url"] = str((cu or {}).get("hinh_url") or "")
@@ -395,22 +431,40 @@ def menu_anh_get(mon_id: str) -> Response:
 
 
 def _nhom_suy_tu_bom(bom: Any) -> str:
-    """Suy nhóm sản phẩm từ công thức để chọn hình đại diện.
+    """Suy nhóm sản phẩm từ công thức khi món chưa khai `nhom`.
 
-    Món không khai nhóm (đường PUT chỉ nhận tên/giá/bom) nên phải suy: có cà phê
-    là nhóm cà phê, có trà/matcha là nhóm trà, chỉ có bánh/kem là nhóm bánh, còn
-    lại mặc định nhóm ly nước. Chỉ ảnh hưởng hình vẽ, không tham gia phép tính.
+    Trả `""` khi không đoán được — thà để tầng đọc dồn vào nhóm "Món khác" còn
+    hơn dán nhầm một nhóm khiến món nằm sai chỗ trên menu. Bản trước default là
+    `"tra"`, nên ly nhựa và bịch đá (chỉ có `ly`/`da`) cùng mọi món lạ đều bị dán
+    vào "Trà & trà sữa"; "Combo sang" (cà phê + bánh) cũng rơi vào Cà phê vì
+    nhánh cà phê đứng trước.
+
+    Thứ tự nhánh cố ý đặt theo món đặc trưng nhất trước: có hạt cà phê là cà
+    phê; có trà/matcha là trà; nguyên liệu đóng gói (không ly uống) là hàng
+    tồn; còn lại mới là đồ uống.
     """
-    khoa = {str(k) for k in (bom or {}) if isinstance(bom, dict)}
+    if not isinstance(bom, dict):
+        return ""
+    khoa = {str(k) for k in bom}
+    # Nguyên liệu pha chế: đóng gói, không phải món bán cho khách. Chỉ nhận diện
+    # được khi KHÔNG có hạt/trà — ly nhựa hay bịch đá đều chỉ có `ly`/`da`.
+    if khoa & {"ong_hut", "syrup"} and not khoa & {"ca_phe_hat", "ca_phe", "cafe_g", "tra", "matcha"}:
+        return "nguyen_lieu"
+    if khoa <= {"da", "ly", "ong_hut", "syrup"}:
+        return "nguyen_lieu"
     if khoa & {"ca_phe_hat", "ca_phe", "cafe_g"}:
         return "ca_phe"
     if khoa & {"tra", "matcha", "tra_g"}:
         return "tra"
-    if khoa & {"banh", "kem"} and not khoa & {"ly"}:
-        return "banh"
     if "nuoc_dong_chai" in khoa:
         return "nuoc_dong_chai"
-    return "tra"
+    # Sinh tố / đá xay: có trái cây, KHÔNG có hạt cà phê hay trà (hai thứ đó đã
+    # bị hai nhánh trên bắt trước rồi).
+    if khoa & {"trai_cay"}:
+        return "sinh_to"
+    if khoa & {"banh", "kem"} and "ly" not in khoa:
+        return "banh"
+    return ""
 
 
 @router.post("/api/v1/menu/{mon_id}/anh")
@@ -835,9 +889,14 @@ def menu_anh_generate(
 @router.get("/api/v1/quay/don")
 def quay_don_list(
     trang_thai: Literal["cho_pha", "dang_pha", "xong", "huy"] | None = None,
+    tu: str | None = None,
+    limit: int = Query(default=200, ge=1, le=500),
     authorization: Annotated[str | None, Header()] = None,
 ) -> dict[str, Any]:
-    return {"items": _don_cho_role(authorization, trang_thai=trang_thai), "nguon": "quay_noi_bo"}
+    return {
+        "items": _don_cho_role(authorization, trang_thai=trang_thai, tu=tu, limit=limit),
+        "nguon": "quay_noi_bo",
+    }
 
 
 @router.post("/api/v1/quay/don", status_code=201)
@@ -918,22 +977,42 @@ def quay_don_chinh(
 
 
 @router.get("/api/v1/quay/bao-cao")
-def quay_bao_cao(authorization: Annotated[str | None, Header()] = None) -> dict[str, Any]:
+def quay_bao_cao(
+    tu: str | None = None,
+    authorization: Annotated[str | None, Header()] = None,
+) -> dict[str, Any]:
+    """Tổng quầy trong khoảng — KHÔNG phải "tổng ca".
+
+    Bản trước cộng toàn bộ `don_quay` từ lúc bảng còn trống rồi UI gọi đó là
+    "Tổng ca" — sai tên và sai số. Nay nhận `tu` (ISO-8601) để web truyền mốc
+    đầu ngày; `so_don` chỉ tính đơn chưa hủy, `chua_thu` chỉ tính đơn chưa thu
+    tiền. Bỏ đơn hủy khỏi mẫu số là chủ ý: hủy không phải doanh thu.
+    """
     _require_manager(authorization)
-    items = [x for x in don_list() if x["trang_thai"] != "huy"]
-    tong_ly = sum(int(row["so_luong"]) for don in items for row in don["dong"])
-    tong_tien = sum(int(row["so_luong"]) * int(row["gia"]) for don in items for row in don["dong"])
+    items = [x for x in don_list(tu=tu) if x["trang_thai"] != "huy"]
+    # Dòng đơn hỏng (thiếu `so_luong`/`gia`) bỏ qua thay vì làm 500 — báo cáo
+    # hỏng thì mất luôn con số hợp lệ của mọi đơn còn lại.
+    dong = [
+        row
+        for don in items
+        for row in don["dong"]
+        if isinstance(row.get("so_luong"), int) and isinstance(row.get("gia"), int)
+    ]
+    tong_ly = sum(int(row["so_luong"]) for row in dong)
+    tong_tien = sum(int(row["so_luong"]) * int(row["gia"]) for row in dong)
     chua_thu = sum(
         int(row["so_luong"]) * int(row["gia"])
         for don in items
         if don["thanh_toan"] == "chua_thu"
         for row in don["dong"]
+        if isinstance(row.get("so_luong"), int) and isinstance(row.get("gia"), int)
     )
     return {
         "so_don": len(items),
         "tong_ly": tong_ly,
         "tong_tien": tong_tien,
         "chua_thu": chua_thu,
+        "tu": tu or "",
         "nguon": "quay_noi_bo",
         "ghi": "Đơn ghi tại quầy nội bộ; không phải số Grab.",
     }

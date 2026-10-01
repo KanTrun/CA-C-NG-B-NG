@@ -3209,24 +3209,43 @@ def don_insert(don: dict[str, Any]) -> dict[str, Any]:
     return don
 
 
-def don_list(*, trang_thai: str | None = None) -> list[dict[str, Any]]:
+def don_list(
+    *,
+    trang_thai: str | None = None,
+    tu: str | None = None,
+    limit: int | None = None,
+) -> list[dict[str, Any]]:
+    """Đơn quầy, mới trước.
+
+    `tu` lọc theo mốc thời gian (ISO-8601) để cột "đã xong"/"đã hủy" không vẽ
+    cả lịch sử của quán. `limit` chặn trả nguyên bảng — bản trước không có hai
+    tham số này nên `/pha` vẽ hết mọi đơn từng tồn tại.
+
+    Có `trang_thai` thì SẮP XẾP CŨ TRƯỚC (đơn nào tới trước thì pha trước),
+    không có thì MỚI TRƯỚC (bảng điều khiển muốn thấy cái vừa xảy ra).
+    """
     init_db()
+    where: list[str] = []
+    params: list[Any] = []
+    if trang_thai:
+        where.append("trang_thai=?")
+        params.append(trang_thai)
+    if tu:
+        where.append("luc>=?")
+        params.append(tu)
+    dieu_kien = f" WHERE {' AND '.join(where)}" if where else ""
+    thu_tu = "luc" if trang_thai else "luc DESC"
+    # `limit` gắn vào SQL chứ không cắt sau: cắt sau thì trang offset phải kéo cả
+    # bảng về, và mốc cắt không ổn định khi có đơn mới chen vào.
+    han = f" LIMIT {int(limit)}" if limit else ""
     with _conn() as cx:
-        if trang_thai:
-            rows = cx.execute(
-                """
-                SELECT id, nv_id, trang_thai, thanh_toan, dong, ly_do_huy, luc
-                FROM don_quay WHERE trang_thai=? ORDER BY luc
-                """,
-                (trang_thai,),
-            ).fetchall()
-        else:
-            rows = cx.execute(
-                """
-                SELECT id, nv_id, trang_thai, thanh_toan, dong, ly_do_huy, luc
-                FROM don_quay ORDER BY luc DESC
-                """
-            ).fetchall()
+        rows = cx.execute(
+            f"""
+            SELECT id, nv_id, trang_thai, thanh_toan, dong, ly_do_huy, luc
+            FROM don_quay{dieu_kien} ORDER BY {thu_tu}{han}
+            """,
+            tuple(params),
+        ).fetchall()
     return [_don_row(r) for r in rows]
 
 
@@ -3293,12 +3312,20 @@ def don_chuyen_trang_thai(
 
 
 def _don_row(r: tuple[Any, ...]) -> dict[str, Any]:
+    # `dong` là TEXT do nhiều nơi ghi (API, seeder Quảnverse, script dọn dữ liệu).
+    # Đọc hỏng KHÔNG được làm sập cả danh sách đơn: hàng đó vẫn hiện được ở
+    # `/pha` với `dong = []` để nhân viên còn hủy được, thay vì 500 làm mất trắng
+    # mọi đơn khác. Nguyên nhân gốc đã bị chặn ở migration 0018 + seeder.
+    try:
+        dong = json.loads(r[4])
+    except (TypeError, ValueError):
+        dong = []
     return {
         "id": str(r[0]),
         "nv_id": str(r[1]),
         "trang_thai": str(r[2]),
         "thanh_toan": str(r[3]),
-        "dong": json.loads(r[4]),
+        "dong": [x for x in dong if isinstance(x, dict)] if isinstance(dong, list) else [],
         "ly_do_huy": r[5],
         "luc": str(r[6]),
         "nguon": "quay_noi_bo",
