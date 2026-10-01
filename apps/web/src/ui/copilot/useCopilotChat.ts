@@ -390,6 +390,9 @@ export function useCopilotChat(mode: Mode = "pane") {
                 m.id === copilotId && !m.text ? { ...m, pending_status: status } : m
               )
             );
+          },
+          (kind) => {
+            clarifRef.current = kind;
           }
         );
 
@@ -515,7 +518,8 @@ async function streamCopilot(
   payload: string,
   token: string,
   onDelta: (delta: string) => void,
-  onStatus?: (status: string) => void
+  onStatus?: (status: string) => void,
+  onMeta?: (clarificationKind: string | null) => void
 ): Promise<StreamResult> {
   try {
     const res = await fetch(`${API_BASE}/api/v1/copilot/message/stream`, {
@@ -555,10 +559,11 @@ async function streamCopilot(
             try {
               const data = JSON.parse(dataStr);
               if (eventName === "meta") {
-                clarifRef.current =
+                onMeta?.(
                   typeof data.clarification_kind === "string"
                     ? data.clarification_kind
-                    : null;
+                    : null
+                );
                 meta = {
                   action_proposal: data.action_proposal ?? null,
                   citations: Array.isArray(data.citations) ? data.citations : null,
