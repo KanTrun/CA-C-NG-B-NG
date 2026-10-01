@@ -61,9 +61,10 @@ https://<domain>/api/v1/channels/facebook/webhook
 
 ## 6b. Comment tự trả lời (auto-send)
 
-- Comment **có thể tự trả lời công khai** khi intent an toàn + confidence cao
-  (`COMMENT_SAFE_INTENTS` + `AUTO_THRESHOLD_COMMENT` trong `packages/agents/src/ca_agents/fb_policy.py`):
-  chào hỏi, giờ/địa chỉ, menu/giá, khuyến mãi, đặt bàn.
+- Comment an toàn (chào hỏi, giờ/địa chỉ, menu/giá, khuyến mãi, đặt bàn —
+  `COMMENT_SAFE_INTENTS` + conf ≥ `AUTO_THRESHOLD_COMMENT`) **luôn tự trả lời
+  công khai, không phụ thuộc cờ auto-send** (quyết định của Chủ quán).
+  Cờ `NHIPQUAN_FB_AUTO_SEND` / nút hộp thư chỉ giữ cho tin nhắn Messenger.
 - Comment không an toàn (khiếu nại, nhạy cảm, đòi người thật...) → **vẫn queue cho
   Quản lý duyệt tay** (ADR-008).
 - Tự trả lời FAQ và cảm biến Jev **mặc định BẬT** (thiếu env = bật). Tắt tường minh

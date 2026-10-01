@@ -662,9 +662,11 @@ def moderate_fb_message(
                 notified_channel="in_app",
             )
     elif decision.action == FbPolicyAction.AUTO_SEND:
-        # Đến đây: messenger (flag ON) hoặc comment an toàn + confidence cao.
+        # Comment công khai an toàn: LUÔN claim để tự trả lời, bất kể cờ
+        # auto-send (quyết định của Chủ quán: mặc kệ env/KV, comment an toàn
+        # phải được trả lời ngay). Cờ chỉ giữ cho Messenger.
         # Comment không an toàn đã bị hạ QUEUE_REVIEW ở trên.
-        if fb_auto_send_enabled() and (source == "messenger" or source == "comment"):
+        if source == "comment" or fb_auto_send_enabled():
             # Claim giao tin; webhook chỉ đánh dấu auto_sent sau khi Graph xác nhận.
             review_id = fb_review_insert(
                 {
@@ -691,8 +693,9 @@ def moderate_fb_message(
                 }
             )
         else:
-            # Flag OFF: auto-able nhưng chưa được phép gửi → pending cho QL
-            # duyệt tay (ADR-008: người quyết). KHÔNG ghi auto_sent.
+            # Flag OFF + Messenger: auto-able nhưng chưa được phép gửi →
+            # pending cho QL duyệt tay (ADR-008: người quyết). KHÔNG ghi
+            # auto_sent. Nhánh comment không bao giờ vào đây (luôn claim ở trên).
             review_id = fb_review_insert(
                 {
                     "source": source,
@@ -735,6 +738,7 @@ def moderate_fb_message(
         "confidence": confidence,
         "reason": decision.reason,
         "flagged_reasons": flagged,
+        "source": source,
     }
 
 

@@ -1318,15 +1318,15 @@ async def facebook_webhook(request: Request) -> Any:
             if moderation.get("action") not in {"block_silent", "block_polite"}:
                 # Comment công khai.
                 # - Nếu policy cho auto_send (intent an toàn + confidence cao,
-                #   COMMENT_SAFE_INTENTS + AUTO_THRESHOLD_COMMENT) VÀ cờ
-                #   auto_send bật: gửi trả lời công khai ngay, không cần QL
-                #   duyệt. Ưu tiên LLM draft thông minh, fallback về response
-                #   template đã qua supervisor.
+                #   COMMENT_SAFE_INTENTS + AUTO_THRESHOLD_COMMENT): gửi trả lời
+                #   công khai ngay, KHÔNG phụ thuộc cờ auto-send (quyết định
+                #   của Chủ quán: comment an toàn luôn được trả lời; cờ chỉ
+                #   giữ cho Messenger). Ưu tiên LLM draft thông minh,
+                #   fallback về response template đã qua supervisor.
                 # - Ngược lại: sinh LLM draft cho QL duyệt tay (ADR-008).
                 if (
                     moderation.get("action") == "auto_send"
                     and moderation.get("response")
-                    and _fb_auto_send_enabled()
                 ):
                     final_text = str(moderation["response"]).strip()
                     if agent_mode() == "live":

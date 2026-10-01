@@ -296,7 +296,7 @@ export default function FbInboxPage() {
         <Notice>
           {policy.auto_send_enabled
             ? "Đang bật tự trả lời FAQ (chào hỏi, menu, địa chỉ, giờ niêm yết). Khiếu nại, đặt bàn, đổi giờ đặc biệt vẫn chờ duyệt."
-            : "Đang tắt tự gửi — mọi tin FAQ cũng vào hộp thư này. Chủ quán bật tự trả lời để khách nhận ngay."}
+            : "Đang tắt tự gửi Messenger — tin nhắn FAQ vào hộp thư này. Bình luận công khai an toàn vẫn tự trả lời (không phụ thuộc công tắc này)."}
           {chuQuan ? (
             <span style={{ display: "inline-block", marginLeft: 12 }}>
               <Btn
