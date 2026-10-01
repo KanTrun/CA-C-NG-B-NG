@@ -8,6 +8,8 @@
 import type {
   QuanverseAskResult,
   QuanverseDataSource,
+  QuanverseEvidence,
+  QuanverseJev,
   QuanverseModesState,
   QuanverseRole,
   QuanverseScenario,
@@ -63,4 +65,11 @@ export interface QuanverseRepository {
   confirmMode(mode: string): Promise<QuanverseModesState>;
   /** Tắt mode đang bật (manager). */
   deactivateMode(mode: string): Promise<QuanverseModesState>;
+  /** QUÁNVERSE 2.0 — Evidence thật (không JEV). Null khi đọc lỗi. */
+  getEvidence(): Promise<QuanverseEvidence | null>;
+  /** QUÁNVERSE 2.0 — Evidence + JEV judge/rank. Null khi đọc lỗi. */
+  judgeJev(): Promise<{ evidence: QuanverseEvidence; jev: QuanverseJev } | null>;
+  /** Demo Setup/Reset qua schema nghiệp vụ thật (manager, admin ẩn). */
+  demoSetup(): Promise<unknown>;
+  demoReset(): Promise<unknown>;
 }

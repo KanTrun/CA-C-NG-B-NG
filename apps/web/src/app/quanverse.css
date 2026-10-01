@@ -1887,3 +1887,62 @@
   outline: 2px dashed var(--nq-accent);
   outline-offset: 2px;
 }
+
+/* ── QUÁNVERSE 2.0 — verdict + top3 + empty ───────────────────────────────── */
+
+.nq-qvverdict {
+  border-color: color-mix(in srgb, var(--nq-accent) 45%, var(--nq-line));
+}
+
+.nq-qvverdict__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.5rem;
+}
+
+.nq-qvverdict__cancu {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--nq-dim);
+}
+
+.nq-qvtop3 .nq-qv-nguon {
+  font-weight: 700;
+}
+
+.nq-qvempty__list {
+  list-style: none;
+  margin: 0.5rem 0 0;
+  padding: 0;
+  display: grid;
+  gap: 0.4rem;
+}
+
+.nq-qvempty__item {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.5rem 0.65rem;
+  border: 1px solid var(--nq-line);
+  border-radius: var(--nq-radius);
+  background: var(--nq-surface);
+  font-size: 0.82rem;
+  color: var(--nq-ink);
+}
+
+.nq-qvempty__st {
+  font-size: 0.72rem;
+  color: var(--nq-dim);
+  margin-inline-start: auto;
+}
+
+.nq-qvempty__demo {
+  display: grid;
+  gap: 0.4rem;
+  margin-block-start: 0.6rem;
+  padding: 0.6rem 0.7rem;
+  border: 1px dashed color-mix(in srgb, var(--nq-accent) 45%, var(--nq-line));
+  border-radius: var(--nq-radius);
+}

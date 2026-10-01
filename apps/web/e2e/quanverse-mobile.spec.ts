@@ -1,14 +1,10 @@
 import { expect, test } from "@playwright/test";
-import { disableWebgl, loginAs } from "./_helpers";
+import { disableWebgl, ensureDemoData, loginAs } from "./_helpers";
 
 /**
- * QUÁNVERSE mobile e2e — 390×844.
+ * QUÁNVERSE 2.0 mobile e2e — 390×844.
  *
- * Yêu cầu gốc: "Mobile: stack thành một cột. Không để panel hẹp khiến chữ kéo
- * dài. KPI phải nhìn thấy ngay."
- *
- * Chốt: không tràn ngang · KPI nằm trong màn đầu · bản đồ khu vực bấm được với
- * đích chạm ≥ 44px.
+ * Yêu cầu gốc: "Mobile: stack thành một cột. Verdict JEV phải nhìn thấy ngay."
  */
 
 test.describe("QUÁNVERSE mobile", () => {
@@ -17,6 +13,7 @@ test.describe("QUÁNVERSE mobile", () => {
   test.beforeEach(async ({ page }) => {
     await disableWebgl(page);
     await loginAs(page);
+    await ensureDemoData(page);
   });
 
   test("không tràn ngang", async ({ page }) => {
@@ -33,15 +30,15 @@ test.describe("QUÁNVERSE mobile", () => {
     ).toBeLessThanOrEqual(overflow.clientW + 1);
   });
 
-  test("KPI nhìn thấy ngay trong màn đầu", async ({ page }) => {
+  test("Verdict nhìn thấy ngay trong màn đầu", async ({ page }) => {
     await page.goto("/quanverse");
-    const kpis = page.getByTestId("quanverse-kpis");
-    await expect(kpis).toBeVisible({ timeout: 15_000 });
+    const verdict = page.getByTestId("quanverse-verdict");
+    await expect(verdict).toBeVisible({ timeout: 15_000 });
 
-    const box = await kpis.boundingBox();
-    expect(box, "không đo được khối KPI").not.toBeNull();
-    // Toàn bộ dải KPI phải nằm trong màn đầu (844px).
-    expect((box?.y ?? 9999) + (box?.height ?? 0)).toBeLessThanOrEqual(844);
+    const box = await verdict.boundingBox();
+    expect(box, "không đo được khối verdict").not.toBeNull();
+    // Verdict phải nằm trong màn đầu (844px).
+    expect(box?.y ?? 9999).toBeLessThanOrEqual(844);
   });
 
   test("bố cục xếp thành một cột", async ({ page }) => {

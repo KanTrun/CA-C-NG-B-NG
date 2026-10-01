@@ -148,8 +148,24 @@ export class MockQuanverseRepository implements QuanverseRepository {
     return this.listModes();
   }
 
-  async getViewModel(opts: QuanverseReadOptions): Promise<QuanverseViewModel> {
-    const scenario = this.scenarioHienTai(opts);
+  async getEvidence(): Promise<null> {
+    // QUÁNVERSE 2.0 không dùng mock — evidence chỉ từ DB thật.
+    return null;
+  }
+
+  async judgeJev(): Promise<null> {
+    return null;
+  }
+
+  async demoSetup(): Promise<null> {
+    return null;
+  }
+
+  async demoReset(): Promise<null> {
+    return null;
+  }
+
+  async getViewModel(opts: QuanverseReadOptions): Promise<QuanverseViewModel> {    const scenario = this.scenarioHienTai(opts);
     const f = MOCK_FIXTURES[scenario] ?? MOCK_FIXTURES[MAC_DINH];
 
     const provenance = [

@@ -268,6 +268,13 @@ EXCLUDED_ROUTES: dict[str, str] = {
     # đây đúng khuôn "narration phụ trợ" như /api/v1/ai/insight.
     "/api/v1/experience/quanverse/brief/{page}": "narration phụ trợ — tóm tắt tất định của dữ liệu đã có capability riêng",
     "/api/v1/experience/quanverse/ask": "narration phụ trợ — LLM chỉ diễn đạt brief, không thêm số/kết luận",
+    # ── Quanverse 2.0 — Evidence / JEV judge / Demo Setup (deep-link /quanverse) ──
+    # Evidence + JEV judge đọc/gạch từ cùng DB thật mà stations/forecast đã phủ;
+    # JEV chỉ judge/rank closed-set, không điều phối hành động mới qua chat.
+    "/api/v1/experience/quanverse/evidence": "experience — deep-link /quanverse (STATE + coverage từ DB thật, chỉ đọc)",
+    "/api/v1/experience/quanverse/jev-judge": "experience — deep-link /quanverse (JEV judge/rank closed-set A–E, không phát minh action)",
+    "/api/v1/experience/quanverse/demo-setup": "R3: nạp dữ liệu demo bằng bản ghi nghiệp vụ thật qua UI /quanverse (quản lý/chủ quán)",
+    "/api/v1/experience/quanverse/demo-reset": "R3: xoá bản ghi demo qua UI /quanverse (quản lý/chủ quán)",
     "/api/v1/experience/war-room/simulate": "R2: mô phỏng qua UI /quanverse/war-room (số do math layer, không qua chat)",
     "/api/v1/experience/war-room/simulate-live": "R2: mô phỏng trên LỊCH TUẦN THẬT qua UI /quanverse/war-room (số tự tính, không preset)",
     "/api/v1/experience/war-room/scenarios/{simulation_id}": "experience — deep-link /quanverse/war-room",
