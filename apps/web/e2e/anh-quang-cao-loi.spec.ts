@@ -12,8 +12,46 @@ const MON = "mon_sua";
 const ANH_1PX =
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
 
+/** Bước 1 qua được để vào được bước tạo ảnh (test này tập trung vào lỗi khi sinh ảnh). */
+async function chan_kiem_anh_dat(page: Page, ghi = ""): Promise<void> {
+    await page.route(`**/api/v1/menu/${MON}/anh/kiem-tra`, async (route) => {
+        await route.fulfill({
+            status: 200,
+            contentType: "application/json",
+            body: JSON.stringify({
+                ok: true,
+                mon_id: MON,
+                da_kiem: !ghi,
+                bao_bi: "glass",
+                ghi,
+            }),
+        });
+    });
+}
+
+/** Chặn endpoint prompt quảng cáo để trả kết quả nhanh, không phụ thuộc backend. */
+async function chan_prompt_quang_cao(page: Page): Promise<void> {
+    await page.route(`**/api/v1/menu/${MON}/anh/prompt-quang-cao`, async (route) => {
+        await route.fulfill({
+            status: 200,
+            contentType: "application/json",
+            body: JSON.stringify({
+                ok: true,
+                provider: "local-template",
+                mon_id: MON,
+                prompt_en: "A refreshing cup of iced milk coffee on a wooden table, professional photography",
+                prompt_vi: "Cà phê sữa đá trên bàn gỗ",
+                bao_bi: "glass",
+                bo_qua: [],
+            }),
+        });
+    });
+}
+
 /** Đăng nhập và mở món có sẵn, rồi mở khu tạo ảnh. */
 async function mo_khu_tao_anh(page: Page): Promise<void> {
+    await chan_kiem_anh_dat(page);
+    await chan_prompt_quang_cao(page);
     await page.goto("/login");
     await page.getByLabel("Tài khoản").fill("hung");
     await page.getByLabel("Mật khẩu").fill("nhipquan");
