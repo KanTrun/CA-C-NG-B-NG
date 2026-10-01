@@ -101,3 +101,25 @@ tạo ra đơn nghỉ không biết lý do mà quản lý vẫn phải duyệt.
 Nguyên tắc chung: thiếu thông tin bắt buộc thì **hỏi lại**, không bịa giá trị mặc
 định rồi đẩy cho người khác xử lý. Cùng nguyên tắc này áp dụng cho `giao ca`,
 `đổi ca`, `giá món`.
+
+## 6. Nhận diện intent bằng TỪ KHÓA CỨNG: đây là QUYẾT ĐỊNH, không phải sơ suất
+
+`_INTENT_KEYWORDS` trong `intent_parser.py` có 35 intent × 611 chuỗi khớp bằng
+`kw in lower`. Nhân viên nói lệch một từ là rơi `OUT_OF_SCOPE`. Nghe như
+nợ kỹ thuật, nhưng đã hỏi và **chủ dự án chốt giữ nguyên** (2026-10-01).
+
+Lý do giữ được:
+- Replay và CI **không có LLM**; tầng từ khóa giữ cho test tất định. Toàn bộ
+  `e2e_http_copilot.py` dựa vào nó.
+- `parse_intent` nằm trên đường intent → tool → phân quyền. Đặt LLM vào đây là
+  thêm độ trễ và mất tính tất định đúng chỗ khó nhất.
+
+**Jev KHÔNG phải câu trả lời.** `sensors/jev_sensor.py` là *cảm biến xác suất gọi
+Jev (TypeSafe System One)* — trả về "có nên gọi ra hệ thống ngoài không", khác hẳn
+"NV đang muốn cái gì". Nó còn đang là stub (`JEV_ENABLED` tắt mặc định, chưa có API
+key, payload còn phải đối chiếu lại với docs). Đừng đề xuất cắm nó vào parse intent.
+
+Nếu sau này chủ dự án đổi ý, mẫu đúng **đã có sẵn** trong repo:
+`packages/agents/src/ca_agents/ag_msg/extract.py:214-222` — từ khóa tầng-1, lỡ
+tầng-1 thì ở chế độ live mới gọi LLM trả `{intent, confidence}`, validate trong
+whitelist rồi gắn `rang_buoc={"nguon":"llm"}`. Bắt chước y hệt, đừng phát minh.
