@@ -1,0 +1,54 @@
+{
+  "properties": {
+    "id": {
+      "title": "Id",
+      "type": "string"
+    },
+    "account_id": {
+      "title": "Account Id",
+      "type": "string"
+    },
+    "message_ids": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Message Ids",
+      "type": "array"
+    },
+    "subject": {
+      "default": "",
+      "title": "Subject",
+      "type": "string"
+    },
+    "participants": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Participants",
+      "type": "array"
+    },
+    "last_message_date": {
+      "default": "",
+      "title": "Last Message Date",
+      "type": "string"
+    },
+    "is_unread": {
+      "default": false,
+      "title": "Is Unread",
+      "type": "boolean"
+    },
+    "label_ids": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Label Ids",
+      "type": "array"
+    }
+  },
+  "required": [
+    "id",
+    "account_id"
+  ],
+  "title": "GmailThread",
+  "type": "object"
+}

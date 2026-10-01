@@ -1,0 +1,16 @@
+{
+  "properties": {
+    "criteria": {
+      "additionalProperties": true,
+      "title": "Criteria",
+      "type": "object"
+    },
+    "action": {
+      "additionalProperties": true,
+      "title": "Action",
+      "type": "object"
+    }
+  },
+  "title": "GmailFilterCreateRequest",
+  "type": "object"
+}

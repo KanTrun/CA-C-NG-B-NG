@@ -164,7 +164,11 @@ async def sync_account(account_id: str, *, full_sync: bool = False) -> dict[str,
     email = str(account["email"])
 
     sync_state = gmail_sync_state_get(account_id)
-    start_history_id = str(sync_state["last_history_id"]) if sync_state and sync_state.get("last_history_id") else None
+    start_history_id = (
+        str(sync_state["last_history_id"])
+        if sync_state and sync_state.get("last_history_id")
+        else None
+    )
 
     if full_sync or not start_history_id:
         return await _full_sync(account_id, service, email)
@@ -328,9 +332,11 @@ async def _incremental_sync(
     }
 
 
-async def sync_all_accounts(store_id: str, *, full_sync: bool = False) -> list[dict[str, Any]]:
-    """Đồng bộ mọi tài khoản Gmail của một quán."""
-    accounts = gmail_account_list(store_id)
+async def sync_all_accounts(
+    store_id: str, *, nv_id: str | None = None, full_sync: bool = False
+) -> list[dict[str, Any]]:
+    """Đồng bộ các tài khoản Gmail của một quán (hoặc của một người khi có `nv_id`)."""
+    accounts = gmail_account_list(store_id, nv_id)
     results: list[dict[str, Any]] = []
 
     for account in accounts:
@@ -338,12 +344,14 @@ async def sync_all_accounts(store_id: str, *, full_sync: bool = False) -> list[d
         try:
             results.append(await sync_account(account_id, full_sync=full_sync))
         except Exception as exc:
-            results.append({
-                "account_id": account_id,
-                "email": str(account.get("email", "")),
-                "type": "error",
-                "error": str(exc),
-            })
+            results.append(
+                {
+                    "account_id": account_id,
+                    "email": str(account.get("email", "")),
+                    "type": "error",
+                    "error": str(exc),
+                }
+            )
 
     return results
 

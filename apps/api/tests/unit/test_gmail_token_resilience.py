@@ -22,7 +22,7 @@ _BASE = "/api/v1/gmail"
 def test_list_accounts_survives_undecryptable_token(monkeypatch) -> None:
     """Token hỏng không được làm `GET /accounts` trả 500."""
     acc = persist.gmail_account_create(
-        store_id="quan_01", nv_id="nv_01", email="hong.khoa@gmail.com"
+        store_id="quan_01", nv_id="nv_02", email="hong.khoa@gmail.com"
     )
     aid = str(acc["id"])
     persist.gmail_token_save(
@@ -40,7 +40,7 @@ def test_list_accounts_survives_undecryptable_token(monkeypatch) -> None:
 
     monkeypatch.setattr(persist, "_decrypt", _boom)
 
-    res = client.get(_BASE + "/accounts", headers=headers(client, "lan"))
+    res = client.get(_BASE + "/accounts", headers=headers(client, "hung"))
 
     assert res.status_code == 200, f"UI không mở được để kết nối lại (status={res.status_code})"
     row = next(a for a in res.json()["accounts"] if a["id"] == aid)
@@ -51,7 +51,7 @@ def test_list_accounts_survives_undecryptable_token(monkeypatch) -> None:
 def test_account_detail_survives_undecryptable_token(monkeypatch) -> None:
     """`GET /accounts/{id}` cũng phải chịu được token hỏng."""
     acc = persist.gmail_account_create(
-        store_id="quan_01", nv_id="nv_01", email="hong.khoa.2@gmail.com"
+        store_id="quan_01", nv_id="nv_02", email="hong.khoa.2@gmail.com"
     )
     aid = str(acc["id"])
     persist.gmail_token_save(
@@ -65,14 +65,14 @@ def test_account_detail_survives_undecryptable_token(monkeypatch) -> None:
 
     monkeypatch.setattr(persist, "_decrypt", lambda _: (_ for _ in ()).throw(InvalidToken()))
 
-    res = client.get(f"{_BASE}/accounts/{aid}", headers=headers(client, "lan"))
+    res = client.get(f"{_BASE}/accounts/{aid}", headers=headers(client, "hung"))
     assert res.status_code == 200
 
 
 def test_token_status_query_does_not_decrypt() -> None:
     """Truy vấn trạng thái token phải không giải mã (rẻ và không thể ném lỗi)."""
     acc = persist.gmail_account_create(
-        store_id="quan_01", nv_id="nv_01", email="trang.thai@gmail.com"
+        store_id="quan_01", nv_id="nv_02", email="trang.thai@gmail.com"
     )
     aid = str(acc["id"])
     persist.gmail_token_save(
@@ -91,6 +91,6 @@ def test_token_status_query_does_not_decrypt() -> None:
 
 def test_token_status_none_when_missing() -> None:
     acc = persist.gmail_account_create(
-        store_id="quan_01", nv_id="nv_01", email="khong.token@gmail.com"
+        store_id="quan_01", nv_id="nv_02", email="khong.token@gmail.com"
     )
     assert persist.gmail_token_status(str(acc["id"])) is None

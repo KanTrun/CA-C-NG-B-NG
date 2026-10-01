@@ -84,8 +84,6 @@ const MANAGER_ONLY = new Set([
   "/page-quan",
   "/page-quan/fb-inbox",
   "/ai-learning",
-  // Quản lý hộp thư Gmail (OAuth, nhãn, bộ lọc, gửi) — README ghi Quản lý/chủ quán.
-  "/gmail",
   // Cấu hình quán & hướng dẫn AI — kv store_profile, API đòi `_require_manager`.
   "/cau-hinh-quan",
   // Mỗi lượt khảo sát tốn chi phí proxy + Vision thật, nên khớp với `_require_manager`
@@ -97,7 +95,14 @@ const MANAGER_ONLY = new Set([
   "/de-xuat-thong-minh",
   "/thu-nghiem-an-toan",
 ]);
-const OWNER_ONLY = new Set(["/menu", "/nguoi"]);
+const OWNER_ONLY = new Set([
+  "/menu",
+  "/nguoi",
+  // Quản lý hộp thư Gmail — CHỈ chủ quán: chủ quán tự thêm mail mình muốn
+  // theo dõi, mail của quán không cho quản lý/nhân viên thấy. API
+  // `/api/v1/gmail/*` đòi vai `chu_quan` (403 `chi_danh_cho_chu_quan`).
+  "/gmail",
+]);
 
 /**
  * Mọi đường dẫn HỢP LỆ của app (khớp `GROUPS` trong `AppShell.tsx` + route
