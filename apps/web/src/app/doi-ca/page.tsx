@@ -244,6 +244,24 @@ export default function DoiCaPage() {
     });
   }, [showClosed, items, available, search, statusF, personF, pickers]);
 
+  // Ưu tiên hiển thị: phiếu tới lượt TÔI xử lý (bấm Duyệt / bấm Nhận) lên
+  // đầu, phiếu chờ người khác ở giữa, phiếu đã xong xuống cuối.
+  const sapXep = useMemo(() => {
+    const hang = (it: Swap) => {
+      if (DONG_TRANG_THAI.has(it.trang_thai)) return 2;
+      const agreed = new Set(it.dong_y ?? []);
+      const du = it.trang_thai === "dong_y" || agreed.size >= 2;
+      if (laQuanLy && du) return 0;
+      const rr = it.rui_ro;
+      const hong = Boolean(rr && !rr.co_the_nhan && rr.ly_do_chan === "ca_khong_trong_phan_cong_cua_nguoi_nhuong");
+      const hetHan = Boolean(it.tuan_id && it.tuan_id < openShiftWeek);
+      const recipient = it.b === "all" || it.b === meNv;
+      if (!hetHan && !hong && meNv && recipient && it.a !== meNv && !agreed.has(meNv)) return 0;
+      return 1;
+    };
+    return [...filtered].sort((x, y) => hang(x) - hang(y));
+  }, [filtered, laQuanLy, meNv, openShiftWeek, DONG_TRANG_THAI]);
+
   const filterActive = search.length > 0 || statusF !== "all" || personF !== "all";
 
   function clearFilters() {
@@ -530,12 +548,15 @@ export default function DoiCaPage() {
         {!loading && filtered.length === 0 && (showClosed ? items.length : available.length) > 0 ? <FilteredEmpty onClear={clearFilters} /> : null}
         <div className="nq-list">
           <PagedList
-            items={filtered}
+            items={sapXep}
             pageSize={10}
             renderItem={(it) => {
               const agreed = new Set(it.dong_y ?? []);
               const rr = it.rui_ro;
               const daDuyet = it.trang_thai === "da_duyet";
+              // Chỉ phiếu còn mở mới có nút bấm — phiếu đã xong (duyệt/từ chối/
+              // hủy) bấm gì cũng không đổi trạng thái, ẩn hết để khỏi rối.
+              const dangMo = !DONG_TRANG_THAI.has(it.trang_thai);
               // Phiếu hỏng: người nhường không còn giữ ca → duyệt cũng vô nghĩa.
               const hong = Boolean(rr && !rr.co_the_nhan && rr.ly_do_chan === "ca_khong_trong_phan_cong_cua_nguoi_nhuong");
               // Phiếu của tuần đã qua → ca đã trôi, không còn gì để nhận/duyệt.
@@ -544,7 +565,7 @@ export default function DoiCaPage() {
               // số lượt thì phiếu mở cho mọi người (1 lượt nhận là xong) kẹt mãi.
               const du = it.trang_thai === "dong_y" || agreed.size >= 2;
               const recipient = it.b === "all" || it.b === meNv;
-              const canAgree = !hetHan && !hong && meNv && recipient && it.a !== meNv && !agreed.has(meNv) && !daDuyet;
+              const canAgree = dangMo && !hetHan && !hong && meNv && recipient && it.a !== meNv && !agreed.has(meNv);
               // Nói rõ đang chờ ai thay vì câu chung chung.
               const choAi = [it.a, it.b === "all" ? null : it.b].filter(
                 (p): p is string => typeof p === "string" && p.length > 0 && !agreed.has(p),
@@ -604,18 +625,18 @@ export default function DoiCaPage() {
                       </>
                     ) : null}
                     {/* Quản lý duyệt: chỉ hiện khi đã đủ hai bên đồng ý và chưa duyệt. */}
-                    {laQuanLy && !daDuyet && !hetHan && !hong && du ? (
+                    {laQuanLy && dangMo && !hetHan && !hong && du ? (
                       <Btn variant="primary" busy={busy} onClick={() => void duyet(it.id)}>
                         Duyệt &amp; áp dụng
                       </Btn>
                     ) : null}
-                    {laQuanLy && !daDuyet && !hetHan && !hong && !du ? (
+                    {laQuanLy && dangMo && !hetHan && !hong && !du ? (
                       <span className="text-xs text-[var(--nq-dim)] self-center">
                         {choAi.length > 0 ? `Chờ: ${choAi.map(personLabel).join(", ")}` : "Chờ người nhận đầu tiên."}
                       </span>
                     ) : null}
-                    {/* Phiếu hỏng / hết hạn: quản lý đóng để dọn chợ, khỏi tồn mãi. */}
-                    {laQuanLy && !daDuyet && (hong || hetHan) ? (
+                    {/* Phiếu hỏng / hết hạn mà còn mở: quản lý đóng để dọn chợ, khỏi tồn mãi. */}
+                    {laQuanLy && dangMo && (hong || hetHan) ? (
                       <Btn variant="danger" disabled={busy} onClick={() => void tuChoi(it.id)}>
                         {hong ? "Đóng phiếu hỏng" : "Đóng phiếu hết hạn"}
                       </Btn>
