@@ -273,23 +273,26 @@ jobs:
   docker:
     name: "09 docker build"
     runs-on: ubuntu-latest
+    env:
+      NHIPQUAN_SEED_DEMO: "true"
     steps:
       - uses: actions/checkout@v4
       - name: Prepare env
         run: |
           cp .env.example .env || touch .env
           sed -i 's/^NHIPQUAN_SEED_DEMO=.*/NHIPQUAN_SEED_DEMO=true/' .env
-      - run: docker compose -f infra/docker/compose.yml build
+          cp .env infra/docker/.env
+      - run: docker compose --project-directory . -f infra/docker/compose.yml build
       - name: Stack lên và smoke toàn tuyến
         run: |
-          docker compose -f infra/docker/compose.yml up -d --wait || docker compose -f infra/docker/compose.yml up -d
-          docker compose -f infra/docker/compose.yml exec -T api python /app/scripts/smoke_docker.py
+          docker compose --project-directory . -f infra/docker/compose.yml up -d --wait || docker compose --project-directory . -f infra/docker/compose.yml up -d
+          docker compose --project-directory . -f infra/docker/compose.yml exec -T api python /app/scripts/smoke_docker.py
       - name: Log khi đỏ
         if: failure()
-        run: docker compose -f infra/docker/compose.yml logs --tail=200
+        run: docker compose --project-directory . -f infra/docker/compose.yml logs --tail=200
       - name: Dọn
         if: always()
-        run: docker compose -f infra/docker/compose.yml down -v
+        run: docker compose --project-directory . -f infra/docker/compose.yml down -v
 
 
   yaml-templates:
