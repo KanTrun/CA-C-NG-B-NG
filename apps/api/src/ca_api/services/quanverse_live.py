@@ -291,20 +291,21 @@ def stations(store_id: str = "quan_01") -> dict[str, Any]:
 
 
 def forecast(store_id: str = "quan_01") -> dict[str, Any]:
-    """Nhu cầu/hàng đợi theo GIỜ, tất định từ lịch sử đơn quầy.
+    """Nhu cầu/hàng đợi theo GIỜ + dự báo NGÀY MAI, tất định từ lịch sử đơn quầy.
 
-    Đếm số đơn mỗi giờ trong lịch sử (tất cả ngày có dữ liệu), rồi lấy trung
-    bình theo giờ → đường nhu cầu 07:00–22:00. Chưa có lịch sử → đường phẳng
-    và `co_du_lieu=False` (UI nói rõ "chưa đủ dữ liệu").
+    Hôm nay: trung bình theo giờ + khoảng tin cậy 80% (mean ± 1.28·std/√n).
+    Ngày mai: áp hệ số mùa theo thứ (trung bình thứ đó / trung bình chung).
+    Chưa có lịch sử → `co_du_lieu=False` (UI nói rõ "chưa đủ dữ liệu").
     """
     from collections import defaultdict
+    from datetime import UTC, datetime, timedelta
 
     from ca_api.persist import don_list
 
     del store_id
     orders = don_list()
-    theo_gio: dict[int, int] = defaultdict(int)
-    ngay_co_don: set[str] = set()
+    theo_ngay_gio: dict[str, dict[int, int]] = defaultdict(lambda: defaultdict(int))
+    tong_theo_ngay: dict[str, float] = defaultdict(float)
     for o in orders:
         luc = str(o.get("luc") or "")
         if len(luc) < 13:
@@ -313,24 +314,82 @@ def forecast(store_id: str = "quan_01") -> dict[str, Any]:
             g = int(luc[11:13])
         except ValueError:
             continue
-        theo_gio[g] += 1
-        ngay_co_don.add(luc[:10])
+        ngay = luc[:10]
+        theo_ngay_gio[ngay][g] += 1
+        tong_theo_ngay[ngay] += 1.0
 
-    n_ngay = max(1, len(ngay_co_don))
+    ngay_co_don = set(theo_ngay_gio)
     khung = list(range(7, 23))
-    series = [
-        {
-            "gio": g,
-            "nhu_cau": round(theo_gio.get(g, 0) / n_ngay, 2),
-            "hang_doi_du_bao": max(0, round(theo_gio.get(g, 0) / n_ngay - 2)),
-        }
-        for g in khung
-    ]
-    dinh = max((s["nhu_cau"] for s in series), default=0.0)
+
+    try:
+        from ca_agents.ag_predict.math_layer import (
+            do_tin_cay_tu_so_ngay,
+            du_bao_nhu_cau_theo_gio,
+            he_so_ngay_trong_tuan,
+        )
+
+        series = du_bao_nhu_cau_theo_gio(
+            {k: dict(v) for k, v in theo_ngay_gio.items()}, khung
+        )
+        do_tin_cay = do_tin_cay_tu_so_ngay(len(ngay_co_don))
+        # Ngày mai theo lịch VN (UTC+7).
+        mai = (datetime.now(UTC) + timedelta(days=1)).date()
+        # weekday Python 0=T2; he_so key cùng quy ước.
+        he_so = he_so_ngay_trong_tuan(dict(tong_theo_ngay))
+        hs_mai = float(he_so.get(mai.weekday(), 1.0))
+        du_bao_mai = []
+        for s in series:
+            nhu = float(s["nhu_cau"] or 0.0) * hs_mai
+            thap = float(s.get("thap_80") or 0.0) * hs_mai
+            cao = float(s.get("cao_80") or nhu) * hs_mai
+            du_bao_mai.append(
+                {
+                    "gio": s["gio"],
+                    "nhu_cau": round(nhu, 2),
+                    "thap_80": round(max(0.0, thap), 2),
+                    "cao_80": round(cao, 2),
+                    "hang_doi_du_bao": max(0, round(nhu - 2)),
+                }
+            )
+    except Exception:
+        # Lùi an toàn về trung bình phẳng khi math layer chưa nạp được.
+        n_ngay = max(1, len(ngay_co_don))
+        theo_gio: dict[int, int] = defaultdict(int)
+        for gio_map in theo_ngay_gio.values():
+            for g, c in gio_map.items():
+                theo_gio[g] += c
+        series = [
+            {
+                "gio": g,
+                "nhu_cau": round(theo_gio.get(g, 0) / n_ngay, 2),
+                "thap_80": round(theo_gio.get(g, 0) / n_ngay, 2),
+                "cao_80": round(theo_gio.get(g, 0) / n_ngay, 2),
+                "hang_doi_du_bao": max(0, round(theo_gio.get(g, 0) / n_ngay - 2)),
+            }
+            for g in khung
+        ]
+        do_tin_cay = "thap"
+        du_bao_mai = [
+            {"gio": s["gio"], "nhu_cau": s["nhu_cau"], "thap_80": s["nhu_cau"], "cao_80": s["nhu_cau"], "hang_doi_du_bao": s["hang_doi_du_bao"]}
+            for s in series
+        ]
+
+    dinh = max((float(s["nhu_cau"] or 0.0) for s in series), default=0.0)
+    dinh_mai = max((float(s["nhu_cau"] or 0.0) for s in du_bao_mai), default=0.0)
+    n = len(ngay_co_don)
+    ghi_chu = (
+        f"Trung bình {n} ngày gần nhất · khoảng tin cậy 80% · hệ số thứ cho ngày mai"
+        if orders
+        else "Chưa đủ dữ liệu lịch sử để dự báo"
+    )
     return {
         "co_du_lieu": bool(orders),
-        "so_ngay_du_lieu": len(ngay_co_don),
+        "so_ngay_du_lieu": n,
         "series": series,
-        "giao_dich_nhat": [s["gio"] for s in series if s["nhu_cau"] == dinh and dinh > 0],
+        "giao_dich_nhat": [s["gio"] for s in series if float(s["nhu_cau"] or 0.0) == dinh and dinh > 0],
+        "do_tin_cay": do_tin_cay if orders else None,
+        "du_bao_ngay_mai": du_bao_mai if orders else [],
+        "dinh_ngay_mai": [s["gio"] for s in du_bao_mai if float(s["nhu_cau"] or 0.0) == dinh_mai and dinh_mai > 0],
+        "ghi_chu": ghi_chu,
         "nguon": "don_quay" if orders else "chua_co_du_lieu",
     }

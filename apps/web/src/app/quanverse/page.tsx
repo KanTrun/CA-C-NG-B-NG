@@ -7,10 +7,14 @@
  * → bố cục cockpit 3 cột. Mọi biến đổi số liệu nằm trong repository/.
  *
  * Ranh giới: bề mặt VẬN HÀNH. Không guest/Flavor/AR/3D. Modes = human confirm.
+ *
+ * Bổ sung quán quân: URL sync `?role=&source=&scenario=&zone=`, debounce +
+ * request-id guard chống race, aria-live + cuộn tới bản đồ khi focus zone,
+ * WarRoomLite "nếu thì" read-only, Copilot action links.
  */
 
 import dynamic from "next/dynamic";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getRole, getToken, isManager } from "../../lib/session";
 import { AuthGate, Skeleton, TechnicalDrawer } from "../../ui/kit";
 import { Reveal } from "../../ui/motion/Reveal";
@@ -45,6 +49,7 @@ import HeaderBlock from "../../ui/experience/quanverse/ops/HeaderBlock";
 import ModeRail from "../../ui/experience/quanverse/ops/ModeRail";
 import NeedsAttention from "../../ui/experience/quanverse/ops/NeedsAttention";
 import Timeline15 from "../../ui/experience/quanverse/ops/Timeline15";
+import WarRoomLite from "../../ui/experience/quanverse/ops/WarRoomLite";
 import ZoneFocus from "../../ui/experience/quanverse/ops/ZoneFocus";
 
 const OperationalMap2dClient = dynamic(
@@ -62,6 +67,30 @@ const ROLE_NAME: Record<QuanverseRole, string> = {
 
 const MAC_DINH_SCENARIO: QuanverseScenario = "cao_diem";
 
+function docParams(): {
+  role: QuanverseRole | null;
+  source: "real" | "mock" | null;
+  scenario: QuanverseScenario | null;
+  zone: string | null;
+} {
+  try {
+    const q = new URLSearchParams(window.location.search);
+    const r = q.get("role");
+    const s = q.get("source");
+    const sc = q.get("scenario");
+    const z = q.get("zone");
+    return {
+      role: r === "nhan_vien" || r === "quan_ly" || r === "chu_quan" ? r : null,
+      source: s === "mock" || s === "real" ? s : null,
+      scenario:
+        sc === "binh_thuong" || sc === "cao_diem" || sc === "qua_tai_pha" ? sc : null,
+      zone: z && z.trim() ? z.trim() : null,
+    };
+  } catch {
+    return { role: null, source: null, scenario: null, zone: null };
+  }
+}
+
 export default function QuanversePage() {
   const [token, setToken] = useState("");
   const [role, setRole] = useState<QuanverseRole>("quan_ly");
@@ -74,6 +103,7 @@ export default function QuanversePage() {
   const [selectedZone, setSelectedZone] = useState<string | null>(null);
   const [selectedHour, setSelectedHour] = useState<number | null>(null);
   const [focusPanel, setFocusPanel] = useState<"actions" | "timeline" | null>(null);
+  const [thongBaoZone, setThongBaoZone] = useState<string>("");
 
   const [askResult, setAskResult] = useState<QuanverseAskResult | null>(null);
   const [askBusy, setAskBusy] = useState(false);
@@ -86,6 +116,9 @@ export default function QuanversePage() {
   const [dungMock, setDungMock] = useState(false);
 
   const choPhepMock = mockChoPhep();
+  const reqId = useRef(0);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const mapRef = useRef<HTMLDivElement | null>(null);
 
   const repo = useMemo(
     () =>
@@ -99,12 +132,22 @@ export default function QuanversePage() {
   useEffect(() => {
     setToken(getToken());
     const r = getRole() as QuanverseRole;
-    if (ALL_ROLES.includes(r)) setRole(r);
+    const p = docParams();
+    // URL là nguồn chân lý khi có tham số hợp lệ (deep-link/bookmark).
+    if (p.role && ALL_ROLES.includes(p.role)) {
+      setRole(p.role);
+    } else if (ALL_ROLES.includes(r)) {
+      setRole(r);
+    }
+    if (p.scenario) setScenario(p.scenario);
+    if (p.source === "mock" && mockChoPhep()) setDungMock(true);
+    if (p.zone) setSelectedZone(p.zone);
     setManager(isManager());
     setReady(true);
   }, []);
 
   const load = useCallback(async () => {
+    const id = ++reqId.current;
     setLoading(true);
     setError(null);
     try {
@@ -112,6 +155,8 @@ export default function QuanversePage() {
         repo.getViewModel({ role, scenario }),
         repo.listModes(),
       ]);
+      // Bỏ phản hồi cũ khi người dùng đã bấm tiếp (race guard).
+      if (reqId.current !== id) return;
       setVm(data);
       setModesState({
         ...modes,
@@ -119,16 +164,44 @@ export default function QuanversePage() {
         role,
       });
     } catch (e) {
+      if (reqId.current !== id) return;
+      // Tầng đọc đã cô lập lỗi từng nguồn; chỉ tới đây khi dựng cả view-model hỏng.
       setError(e instanceof Error ? e.message : "Không đọc được dữ liệu Quánverse.");
       setVm(null);
     } finally {
-      setLoading(false);
+      if (reqId.current === id) setLoading(false);
     }
   }, [repo, scenario, role]);
 
+  // Debounce 200ms: bấm role/scenario liên tục chỉ tải lần cuối.
   useEffect(() => {
-    if (token && ready) void load();
+    if (!(token && ready)) return;
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => {
+      void load();
+    }, 200);
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
   }, [token, ready, load]);
+
+  // Giữ URL đồng bộ để refresh/deep-link không mất ngữ cảnh.
+  useEffect(() => {
+    if (!ready) return;
+    try {
+      const q = new URLSearchParams(window.location.search);
+      q.set("role", role);
+      q.set("source", dungMock ? "mock" : "real");
+      if (dungMock) q.set("scenario", scenario);
+      else q.delete("scenario");
+      if (selectedZone) q.set("zone", selectedZone);
+      else q.delete("zone");
+      const url = `${window.location.pathname}?${q.toString()}`;
+      window.history.replaceState(null, "", url);
+    } catch {
+      // Không có window/history trong test — bỏ qua im lặng.
+    }
+  }, [ready, role, dungMock, scenario, selectedZone]);
 
   useEffect(() => {
     setSelectedZone((cur) =>
@@ -208,18 +281,38 @@ export default function QuanversePage() {
     [repo, role, manager, load],
   );
 
+  const focusZone = useCallback(
+    (zoneId: string) => {
+      setSelectedZone(zoneId);
+      const ten = vm?.zones.find((z) => z.zoneId === zoneId)?.label ?? zoneId;
+      setThongBaoZone(`Đang xem ${ten} trên bản đồ.`);
+      // Cuộn tới bản đồ (tôn trọng reduced-motion của browser).
+      try {
+        mapRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+        // Focus nút zone để Tab/Enter dùng được ngay.
+        const el = document.querySelector<HTMLButtonElement>(
+          `[data-testid="qv-zone-${CSS.escape(zoneId)}"]`,
+        );
+        el?.focus({ preventScroll: true });
+      } catch {
+        // Môi trường test không có scrollIntoView — bỏ qua.
+      }
+    },
+    [vm],
+  );
+
   const onKpiClick = useCallback(
     (key: QuanverseKpi["key"]) => {
       if (!vm) return;
       if (key === "alerts" || key === "queue") {
         const hot = zoneNongNhat(vm.zones);
-        if (hot) setSelectedZone(hot);
+        if (hot) focusZone(hot);
         setFocusPanel("actions");
       } else if (key === "upcoming") {
         setFocusPanel("timeline");
       }
     },
-    [vm],
+    [vm, focusZone],
   );
 
   if (!ready) return <Skeleton rows={6} />;
@@ -236,6 +329,9 @@ export default function QuanversePage() {
 
   return (
     <div className="nq-qv nq-qv--cockpit" data-testid="quanverse-root">
+      <span className="nq-sr-only" role="status" aria-live="polite">
+        {thongBaoZone}
+      </span>
       {error ? (
         <div className="nq-alert nq-alert--error" role="alert">
           {error}
@@ -256,6 +352,7 @@ export default function QuanversePage() {
           onChangeScenario={(s) => {
             setDungMock(true);
             setScenario(s);
+            setSelectedZone(null);
             setAskResult(null);
           }}
         />
@@ -268,7 +365,10 @@ export default function QuanversePage() {
               className={`nq-qv__rolebtn${role === r ? " is-on" : ""}`}
               data-testid={`role-${r}`}
               aria-pressed={role === r}
-              onClick={() => setRole(r)}
+              onClick={() => {
+                setRole(r);
+                setSelectedZone(null);
+              }}
             >
               {ROLE_NAME[r]}
             </button>
@@ -291,6 +391,7 @@ export default function QuanversePage() {
             data-testid="toggle-source"
             onClick={() => {
               setDungMock((v) => !v);
+              setSelectedZone(null);
               setAskResult(null);
             }}
           >
@@ -323,11 +424,13 @@ export default function QuanversePage() {
           {/* Cockpit 3 cột — stretch đầy chiều cao, không để lỗ trống giữa cột */}
           <div className="nq-qv__deck">
             <div className="nq-qv__col nq-qv__col--map">
-              <OperationalMap2dClient
-                zones={vm.zones}
-                selectedId={selectedZone}
-                onSelect={setSelectedZone}
-              />
+              <div ref={mapRef}>
+                <OperationalMap2dClient
+                  zones={vm.zones}
+                  selectedId={selectedZone}
+                  onSelect={(z) => (z ? focusZone(z) : setSelectedZone(null))}
+                />
+              </div>
               <ZoneFocus
                 zone={zoneFocus}
                 zones={vm.zones}
@@ -337,7 +440,7 @@ export default function QuanversePage() {
                   void handleAsk(q);
                 }}
                 onFocusActions={() => setFocusPanel("actions")}
-                onPickZone={setSelectedZone}
+                onPickZone={focusZone}
               />
             </div>
 
@@ -388,6 +491,7 @@ export default function QuanversePage() {
                   setAskResult(null);
                   setAskPrefill("");
                 }}
+                onFocusZone={focusZone}
               />
               <ModeRail
                 modesState={modesState}
@@ -416,6 +520,9 @@ export default function QuanversePage() {
               setAskResult(null);
             }}
           />
+
+          {/* Nếu-thì ngày mai: ước tính read-only từ dự báo đang hiện */}
+          <WarRoomLite capacity={vm.capacity} zones={vm.zones} isMock={isMock} />
 
           <TechnicalDrawer
             summary="Chi tiết kỹ thuật · nguồn & chất lượng dữ liệu"

@@ -48,7 +48,7 @@ test.describe("QUÁNVERSE — route phụ đã rút", () => {
     }
   });
 
-  test("/quanverse vẫn là điểm vào duy nhất và dùng được", async ({ page }) => {
+  test("/quanverse vẫn là điểm vào duy nhất và dùng được @smoke", async ({ page }) => {
     await page.goto("/quanverse");
     await expect(page.getByTestId("quanverse-root")).toBeVisible({ timeout: 15_000 });
     await expect(page.getByRole("heading", { name: "QUÁNVERSE" })).toBeVisible();
