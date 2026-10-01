@@ -271,7 +271,6 @@ export interface QuanverseDataQualityNotice {
 }
 
 // ── AI Ask (kết quả một lần hỏi) ───────────────────────────────────────────
-
 /** Kết quả `POST /ask` — tách khỏi brief tĩnh để UI giữ cả hai. */
 export interface QuanverseAskResult {
   question: string;
@@ -417,4 +416,126 @@ export function mangHoacRong<T>(value: readonly T[] | null | undefined): T[] {
  */
 export function mangTho(value: unknown): unknown[] {
   return Array.isArray(value) ? [...value] : [];
+}
+
+// ── QUÁNVERSE 2.0 — Evidence / JEV (không mock, JEV chỉ judge/rank) ──────────
+
+export type QuanverseCoverage = "ok" | "thieu";
+export type QuanverseEvidenceTrangThai = "du" | "thieu_1_phan" | "trong";
+
+export interface QuanverseEvidenceCandidate {
+  id: string;
+  label: string;
+  href: string | null;
+  source: string;
+  eligible: boolean;
+  reason: string;
+}
+
+export interface QuanverseEvidence {
+  trangThai: QuanverseEvidenceTrangThai;
+  coverage: { don: QuanverseCoverage; lich: QuanverseCoverage; kho: QuanverseCoverage };
+  state: {
+    donDangXuLy: number | null;
+    tongDon: number | null;
+    quayPhaTai: number | null;
+    quayPhaMuc: number | null;
+    quayPhaCanhBao: string | null;
+    nhanVienTruc: number | null;
+    caHienTai: string | null;
+    tonDuoiNguong: string[];
+    viecTreoMo: number | null;
+    soNgayDuLieu: number | null;
+    gioDinh: number[];
+    tuanIso: string | null;
+  };
+  candidates: QuanverseEvidenceCandidate[];
+}
+
+export type QuanverseVerdict = "binh_thuong" | "theo_doi" | "can_xu_ly" | "khan_cap";
+
+export interface QuanverseJev {
+  goiJev: boolean;
+  verdict: QuanverseVerdict | null;
+  verdictLabel: string | null;
+  p: number | null;
+  provider: "jev" | "fallback" | "none";
+  latencyMs: number | null;
+  ranking: Array<{ id: string; p: number }>;
+  thieu: string[];
+}
+
+const NHAN_COVERAGE: Record<string, string> = {
+  don: "Đơn hàng",
+  lich: "Lịch ca",
+  kho: "Tồn kho",
+};
+
+export function nhanCoverage(key: string): string {
+  return NHAN_COVERAGE[key] ?? key;
+}
+
+export function chuanHoaEvidence(tho: unknown): QuanverseEvidence | null {
+  if (!tho || typeof tho !== "object") return null;
+  const o = tho as Record<string, unknown>;
+  const cov = (o.coverage ?? {}) as Record<string, unknown>;
+  const st = (o.state ?? {}) as Record<string, unknown>;
+  const covDon: QuanverseCoverage = cov.don === "ok" ? "ok" : "thieu";
+  const covLich: QuanverseCoverage = cov.lich === "ok" ? "ok" : "thieu";
+  const covKho: QuanverseCoverage = cov.kho === "ok" ? "ok" : "thieu";
+  const trangThai: QuanverseEvidenceTrangThai =
+    o.trang_thai === "du" ? "du" : o.trang_thai === "thieu_1_phan" ? "thieu_1_phan" : "trong";
+  const cands = mangTho(o.candidates).map((raw) => {
+    const c = (raw ?? {}) as Record<string, unknown>;
+    return {
+      id: typeof c.id === "string" ? c.id : "",
+      label: typeof c.label === "string" ? c.label : "",
+      href: typeof c.href === "string" ? c.href : null,
+      source: typeof c.source === "string" ? c.source : "",
+      eligible: c.eligible === true,
+      reason: typeof c.reason === "string" ? c.reason : "",
+    } satisfies QuanverseEvidenceCandidate;
+  });
+  return {
+    trangThai,
+    coverage: { don: covDon, lich: covLich, kho: covKho },
+    state: {
+      donDangXuLy: soHoacNull(st.don_dang_xu_ly),
+      tongDon: soHoacNull(st.tong_don),
+      quayPhaTai: soHoacNull(st.quay_pha_tai),
+      quayPhaMuc: soHoacNull(st.quay_pha_muc),
+      quayPhaCanhBao: typeof st.quay_pha_canh_bao === "string" ? st.quay_pha_canh_bao : null,
+      nhanVienTruc: soHoacNull(st.nhan_vien_truc),
+      caHienTai: typeof st.ca_hien_tai === "string" ? st.ca_hien_tai : null,
+      tonDuoiNguong: mangTho(st.ton_duoi_nguong).filter((x): x is string => typeof x === "string"),
+      viecTreoMo: soHoacNull(st.viec_treo_mo),
+      soNgayDuLieu: soHoacNull(st.so_ngay_du_lieu),
+      gioDinh: mangTho(st.gio_dinh).map((x) => soHoacNull(x)).filter((x): x is number => x !== null),
+      tuanIso: typeof st.tuan_iso === "string" ? st.tuan_iso : null,
+    },
+    candidates: cands,
+  };
+}
+
+export function chuanHoaJev(tho: unknown): QuanverseJev | null {
+  if (!tho || typeof tho !== "object") return null;
+  const o = tho as Record<string, unknown>;
+  const v = typeof o.verdict === "string" ? o.verdict : null;
+  const verdict: QuanverseVerdict | null =
+    v === "binh_thuong" || v === "theo_doi" || v === "can_xu_ly" || v === "khan_cap" ? v : null;
+  return {
+    goiJev: o.goi_jev === true,
+    verdict,
+    verdictLabel: typeof o.verdict_label === "string" ? o.verdict_label : null,
+    p: soHoacNull(o.p),
+    provider: o.provider === "jev" ? "jev" : o.provider === "fallback" ? "fallback" : "none",
+    latencyMs: soHoacNull(o.latency_ms),
+    ranking: mangTho(o.ranking)
+      .map((raw) => {
+        const r = (raw ?? {}) as Record<string, unknown>;
+        return { id: typeof r.id === "string" ? r.id : "", p: soHoacNull(r.p) ?? 0 };
+      })
+      .filter((x) => x.id),
+    thieu: mangTho(o.thieu).filter((x): x is string => typeof x === "string"),
+  };
 }

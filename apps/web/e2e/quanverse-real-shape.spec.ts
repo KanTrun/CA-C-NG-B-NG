@@ -135,6 +135,51 @@ const MODES = {
   can_activate: true,
 };
 
+const EVIDENCE = {
+  trang_thai: "du",
+  coverage: { don: "ok", lich: "ok", kho: "ok" },
+  state: {
+    don_dang_xu_ly: 7,
+    tong_don: 25,
+    quay_pha_tai: 6,
+    quay_pha_muc: 5,
+    quay_pha_canh_bao: "qua_tai",
+    nhan_vien_truc: 2,
+    ca_hien_tai: "08:00–12:00",
+    ton_duoi_nguong: ["Sữa tươi"],
+    viec_treo_mo: 1,
+    so_ngay_du_lieu: 12,
+    gio_dinh: [10],
+    tuan_iso: "2026-W40",
+  },
+  candidates: [
+    { id: "A", label: "Mở Lịch tuần", href: "/lich-tuan", source: "Lịch tuần", eligible: false, reason: "Lịch đã đủ người trực." },
+    { id: "B", label: "Kiểm tra tồn kho", href: "/tieu-thu", source: "Kho", eligible: true, reason: "1 mặt hàng dưới ngưỡng: Sữa tươi." },
+    { id: "C", label: "Xem quầy pha", href: "/quay", source: "Đơn quầy", eligible: true, reason: "Quầy pha 6 đơn, ngưỡng 5." },
+    { id: "D", label: "Xử lý việc treo", href: "/treo", source: "Việc treo", eligible: false, reason: "Không có việc treo mở." },
+    { id: "E", label: "Không làm gì", href: null, source: "Hệ thống", eligible: true, reason: "Giữ nguyên khi mọi thứ trong ngưỡng." },
+  ],
+  nguon: "database_that",
+};
+
+const JEV_JUDGE = {
+  evidence: EVIDENCE,
+  jev: {
+    goi_jev: true,
+    verdict: "can_xu_ly",
+    verdict_label: "Cần xử lý",
+    p: 0.91,
+    provider: "fallback",
+    latency_ms: 3,
+    ranking: [
+      { id: "C", p: 0.5 },
+      { id: "B", p: 0.33 },
+      { id: "E", p: 0.17 },
+    ],
+    thieu: [],
+  },
+};
+
 test.describe("QUÁNVERSE — dữ liệu thật", () => {
   test.beforeEach(async ({ page }) => {
     await disableWebgl(page);
@@ -183,21 +228,35 @@ test.describe("QUÁNVERSE — dữ liệu thật", () => {
     await page.route("**/api/v1/hom-nay**", (r) =>
       r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(HOM_NAY) }),
     );
+    await page.route("**/api/v1/experience/quanverse/evidence**", (r) =>
+      r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(EVIDENCE) }),
+    );
+    await page.route("**/api/v1/experience/quanverse/jev-judge**", (r) =>
+      r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(JEV_JUDGE) }),
+    );
   });
 
   test("nhãn nói DỮ LIỆU THẬT chứ không phải mô phỏng @smoke", async ({ page }) => {
     await page.goto("/quanverse");
-    await expect(page.getByTestId("quanverse-source")).toHaveAttribute("data-nguon", "real");
+    await expect(page.getByTestId("quanverse-source")).toBeVisible({ timeout: 15_000 });
     await expect(page.getByTestId("source-badge")).toContainText("Dữ liệu thật");
     await expect(page.getByTestId("quanverse-source")).not.toContainText("Mô phỏng");
   });
 
-  test("đọc đúng số liệu từ stations.chi_so", async ({ page }) => {
+  test("verdict JEV đọc đúng evidence: Cần xử lý p=0.91 + căn cứ", async ({ page }) => {
     await page.goto("/quanverse");
-    await expect(page.getByTestId("kpi-orders")).toHaveText("7", { timeout: 15_000 });
-    // Hàng chờ = tổng queue của 4 khu vực = 3 + 1 + 0 + 0
-    await expect(page.getByTestId("kpi-queue")).toHaveText("4");
-    await expect(page.getByTestId("kpi-zones")).toHaveText("4");
+    await expect(page.getByTestId("verdict-headline")).toContainText("Cần xử lý", { timeout: 15_000 });
+    await expect(page.getByTestId("verdict-evidence")).toContainText("7 đơn đang xử lý");
+    await expect(page.getByTestId("verdict-provider")).toContainText("Luật nền");
+  });
+
+  test("top3 JEV rank: quầy pha + tồn kho, tối đa 3", async ({ page }) => {
+    await page.goto("/quanverse");
+    const actions = page.getByTestId("quanverse-actions");
+    await expect(actions).toContainText("Xem quầy pha", { timeout: 15_000 });
+    await expect(actions).toContainText("Kiểm tra tồn kho");
+    await expect(actions).toContainText("Kho");
+    expect(await page.locator(".nq-qvact__item").count()).toBeLessThanOrEqual(3);
   });
 
   test("đọc tên nhân sự đang trực từ staff-on-shift", async ({ page }) => {

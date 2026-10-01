@@ -1,55 +1,34 @@
 "use client";
 
 /**
- * QUÁNVERSE — Cockpit Trung tâm điều hành AI.
+ * QUÁNVERSE 2.0 — Trung tâm điều hành AI (Chủ quán + Giám khảo).
  *
- * Vỏ mỏng: state (role · nguồn · zone · hour · ask · modes) → một repository
- * → bố cục cockpit 3 cột. Mọi biến đổi số liệu nằm trong repository/.
- *
- * Ranh giới: bề mặt VẬN HÀNH. Không guest/Flavor/AR/3D. Modes = human confirm.
- *
- * Bổ sung quán quân: URL sync `?role=&source=&scenario=&zone=`, debounce +
- * request-id guard chống race, aria-live + cuộn tới bản đồ khi focus zone,
- * WarRoomLite "nếu thì" read-only, Copilot action links.
+ * 4 khối: [1 VERDICT JEV] [2 TOP 3] [3 timeline+capacity] [4 hỏi AI + strip zone].
+ * 3 trạng thái dữ liệu: du / thieu_1_phan / trong (S3 không gọi JEV, không đoán).
+ * Xóa mock/scenario/role-buttons. Role auto từ session. Dữ liệu chỉ DB thật.
  */
 
 import dynamic from "next/dynamic";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { getRole, getToken, isManager } from "../../lib/session";
 import { AuthGate, Skeleton, TechnicalDrawer } from "../../ui/kit";
-import { Reveal } from "../../ui/motion/Reveal";
 import type {
   QuanverseAskResult,
-  QuanverseKpi,
+  QuanverseEvidence,
+  QuanverseJev,
   QuanverseModesState,
   QuanverseRole,
   QuanverseViewModel,
 } from "../../ui/experience/quanverse/quanverse-contract";
-import {
-  locActionsTheoZone,
-  locEventsTheoZone,
-  locTimelineTheoZone,
-  zoneNongNhat,
-} from "../../ui/experience/quanverse/quanverse-contract";
-import {
-  QUANVERSE_SCENARIOS,
-  getQuanverseRepository,
-  mockChoPhep,
-  type QuanverseScenario,
-} from "../../ui/experience/quanverse/repository";
+import { RealQuanverseRepository } from "../../ui/experience/quanverse/repository/real";
 import AiCopilot from "../../ui/experience/quanverse/ops/AiCopilot";
-import CapabilityBoard from "../../ui/experience/quanverse/ops/CapabilityBoard";
 import CapacityForecast from "../../ui/experience/quanverse/ops/CapacityForecast";
-import DataSourceBadge, {
-  ProvenancePanel,
-} from "../../ui/experience/quanverse/ops/DataSourceBadge";
-import EventsList from "../../ui/experience/quanverse/ops/EventsList";
-import ExecutiveSnapshot from "../../ui/experience/quanverse/ops/ExecutiveSnapshot";
 import HeaderBlock from "../../ui/experience/quanverse/ops/HeaderBlock";
-import ModeRail from "../../ui/experience/quanverse/ops/ModeRail";
-import NeedsAttention from "../../ui/experience/quanverse/ops/NeedsAttention";
+import InsufficientCard from "../../ui/experience/quanverse/ops/InsufficientCard";
 import Timeline15 from "../../ui/experience/quanverse/ops/Timeline15";
-import WarRoomLite from "../../ui/experience/quanverse/ops/WarRoomLite";
+import Top3List from "../../ui/experience/quanverse/ops/Top3List";
+import VerdictBar from "../../ui/experience/quanverse/ops/VerdictBar";
 import ZoneFocus from "../../ui/experience/quanverse/ops/ZoneFocus";
 
 const OperationalMap2dClient = dynamic(
@@ -57,53 +36,20 @@ const OperationalMap2dClient = dynamic(
   { ssr: false, loading: () => <Skeleton rows={4} /> },
 );
 
-const ALL_ROLES: QuanverseRole[] = ["nhan_vien", "quan_ly", "chu_quan"];
-const ROLE_NAME: Record<QuanverseRole, string> = {
-  khach: "Khách",
-  nhan_vien: "Nhân viên",
-  quan_ly: "Quản lý",
-  chu_quan: "Chủ quán",
-};
-
-const MAC_DINH_SCENARIO: QuanverseScenario = "cao_diem";
-
-function docParams(): {
-  role: QuanverseRole | null;
-  source: "real" | "mock" | null;
-  scenario: QuanverseScenario | null;
-  zone: string | null;
-} {
-  try {
-    const q = new URLSearchParams(window.location.search);
-    const r = q.get("role");
-    const s = q.get("source");
-    const sc = q.get("scenario");
-    const z = q.get("zone");
-    return {
-      role: r === "nhan_vien" || r === "quan_ly" || r === "chu_quan" ? r : null,
-      source: s === "mock" || s === "real" ? s : null,
-      scenario:
-        sc === "binh_thuong" || sc === "cao_diem" || sc === "qua_tai_pha" ? sc : null,
-      zone: z && z.trim() ? z.trim() : null,
-    };
-  } catch {
-    return { role: null, source: null, scenario: null, zone: null };
-  }
-}
-
 export default function QuanversePage() {
   const [token, setToken] = useState("");
   const [role, setRole] = useState<QuanverseRole>("quan_ly");
   const [ready, setReady] = useState(false);
   const [manager, setManager] = useState(false);
+  const [debug, setDebug] = useState(false);
 
   const [vm, setVm] = useState<QuanverseViewModel | null>(null);
+  const [evidence, setEvidence] = useState<QuanverseEvidence | null>(null);
+  const [jev, setJev] = useState<QuanverseJev | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedZone, setSelectedZone] = useState<string | null>(null);
   const [selectedHour, setSelectedHour] = useState<number | null>(null);
-  const [focusPanel, setFocusPanel] = useState<"actions" | "timeline" | null>(null);
-  const [thongBaoZone, setThongBaoZone] = useState<string>("");
 
   const [askResult, setAskResult] = useState<QuanverseAskResult | null>(null);
   const [askBusy, setAskBusy] = useState(false);
@@ -111,97 +57,52 @@ export default function QuanversePage() {
 
   const [modesState, setModesState] = useState<QuanverseModesState | null>(null);
   const [busyMode, setBusyMode] = useState<string | null>(null);
+  const [demoBusy, setDemoBusy] = useState(false);
 
-  const [scenario, setScenario] = useState<QuanverseScenario>(MAC_DINH_SCENARIO);
-  const [dungMock, setDungMock] = useState(false);
-
-  const choPhepMock = mockChoPhep();
-  const reqId = useRef(0);
-  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const mapRef = useRef<HTMLDivElement | null>(null);
-
-  const repo = useMemo(
-    () =>
-      getQuanverseRepository({
-        source: dungMock ? "mock" : "real",
-        scenario,
-      }),
-    [dungMock, scenario],
-  );
+  const repo = useMemo(() => new RealQuanverseRepository(), []);
 
   useEffect(() => {
     setToken(getToken());
     const r = getRole() as QuanverseRole;
-    const p = docParams();
-    // URL là nguồn chân lý khi có tham số hợp lệ (deep-link/bookmark).
-    if (p.role && ALL_ROLES.includes(p.role)) {
-      setRole(p.role);
-    } else if (ALL_ROLES.includes(r)) {
-      setRole(r);
+    if (r === "nhan_vien" || r === "quan_ly" || r === "chu_quan") setRole(r);
+    try {
+      setDebug(new URLSearchParams(window.location.search).get("debug") === "1");
+    } catch {
+      setDebug(false);
     }
-    if (p.scenario) setScenario(p.scenario);
-    if (p.source === "mock" && mockChoPhep()) setDungMock(true);
-    if (p.zone) setSelectedZone(p.zone);
     setManager(isManager());
     setReady(true);
   }, []);
 
   const load = useCallback(async () => {
-    const id = ++reqId.current;
     setLoading(true);
     setError(null);
     try {
-      const [data, modes] = await Promise.all([
-        repo.getViewModel({ role, scenario }),
-        repo.listModes(),
+      const [judged, viewModel, modes] = await Promise.all([
+        repo.judgeJev(),
+        repo.getViewModel({ role }).catch(() => null),
+        repo.listModes().catch(() => null),
       ]);
-      // Bỏ phản hồi cũ khi người dùng đã bấm tiếp (race guard).
-      if (reqId.current !== id) return;
-      setVm(data);
-      setModesState({
-        ...modes,
-        canActivate: modes.canActivate && (isManager() || role === "quan_ly" || role === "chu_quan"),
-        role,
-      });
+      if (judged) {
+        setEvidence(judged.evidence);
+        setJev(judged.jev);
+      } else {
+        const ev = await repo.getEvidence().catch(() => null);
+        setEvidence(ev);
+        setJev(null);
+      }
+      setVm(viewModel);
+      if (modes) setModesState({ ...modes, role });
     } catch (e) {
-      if (reqId.current !== id) return;
-      // Tầng đọc đã cô lập lỗi từng nguồn; chỉ tới đây khi dựng cả view-model hỏng.
       setError(e instanceof Error ? e.message : "Không đọc được dữ liệu Quánverse.");
-      setVm(null);
     } finally {
-      if (reqId.current === id) setLoading(false);
+      setLoading(false);
     }
-  }, [repo, scenario, role]);
+  }, [repo, role]);
 
-  // Debounce 200ms: bấm role/scenario liên tục chỉ tải lần cuối.
   useEffect(() => {
-    if (!(token && ready)) return;
-    if (debounceRef.current) clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(() => {
-      void load();
-    }, 200);
-    return () => {
-      if (debounceRef.current) clearTimeout(debounceRef.current);
-    };
+    if (token && ready) void load();
   }, [token, ready, load]);
-
-  // Giữ URL đồng bộ để refresh/deep-link không mất ngữ cảnh.
-  useEffect(() => {
-    if (!ready) return;
-    try {
-      const q = new URLSearchParams(window.location.search);
-      q.set("role", role);
-      q.set("source", dungMock ? "mock" : "real");
-      if (dungMock) q.set("scenario", scenario);
-      else q.delete("scenario");
-      if (selectedZone) q.set("zone", selectedZone);
-      else q.delete("zone");
-      const url = `${window.location.pathname}?${q.toString()}`;
-      window.history.replaceState(null, "", url);
-    } catch {
-      // Không có window/history trong test — bỏ qua im lặng.
-    }
-  }, [ready, role, dungMock, scenario, selectedZone]);
 
   useEffect(() => {
     setSelectedZone((cur) =>
@@ -209,46 +110,11 @@ export default function QuanversePage() {
     );
   }, [vm]);
 
-  const zoneLabel =
-    selectedZone && vm
-      ? (vm.zones.find((z) => z.zoneId === selectedZone)?.label ?? null)
-      : null;
-
-  const zoneFocus =
-    selectedZone && vm
-      ? (vm.zones.find((z) => z.zoneId === selectedZone) ?? null)
-      : null;
-
-  const actionsLoc = useMemo(
-    () => (vm ? locActionsTheoZone(vm.actions, selectedZone) : []),
-    [vm, selectedZone],
-  );
-  const eventsLoc = useMemo(
-    () => (vm ? locEventsTheoZone(vm.events, selectedZone) : []),
-    [vm, selectedZone],
-  );
-  const timelineLoc = useMemo(
-    () => (vm ? locTimelineTheoZone(vm.timeline, selectedZone) : []),
-    [vm, selectedZone],
-  );
-
-  const askSuggestions = useMemo(() => {
-    const out: string[] = [];
-    if (zoneLabel) out.push(`Vì sao ${zoneLabel} đang đáng chú ý?`);
-    if (selectedHour !== null) {
-      out.push(`Vì sao đỉnh tải lúc ${String(selectedHour).padStart(2, "0")}:00?`);
-    }
-    out.push("Khu vực nào đang quá tải?");
-    out.push("15 phút tới cần chú ý gì?");
-    return out.slice(0, 3);
-  }, [zoneLabel, selectedHour]);
-
   const handleAsk = useCallback(
     async (question: string) => {
       const q = question.trim();
       if (!q) return;
       setAskBusy(true);
-      setAskPrefill(q);
       try {
         const result = await repo.askQuestion({ question: q, page: "living_map" });
         setAskResult(result);
@@ -269,69 +135,53 @@ export default function QuanversePage() {
             : action === "confirm"
               ? await repo.confirmMode(mode)
               : await repo.deactivateMode(mode);
-        setModesState({ ...next, role, canActivate: next.canActivate || manager });
-        // Reload events/snapshot sau khi mode đổi.
+        setModesState({ ...next, role });
         await load();
       } catch {
-        // Giữ state cũ; provenance sẽ báo nếu đọc lại fail.
+        // Giữ state cũ.
       } finally {
         setBusyMode(null);
       }
     },
-    [repo, role, manager, load],
+    [repo, role, load],
   );
 
-  const focusZone = useCallback(
-    (zoneId: string) => {
-      setSelectedZone(zoneId);
-      const ten = vm?.zones.find((z) => z.zoneId === zoneId)?.label ?? zoneId;
-      setThongBaoZone(`Đang xem ${ten} trên bản đồ.`);
-      // Cuộn tới bản đồ (tôn trọng reduced-motion của browser).
-      try {
-        mapRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
-        // Focus nút zone để Tab/Enter dùng được ngay.
-        const el = document.querySelector<HTMLButtonElement>(
-          `[data-testid="qv-zone-${CSS.escape(zoneId)}"]`,
-        );
-        el?.focus({ preventScroll: true });
-      } catch {
-        // Môi trường test không có scrollIntoView — bỏ qua.
-      }
-    },
-    [vm],
-  );
+  const handleDemoSetup = useCallback(async () => {
+    setDemoBusy(true);
+    try {
+      await repo.demoSetup();
+      setAskResult(null);
+      await load();
+    } finally {
+      setDemoBusy(false);
+    }
+  }, [repo, load]);
 
-  const onKpiClick = useCallback(
-    (key: QuanverseKpi["key"]) => {
-      if (!vm) return;
-      if (key === "alerts" || key === "queue") {
-        const hot = zoneNongNhat(vm.zones);
-        if (hot) focusZone(hot);
-        setFocusPanel("actions");
-      } else if (key === "upcoming") {
-        setFocusPanel("timeline");
-      }
-    },
-    [vm, focusZone],
-  );
+  const zoneFocus = selectedZone && vm ? (vm.zones.find((z) => z.zoneId === selectedZone) ?? null) : null;
+  const activeMode = modesState?.modes.find((m) => m.active) ?? null;
+  const draftMode = modesState?.modes.find((m) => m.status === "draft") ?? null;
+  const suggestMode = draftMode ?? (activeMode ? null : (modesState?.modes[0] ?? null));
+
+  const askSuggestions = useMemo(() => {
+    const out: string[] = [];
+    if (zoneFocus) out.push(`Vì sao ${zoneFocus.label} đáng chú ý?`);
+    if (selectedHour !== null) out.push(`Vì sao đỉnh tải lúc ${String(selectedHour).padStart(2, "0")}:00?`);
+    out.push("Quán lúc này cần làm gì trước?");
+    out.push("Vì sao JEV kết luận như vậy?");
+    return out.slice(0, 3);
+  }, [zoneFocus, selectedHour]);
 
   if (!ready) return <Skeleton rows={6} />;
   if (!token) return <AuthGate />;
 
-  const isMock = vm?.dataSource === "mock";
+  const trong = !evidence || evidence.trangThai === "trong";
   const qualityLines = (vm?.dataQuality ?? []).map((q) => `[${q.level}] ${q.message}`);
   const provenanceLines = (vm?.provenance ?? []).map(
-    (p) =>
-      `${p.ok ? "OK" : "LỖI"} · ${p.label} · ${p.endpoint}${
-        p.status ? ` · HTTP ${p.status}` : ""
-      }`,
+    (p) => `${p.ok ? "OK" : "LỖI"} · ${p.label} · ${p.endpoint}`,
   );
 
   return (
     <div className="nq-qv nq-qv--cockpit" data-testid="quanverse-root">
-      <span className="nq-sr-only" role="status" aria-live="polite">
-        {thongBaoZone}
-      </span>
       {error ? (
         <div className="nq-alert nq-alert--error" role="alert">
           {error}
@@ -341,144 +191,73 @@ export default function QuanversePage() {
         </div>
       ) : null}
 
-      <div className="nq-qv__toolbar">
-        <DataSourceBadge
-          dataSource={vm?.dataSource ?? "real"}
-          scenario={vm?.scenario ?? (dungMock ? scenario : null)}
-          updatedAt={vm?.header.updatedAt ?? null}
-          provenance={vm?.provenance ?? []}
-          scenarioOptions={QUANVERSE_SCENARIOS}
-          canChooseSource={choPhepMock}
-          onChangeScenario={(s) => {
-            setDungMock(true);
-            setScenario(s);
-            setSelectedZone(null);
-            setAskResult(null);
-          }}
-        />
-
-        <div className="nq-qv__roles" role="group" aria-label="Chọn vai trò xem">
-          {ALL_ROLES.map((r) => (
-            <button
-              key={r}
-              type="button"
-              className={`nq-qv__rolebtn${role === r ? " is-on" : ""}`}
-              data-testid={`role-${r}`}
-              aria-pressed={role === r}
-              onClick={() => {
-                setRole(r);
-                setSelectedZone(null);
-              }}
-            >
-              {ROLE_NAME[r]}
-            </button>
-          ))}
-          {!manager ? (
-            <span
-              className="nq-qv__roledisabled"
-              title="Cần vai trò Quản lý hoặc Chủ quán"
-            >
-              Bản chiếu đầy đủ yêu cầu quyền quản lý
-            </span>
-          ) : null}
-        </div>
-
-        {choPhepMock ? (
+      <div className="nq-qv__toolbar" data-testid="quanverse-source">
+        <span className="nq-qvsrc__badge nq-qvsrc__badge--real" data-testid="source-badge">
+          <span className="nq-qvsrc__dot" aria-hidden="true" />
+          Dữ liệu thật
+        </span>
+        <span className="nq-qvsrc__detail">
+          {role === "chu_quan" ? "Chủ quán" : role === "quan_ly" ? "Quản lý" : "Nhân viên"} · JEV judge/rank · không mock
+        </span>
+        {manager ? (
           <button
             type="button"
-            className={`nq-qv__sourcebtn${dungMock ? " is-on" : ""}`}
-            aria-pressed={dungMock}
-            data-testid="toggle-source"
-            onClick={() => {
-              setDungMock((v) => !v);
-              setSelectedZone(null);
-              setAskResult(null);
-            }}
+            className="nq-qvsrc__btn"
+            data-testid="demo-setup-btn-top"
+            disabled={demoBusy}
+            onClick={() => void handleDemoSetup()}
+            title="Nạp dữ liệu demo bằng bản ghi nghiệp vụ thật"
           >
-            {dungMock ? "Đang xem: Mô phỏng" : "Đang xem: Dữ liệu thật"}
+            {demoBusy ? "Đang chuẩn bị…" : "⚙ Demo Setup"}
           </button>
         ) : null}
       </div>
 
-      {!vm && loading ? (
+      {!evidence && loading ? (
         <Skeleton rows={6} />
-      ) : !vm ? (
-        <p className="nq-qv-trong" data-testid="quanverse-empty">
-          <span className="nq-qv-trong__text">Chưa có dữ liệu</span>
-          <span className="nq-qv-trong__hint">
-            Chưa đọc được trạng thái quán từ hệ thống.
-          </span>
-        </p>
+      ) : trong && !loading ? (
+        <InsufficientCard evidence={evidence} isManager={manager} demoBusy={demoBusy} onDemoSetup={() => void handleDemoSetup()} />
+      ) : !vm || !evidence ? (
+        <Skeleton rows={6} />
       ) : (
-        <Reveal className="nq-qv__cockpit">
-          {/* Pulse: header + KPI gọn */}
-          <div className="nq-qv__pulse">
-            <HeaderBlock
-              header={vm.header}
-              dataSource={vm.dataSource}
-              scenarioLabel={vm.scenarioLabel}
-            />
-            <ExecutiveSnapshot kpis={vm.kpis} onKpiClick={onKpiClick} />
-          </div>
+        <div className="nq-qv__cockpit">
+          {vm ? <HeaderBlock header={vm.header} dataSource="real" scenarioLabel={null} /> : null}
 
-          {/* Cockpit 3 cột — stretch đầy chiều cao, không để lỗ trống giữa cột */}
+          {/* [1] VERDICT */}
+          <VerdictBar evidence={evidence} jev={jev} />
+
           <div className="nq-qv__deck">
             <div className="nq-qv__col nq-qv__col--map">
-              <div ref={mapRef}>
-                <OperationalMap2dClient
-                  zones={vm.zones}
-                  selectedId={selectedZone}
-                  onSelect={(z) => (z ? focusZone(z) : setSelectedZone(null))}
-                />
-              </div>
+              <OperationalMap2dClient
+                zones={vm.zones}
+                selectedId={selectedZone}
+                onSelect={(z) => setSelectedZone(z)}
+              />
               <ZoneFocus
                 zone={zoneFocus}
                 zones={vm.zones}
                 onClear={() => setSelectedZone(null)}
-                onAsk={(q) => {
-                  setAskPrefill(q);
-                  void handleAsk(q);
-                }}
-                onFocusActions={() => setFocusPanel("actions")}
-                onPickZone={focusZone}
+                onAsk={(q) => void handleAsk(q)}
+                onFocusActions={() => {}}
+                onPickZone={(z) => setSelectedZone(z)}
               />
             </div>
 
-            <div
-              className={`nq-qv__col nq-qv__col--mid${
-                focusPanel === "actions" ? " is-focus-actions" : ""
-              }${focusPanel === "timeline" ? " is-focus-timeline" : ""}`}
-            >
-              <NeedsAttention
-                actions={actionsLoc}
-                filterZoneLabel={zoneLabel}
-                onClearFilter={() => setSelectedZone(null)}
-                onFocusZone={setSelectedZone}
-                onAsk={(q) => {
-                  setAskPrefill(q);
-                  void handleAsk(q);
-                }}
-              />
-              <Timeline15 items={timelineLoc} isMock={isMock} />
+            <div className="nq-qv__col nq-qv__col--mid">
+              {/* [2] TOP 3 */}
+              <Top3List evidence={evidence} jev={jev} onAsk={(q) => void handleAsk(q)} />
+              {/* [3] 15p + năng lực gộp */}
+              <Timeline15 items={vm.timeline} isMock={false} />
               <CapacityForecast
                 capacity={vm.capacity}
-                isMock={isMock}
+                isMock={false}
                 selectedHour={selectedHour}
-                onSelectHour={(h) => {
-                  setSelectedHour(h);
-                  if (h !== null) {
-                    setAskPrefill(
-                      `Vì sao đỉnh tải lúc ${String(h).padStart(2, "0")}:00?`,
-                    );
-                  }
-                }}
-                canProposeWeatherMode={Boolean(modesState?.canActivate)}
-                weatherModeBusy={busyMode === vm.capacity.weatherSuggestMode}
-                onProposeWeatherMode={(m) => void runMode(m, "propose")}
+                onSelectHour={(h) => setSelectedHour(h)}
               />
             </div>
 
             <div className="nq-qv__col nq-qv__col--ai">
+              {/* [4] HỎI AI */}
               <AiCopilot
                 copilot={vm.copilot}
                 provenance={vm.provenance}
@@ -491,45 +270,68 @@ export default function QuanversePage() {
                   setAskResult(null);
                   setAskPrefill("");
                 }}
-                onFocusZone={focusZone}
+                onFocusZone={(z) => setSelectedZone(z)}
               />
-              <ModeRail
-                modesState={modesState}
-                busyMode={busyMode}
-                highlightMode={vm.capacity.weatherSuggestMode}
-                onPropose={(m) => void runMode(m, "propose")}
-                onConfirm={(m) => void runMode(m, "confirm")}
-                onDeactivate={(m) => void runMode(m, "deactivate")}
-              />
-              <EventsList
-                events={eventsLoc}
-                filterZoneLabel={zoneLabel}
-                onClearFilter={() => setSelectedZone(null)}
-                onFocusZone={setSelectedZone}
-              />
+              {/* 1 đề xuất mode duy nhất (human confirm) */}
+              {suggestMode ? (
+                <section className="nq-qv-card" data-testid="quanverse-modes" data-mode={suggestMode.mode} aria-label="Đề xuất chế độ">
+                  <div className="nq-qv-card__head">
+                    <h2 className="nq-qv-card__title">Đề xuất chế độ</h2>
+                    <span className="nq-qv-card__spacer" />
+                    <span className="nq-qvcapab__st nq-qvcapab__st--ok">{suggestMode.status === "active" ? "Đang bật" : suggestMode.status === "draft" ? "Chờ duyệt" : "Đang tắt"}</span>
+                  </div>
+                  <p className="nq-qvmode__label" data-testid={`mode-${suggestMode.mode}`}>{suggestMode.label}</p>
+                  {suggestMode.effect ? <p className="nq-qvmode__effect">{suggestMode.effect}</p> : null}
+                  <div className="nq-qvmode__actions">
+                    {suggestMode.status === "off" && modesState?.canActivate ? (
+                      <button
+                        type="button"
+                        className="nq-qvmode__btn nq-qvmode__btn--primary"
+                        data-testid={`mode-propose-${suggestMode.mode}`}
+                        disabled={busyMode === suggestMode.mode}
+                        onClick={() => void runMode(suggestMode.mode, "propose")}
+                      >
+                        Đề xuất (cần duyệt)
+                      </button>
+                    ) : null}
+                    {suggestMode.status === "draft" && modesState?.canActivate ? (
+                      <button
+                        type="button"
+                        className="nq-qvmode__btn nq-qvmode__btn--primary"
+                        data-testid={`mode-confirm-${suggestMode.mode}`}
+                        disabled={busyMode === suggestMode.mode}
+                        onClick={() => void runMode(suggestMode.mode, "confirm")}
+                      >
+                        Duyệt bật
+                      </button>
+                    ) : null}
+                    {suggestMode.status === "active" && modesState?.canActivate ? (
+                      <button
+                        type="button"
+                        className="nq-qvmode__btn"
+                        disabled={busyMode === suggestMode.mode}
+                        onClick={() => void runMode(suggestMode.mode, "deactivate")}
+                      >
+                        Tắt
+                      </button>
+                    ) : null}
+                    <Link className="nq-linkbtn" href="/lich-tuan">
+                      Mở Lịch tuần để hành động
+                    </Link>
+                  </div>
+                  <p className="nq-qvai__disclaimer">JEV chỉ rank — người quyết định và thực hiện.</p>
+                </section>
+              ) : null}
             </div>
           </div>
 
-          <CapabilityBoard
-            vm={vm}
-            dataSource={vm.dataSource}
-            canMock={choPhepMock}
-            onEnableMock={() => {
-              setDungMock(true);
-              setScenario("cao_diem");
-              setAskResult(null);
-            }}
-          />
-
-          {/* Nếu-thì ngày mai: ước tính read-only từ dự báo đang hiện */}
-          <WarRoomLite capacity={vm.capacity} zones={vm.zones} isMock={isMock} />
-
-          <TechnicalDrawer
-            summary="Chi tiết kỹ thuật · nguồn & chất lượng dữ liệu"
-            lines={[...qualityLines, ...provenanceLines]}
-          />
-          <ProvenancePanel provenance={vm.provenance} />
-        </Reveal>
+          {debug ? (
+            <TechnicalDrawer
+              summary="Chi tiết kỹ thuật · nguồn & chất lượng dữ liệu (?debug=1)"
+              lines={[...qualityLines, ...provenanceLines]}
+            />
+          ) : null}
+        </div>
       )}
     </div>
   );

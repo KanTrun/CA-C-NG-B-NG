@@ -953,5 +953,84 @@ def quanverse_ask(
 
     payload = _payload_for_page(page_enum, role)
     brief = build_brief(page_enum, **payload)
+    # Quanverse 2.0: gắn verdict JEV vào brief (cùng khối căn cứ, không bịa số).
+    try:
+        from ca_api.services.quanverse_evidence import build_evidence
+        from ca_api.services.quanverse_jev import judge as jev_judge
+
+        ev = build_evidence()
+        jd = jev_judge(ev)
+        if jd.get("goi_jev") and jd.get("verdict"):
+            st = (ev.get("state") or {})
+            brief.facts.append(
+                "JEV verdict: "
+                f"{jd.get('verdict_label')} (p={jd.get('p')}, {jd.get('provider')}). "
+                f"Đơn đang xử lý {st.get('don_dang_xu_ly')}, "
+                f"quầy pha {st.get('quay_pha_tai')}/{st.get('quay_pha_muc')}, "
+                f"trực {st.get('nhan_vien_truc')}."
+            )
+            brief.grounded_refs.append("jev_verdict")
+    except Exception:
+        pass
     answer = answer_question(page=page_enum, question=question, brief=brief)
     return cast(dict[str, Any], answer.model_dump(mode="json"))
+
+
+# ── Quanverse 2.0 — Evidence / JEV judge / Demo Setup ────────────────────────
+
+
+@router.get("/api/v1/experience/quanverse/evidence")
+def quanverse_evidence(
+    authorization: Annotated[str | None, Header()] = None,
+) -> dict[str, Any]:
+    """Evidence Builder: STATE gọn + COVERAGE + candidates A–E từ DB thật.
+
+    Chỉ ĐỌC. Không LLM, không JEV. UI dùng để vẽ 3 trạng thái du/thieu/trong.
+    """
+    _require_role(authorization)
+    from ca_api.services.quanverse_evidence import build_evidence
+
+    return build_evidence()
+
+
+@router.post("/api/v1/experience/quanverse/jev-judge")
+def quanverse_jev_judge(
+    authorization: Annotated[str | None, Header()] = None,
+) -> dict[str, Any]:
+    """JEV judge/rank trên evidence thật.
+
+    Trống hoàn toàn → KHÔNG gọi JEV, trả `goi_jev=False` để UI vẽ S3.
+    """
+    _require_role(authorization)
+    from ca_api.services.quanverse_evidence import build_evidence
+    from ca_api.services.quanverse_jev import judge
+
+    ev = build_evidence()
+    jd = judge(ev)
+    return {"evidence": ev, "jev": jd}
+
+
+@router.post("/api/v1/experience/quanverse/demo-setup")
+def quanverse_demo_setup(
+    authorization: Annotated[str | None, Header()] = None,
+) -> dict[str, Any]:
+    """Chuẩn bị dữ liệu demo BẰNG bản ghi nghiệp vụ thật (manager only).
+
+    Không phải mock/flag: ghi don_quay + phan_cong_by_week + tieu_thu thật để
+    Quanverse đọc như dữ liệu quán. Idempotent theo tiền tố `demo_qv_`.
+    """
+    _require_manager(authorization)
+    from ca_api.services.quanverse_demo import setup
+
+    return setup()
+
+
+@router.post("/api/v1/experience/quanverse/demo-reset")
+def quanverse_demo_reset(
+    authorization: Annotated[str | None, Header()] = None,
+) -> dict[str, Any]:
+    """Xoá đúng bản ghi demo `demo_qv_*` (manager only)."""
+    _require_manager(authorization)
+    from ca_api.services.quanverse_demo import reset
+
+    return reset()
