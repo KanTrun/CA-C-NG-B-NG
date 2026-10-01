@@ -195,6 +195,66 @@ def test_swap_open_gan_dung_tuan_duoc_chon() -> None:
         kv_set("swap", [])
 
 
+def test_swap_duyet_chan_phieu_hong() -> None:
+    """Duyệt phiếu mà người nhường đã mất ca (và chưa ai nhận) → 409, không ghi bậy."""
+    week = "2026-W39"
+    ca_id = "w1_c01"
+    kv_set("lich_tuan_lifecycle", {"tuan_iso": week, "trang_thai": "da_cong_bo"})
+    kv_set(
+        "lich_tuan_lifecycle_by_week",
+        {week: {"tuan_iso": week, "trang_thai": "da_cong_bo"}},
+    )
+    kv_set("phan_cong", {ca_id: ["nv_01"]})
+    kv_set("phan_cong_by_week", {week: {ca_id: ["nv_01"]}})
+    try:
+        opened = client.post(
+            "/api/v1/cho-doi-ca",
+            json={"a": "nv_01", "b": "nv_03", "ca_id": ca_id},
+            headers=headers(client, "lan"),
+        )
+        assert opened.status_code == 200, opened.text
+        swap_id = opened.json()["id"]
+        # Ca bị xếp lại sau khi mở phiếu: người nhường mất ca, chưa ai nhận.
+        kv_set("phan_cong", {ca_id: ["nv_02"]})
+        kv_set("phan_cong_by_week", {week: {ca_id: ["nv_02"]}})
+        duyet = client.post(
+            f"/api/v1/cho-doi-ca/{swap_id}/duyet", headers=headers(client, "lan")
+        )
+        assert duyet.status_code == 409
+        assert duyet.json()["detail"] == "ca_khong_trong_phan_cong_cua_nguoi_nhuong"
+        assert kv_get("phan_cong_by_week", {})[week][ca_id] == ["nv_02"]
+    finally:
+        kv_set("swap", [])
+
+
+def test_swap_duyet_chan_khi_chua_co_nguoi_nhan() -> None:
+    """Phiếu mở cho mọi người nhưng chưa ai nhận → duyệt 409, tránh ghi "all"."""
+    week = "2026-W39"
+    ca_id = "w1_c01"
+    kv_set("lich_tuan_lifecycle", {"tuan_iso": week, "trang_thai": "da_cong_bo"})
+    kv_set(
+        "lich_tuan_lifecycle_by_week",
+        {week: {"tuan_iso": week, "trang_thai": "da_cong_bo"}},
+    )
+    kv_set("phan_cong", {ca_id: ["nv_01"]})
+    kv_set("phan_cong_by_week", {week: {ca_id: ["nv_01"]}})
+    try:
+        opened = client.post(
+            "/api/v1/cho-doi-ca",
+            json={"a": "nv_01", "b": "all", "ca_id": ca_id},
+            headers=headers(client, "lan"),
+        )
+        assert opened.status_code == 200, opened.text
+        duyet = client.post(
+            f"/api/v1/cho-doi-ca/{opened.json()['id']}/duyet",
+            headers=headers(client, "lan"),
+        )
+        assert duyet.status_code == 409
+        assert duyet.json()["detail"] == "swap_chua_co_nguoi_nhan"
+    finally:
+        kv_set("swap", [])
+
+
 def test_swap_dong_y_duyet_duoc_o_tuan_da_duyet() -> None:
     """Tuần `da_duyet` cũng là chốt — đồng ý + duyệt chạy như tuần công bố."""
     week = "2026-W39"

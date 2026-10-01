@@ -223,20 +223,26 @@ export default function DoiCaPage() {
     ];
   }, [items, pickers]);
 
+  // Trạng thái phiếu đã xong — mặc định ẩn để đỡ rác, bật toggle mới hiện.
+  const DONG_TRANG_THAI = useMemo(() => new Set(["dong_y", "da_duyet", "tu_choi", "huy"]), []);
+  const [showClosed, setShowClosed] = useState(false);
+
   // Server đã lọc theo người tham gia (nhân viên chỉ thấy phiếu của mình).
-  // Ở đây chỉ loại phiếu đã chốt khỏi danh sách đang mở.
+  // Ở đây loại phiếu đã xong khỏi danh sách đang mở.
   const available = useMemo(() => {
-    return items.filter((it) => it.trang_thai !== "dong_y" && it.trang_thai !== "da_duyet");
-  }, [items]);
+    return items.filter((it) => !DONG_TRANG_THAI.has(it.trang_thai));
+  }, [items, DONG_TRANG_THAI]);
+  const closedCount = items.length - available.length;
 
   const filtered = useMemo(() => {
-    return available.filter((it) => {
+    const nguon = showClosed ? items : available;
+    return nguon.filter((it) => {
       if (!matchSearch(swapHaystack(it, personLabel), search)) return false;
       if (!matchExact(it.trang_thai, statusF)) return false;
       if (personF !== "all" && ![it.a, it.b].includes(personF)) return false;
       return true;
     });
-  }, [available, search, statusF, personF, pickers]);
+  }, [showClosed, items, available, search, statusF, personF, pickers]);
 
   const filterActive = search.length > 0 || statusF !== "all" || personF !== "all";
 
@@ -504,54 +510,73 @@ export default function DoiCaPage() {
           onPersonChange={setPersonF}
           personOptions={personOptions}
           shown={filtered.length}
-          total={available.length}
+          total={showClosed ? items.length : available.length}
           filtered={filterActive}
         />
+        {closedCount > 0 ? (
+          <label className="mb-3 flex items-center gap-2 text-sm text-[var(--nq-dim)]">
+            <input
+              type="checkbox"
+              checked={showClosed}
+              onChange={(e) => setShowClosed(e.target.checked)}
+            />
+            Hiện cả phiếu đã xong ({closedCount})
+          </label>
+        ) : null}
         {loading ? <Loading skeleton="list">Đang tải lệnh đổi ca…</Loading> : null}
-        {!loading && !error && available.length === 0 ? (
+        {!loading && !error && filtered.length === 0 && (showClosed ? items.length : available.length) === 0 ? (
           <Empty title="Chưa có lệnh">Chưa có lệnh đổi ca nào đang mở.</Empty>
         ) : null}
-        {!loading && available.length > 0 && filtered.length === 0 ? <FilteredEmpty onClear={clearFilters} /> : null}
+        {!loading && filtered.length === 0 && (showClosed ? items.length : available.length) > 0 ? <FilteredEmpty onClear={clearFilters} /> : null}
         <div className="nq-list">
           <PagedList
             items={filtered}
             pageSize={10}
             renderItem={(it) => {
               const agreed = new Set(it.dong_y ?? []);
-              const recipient = it.b === "all" || it.b === meNv;
-              const canAgree = meNv && recipient && it.a !== meNv && !agreed.has(meNv) && it.trang_thai !== "da_duyet";
               const rr = it.rui_ro;
               const daDuyet = it.trang_thai === "da_duyet";
+              // Phiếu hỏng: người nhường không còn giữ ca → duyệt cũng vô nghĩa.
+              const hong = Boolean(rr && !rr.co_the_nhan && rr.ly_do_chan === "ca_khong_trong_phan_cong_cua_nguoi_nhuong");
+              // Phiếu của tuần đã qua → ca đã trôi, không còn gì để nhận/duyệt.
+              const hetHan = Boolean(it.tuan_id && it.tuan_id < openShiftWeek);
               // Đủ đồng ý = backend đã chốt pha đồng thuận (`dong_y`). Chỉ đếm
               // số lượt thì phiếu mở cho mọi người (1 lượt nhận là xong) kẹt mãi.
               const du = it.trang_thai === "dong_y" || agreed.size >= 2;
+              const recipient = it.b === "all" || it.b === meNv;
+              const canAgree = !hetHan && !hong && meNv && recipient && it.a !== meNv && !agreed.has(meNv) && !daDuyet;
+              // Nói rõ đang chờ ai thay vì câu chung chung.
+              const choAi = [it.a, it.b === "all" ? null : it.b].filter(
+                (p): p is string => typeof p === "string" && p.length > 0 && !agreed.has(p),
+              );
+              const caChiTiet = rr?.ca?.gio
+                ? `${thuLabel(rr.ca.thu)} · ${rr.ca.gio}${rr.ca.vi_tri ? ` · ${viTriLabel(rr.ca.vi_tri)}` : ""}`
+                : caLabel(it.ca_id);
               return (
                 <article key={it.id} className="nq-item">
                   <p className="nq-item-title">
                     {personLabel(it.a)} nhả · {it.b === "all" ? "Mọi người" : `${personLabel(it.b)} nhận`}
                   </p>
                   <p className="nq-item-sub">
-                    <StatusChip tone={daDuyet ? "ok" : it.trang_thai === "dong_y" ? "info" : "warn"}>
-                      {swapLabel(it.trang_thai)}
+                    <StatusChip tone={daDuyet ? "ok" : it.trang_thai === "dong_y" ? "info" : hetHan || hong ? "danger" : "warn"}>
+                      {hetHan ? "Hết hạn" : swapLabel(it.trang_thai)}
                     </StatusChip>
-                    {/* Tuần là thứ bản cũ KHÔNG hiện — người dùng không biết phiếu thuộc tuần nào. */}
                     {it.tuan_id ? ` · Tuần ${it.tuan_id}` : ""}
-                    {it.ca_id ? ` · ${caLabel(it.ca_id)}` : ""}
+                    {` · ${caChiTiet}`}
                   </p>
-                  {rr?.ca?.gio ? (
+                  {agreed.size > 0 && !daDuyet ? (
                     <p className="nq-item-sub text-xs mt-1">
-                      Ca nhường: {thuLabel(rr.ca.thu)} · {rr.ca.gio}
-                      {rr.ca.vi_tri ? ` · ${viTriLabel(rr.ca.vi_tri)}` : ""}
+                      Đã đồng ý: {[...agreed].map(personLabel).join(", ")}
                     </p>
                   ) : null}
-                  <p className="nq-item-sub text-xs mt-2">
-                    {agreed.size > 0
-                      ? `Đã đồng ý: ${[...agreed].map(personLabel).join(", ")}`
-                      : "Chưa có ai đồng ý"}
-                  </p>
 
+                  {hetHan && !daDuyet ? (
+                    <p className="nq-item-sub text-xs mt-1" data-rui-ro="het-han">
+                      Tuần này đã qua — phiếu hết hiệu lực, không nhận/duyệt nữa.
+                    </p>
+                  ) : null}
                   {/* Cảnh báo kẹt ca — trả lời "họ có bị kẹt ở ca nào không". */}
-                  {rr && !rr.co_the_nhan ? (
+                  {!hetHan && rr && !rr.co_the_nhan ? (
                     <div className="mt-2" data-rui-ro="chan">
                       <Alert kind="err">
                         {LY_DO_CHAN_LABEL[rr.ly_do_chan] ?? "Phiếu này chưa thực hiện được."}
@@ -566,11 +591,6 @@ export default function DoiCaPage() {
                       </Alert>
                     </div>
                   ) : null}
-                  {rr && rr.co_the_nhan && !daDuyet ? (
-                    <p className="nq-item-sub text-xs mt-1" data-rui-ro="ok">
-                      Không vướng ca trùng giờ — có thể nhận.
-                    </p>
-                  ) : null}
 
                   <div className="flex flex-wrap gap-2 mt-2">
                     {canAgree ? (
@@ -584,15 +604,21 @@ export default function DoiCaPage() {
                       </>
                     ) : null}
                     {/* Quản lý duyệt: chỉ hiện khi đã đủ hai bên đồng ý và chưa duyệt. */}
-                    {laQuanLy && !daDuyet && du ? (
+                    {laQuanLy && !daDuyet && !hetHan && !hong && du ? (
                       <Btn variant="primary" busy={busy} onClick={() => void duyet(it.id)}>
                         Duyệt &amp; áp dụng
                       </Btn>
                     ) : null}
-                    {laQuanLy && !daDuyet && !du ? (
+                    {laQuanLy && !daDuyet && !hetHan && !hong && !du ? (
                       <span className="text-xs text-[var(--nq-dim)] self-center">
-                        Chờ đủ hai bên đồng ý rồi mới duyệt được.
+                        {choAi.length > 0 ? `Chờ: ${choAi.map(personLabel).join(", ")}` : "Chờ người nhận đầu tiên."}
                       </span>
+                    ) : null}
+                    {/* Phiếu hỏng / hết hạn: quản lý đóng để dọn chợ, khỏi tồn mãi. */}
+                    {laQuanLy && !daDuyet && (hong || hetHan) ? (
+                      <Btn variant="danger" disabled={busy} onClick={() => void tuChoi(it.id)}>
+                        {hong ? "Đóng phiếu hỏng" : "Đóng phiếu hết hạn"}
+                      </Btn>
                     ) : null}
                     {daDuyet ? (
                       <span className="text-xs text-[var(--nq-dim)] self-center">
