@@ -5792,6 +5792,12 @@ a:focus-visible {
   .nq-tip {
     position: absolute;
     z-index: 60;
+    /* KHÔNG bao giờ bắt sự kiện chuột: tooltip là lớp thông tin phủ trên nội
+       dung. Nếu nó nhận hover, di chuột vào tooltip có thể làm đổi trạng thái
+       hover của nút bên dưới (hiện → đẩy → ẩn → hiện…), gây giật màn hình —
+       đúng lỗi từng thấy ở nút Xoá trong bảng Gmail. Tiêu điểm bàn phím vẫn mở
+       được tooltip qua :focus-within của wrap. */
+    pointer-events: none;
     max-width: 22ch;
     padding: var(--nq-s2) var(--nq-s3);
     border: 1px solid var(--nq-line-strong);

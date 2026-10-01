@@ -60,6 +60,9 @@ data/out/msg_sent.jsonl
 data/quan.db
 data/quan.db-wal
 data/quan.db-shm
+data/quan_clean.db
+data/quan_clean.db-wal
+data/quan_clean.db-shm
 # Backup DB tự sinh bởi `seed_professional_fixture.py --reset` (backup_db()) —
 # artifact của từng lần chạy, không cho tích tụ binary vào repo.
 # Hai backup có chủ đích vẫn track: `quan-pre-phase0.db` (có sẵn) và

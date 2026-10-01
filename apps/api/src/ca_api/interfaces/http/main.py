@@ -10,6 +10,7 @@ try:
     from datetime import UTC, datetime
 except ImportError:
     from datetime import datetime, timezone
+
     UTC = timezone.utc
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -74,6 +75,7 @@ from ca_api.interfaces.http.mail import router as mail_router
 from ca_api.interfaces.http.meeting import router as meeting_router
 from ca_api.interfaces.http.ops_explain import router as ops_explain_router
 from ca_api.interfaces.http.ops_predict import router as ops_predict_router
+from ca_api.interfaces.http.origins import allowed_web_origins
 from ca_api.interfaces.http.pos import router as pos_router
 from ca_api.interfaces.http.quanverse import router as quanverse_router
 
@@ -125,7 +127,22 @@ from ca_api.services.chat_ws import login_ip_limiter, notify_ops_changed, regist
 
 @asynccontextmanager
 async def _lifespan(app: FastAPI) -> AsyncIterator[None]:
-    """Startup/shutdown: cấu hình bảo vệ dữ liệu + đóng Redis Pub/Sub sạch sẽ."""
+    """Startup/shutdown: nạp .env, bảo vệ dữ liệu + đóng Redis Pub/Sub sạch sẽ."""
+    # Nạp `.env` cho tiến trình API: `uvicorn` chạy tay KHÔNG tự đọc file `.env`
+    # (chỉ Docker compose truyền env qua `--env-file`). Thiếu dòng này, mọi biến
+    # điền trong `.env` (Gmail OAuth, LLM keys…) đều vô hình với API chạy local —
+    # authorize trả 503 `chua_cau_hinh_oauth_gmail` dù file đã đúng.
+    #
+    # Dùng chung `ca_agents.llm.load_dotenv` (không viết loader thứ hai): đọc
+    # ROOT/.env trước, rồi ./.env (thư mục đứng chạy uvicorn). Biến môi trường
+    # sẵn có (Docker `--env-file`, shell export, CI) luôn thắng, không bị ghi đè.
+    # Sửa `.env` vẫn phải restart API (`--reload` chỉ theo dõi code).
+    #
+    # An toàn cho test: TestClient trong suite KHÔNG chạy lifespan (không dùng
+    # `with`), nên suite không bao giờ nạp `.env` thật vào tiến trình test.
+    from ca_agents.llm import load_dotenv as _load_local_env
+
+    _load_local_env()
     configure_data_protection()
     yield
     from ca_api.services.chat_ws import pubsub_backend
@@ -152,21 +169,11 @@ app = FastAPI(
 # CORS: mặc định 3 origin dev local. Khi deploy (Postgres, domain thật) đặt
 # NHIPQUAN_CORS_ORIGINS — danh sách origin cách nhau bởi dấu phẩy — để thay
 # toàn bộ danh sách này; bỏ trống thì giữ mặc định bên dưới.
-_cors_origins = [
-    origin.strip()
-    for origin in os.environ.get("NHIPQUAN_CORS_ORIGINS", "").split(",")
-    if origin.strip()
-] or [
-    "http://localhost:3000",
-    "http://localhost:3001",
-    "http://localhost:3002",
-    "http://127.0.0.1:3000",
-    "http://127.0.0.1:3001",
-    "http://127.0.0.1:3002",
-    "http://[::1]:3000",
-    "http://[::1]:3001",
-    "http://[::1]:3002",
-]
+#
+# Danh sách nằm ở `origins.py` vì OAuth callback Gmail cũng phải chuyển hướng
+# về đúng origin của web (không thể dùng đường dẫn tương đối — xem chú thích ở
+# `origins.py`). Một nguồn sự thật cho cả hai nơi.
+_cors_origins = allowed_web_origins()
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_cors_origins,
@@ -193,9 +200,7 @@ async def add_security_headers(request: Request, call_next: Any) -> Any:
     response.headers.setdefault("X-Content-Type-Options", "nosniff")
     response.headers.setdefault("X-Frame-Options", "DENY")
     response.headers.setdefault("Referrer-Policy", "no-referrer")
-    response.headers.setdefault(
-        "Permissions-Policy", "camera=(), microphone=(), geolocation=()"
-    )
+    response.headers.setdefault("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
     response.headers.setdefault(
         "Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'"
     )
@@ -205,6 +210,7 @@ async def add_security_headers(request: Request, call_next: Any) -> Any:
             "Strict-Transport-Security", "max-age=31536000; includeSubDomains"
         )
     return response
+
 
 _LOG = logging.getLogger(__name__)
 _REALTIME_SKIP_PREFIXES = (
@@ -247,10 +253,7 @@ async def broadcast_successful_mutation(request: Request, call_next: Any) -> Any
     generic_audit_added = False
     try:
         response = await call_next(request)
-        successful_mutation = (
-            is_mutation_method
-            and response.status_code < 400
-        )
+        successful_mutation = is_mutation_method and response.status_code < 400
 
         # Mọi mutation thành công của người đã đăng nhập phải có ít nhất một
         # vết. Endpoint có audit nghiệp vụ sẽ tự đánh dấu; endpoint còn thiếu
@@ -266,7 +269,11 @@ async def broadcast_successful_mutation(request: Request, call_next: Any) -> Any
             await run_in_threadpool(
                 audit_add,
                 datetime.now(UTC).isoformat(),
-                str(actor_session.get("nv_id") or actor_session.get("username") or actor_session["role"]),
+                str(
+                    actor_session.get("nv_id")
+                    or actor_session.get("username")
+                    or actor_session["role"]
+                ),
                 "operation.mutation",
                 {
                     "entity_type": "operation",
@@ -279,10 +286,7 @@ async def broadcast_successful_mutation(request: Request, call_next: Any) -> Any
 
         should_broadcast = successful_mutation and (
             generic_audit_added
-            or (
-                path not in _REALTIME_SKIP_PATHS
-                and not path.startswith(_REALTIME_SKIP_PREFIXES)
-            )
+            or (path not in _REALTIME_SKIP_PATHS and not path.startswith(_REALTIME_SKIP_PREFIXES))
         )
         if should_broadcast:
             try:
@@ -335,18 +339,18 @@ app.include_router(quanverse_fixtures_router)
 app.include_router(skills_router)
 
 
-
 ROOT = Path(__file__).resolve().parents[6]
 SEED = ROOT / "data" / "seed" / "sample.json"
 
 
 def _lich_tuan_out() -> Path:
     """Output solver — đồng bộ sprint45._lich_out(). Đọc env MỖI LẦN GỌI
-    vì conftest set NHIPQUAN_LICH_TUAN_OUT per-test sau khi import module. """
+    vì conftest set NHIPQUAN_LICH_TUAN_OUT per-test sau khi import module."""
     env = os.environ.get("NHIPQUAN_LICH_TUAN_OUT")
     if env:
         return Path(env)
     return ROOT / "data" / "out" / "lich_tuan.json"
+
 
 # Pins persist in SQLite kv
 
@@ -456,7 +460,9 @@ def _draft_mail_with_active_rules(**kwargs: Any) -> Any:
     selected, rollout_bucket = select_active_rules(
         get_active_mail_rules_for_store(store_id),
         store_id=store_id,
-        identity=str(identities[0]) if identities else str(kwargs.get("recipient_name") or "default"),
+        identity=str(identities[0])
+        if identities
+        else str(kwargs.get("recipient_name") or "default"),
     )
     draft = _draft_email(active_style_rules=selected, **kwargs)
     draft.rule_version = ",".join(str(rule["id"]) for rule in selected) or "none"
@@ -507,8 +513,7 @@ configure_data_sources(
     get_mail_style=get_mail_style_for_store,
     # PR9 read providers — không trả email/PII qua chat
     list_users=lambda: [
-        {"nv_id": u["nv_id"], "ten": u["display_name"], "role": u["role"]}
-        for u in list_users()
+        {"nv_id": u["nv_id"], "ten": u["display_name"], "role": u["role"]} for u in list_users()
     ],
     list_nhan_vien_ops=list_nhan_vien_ops,
     menu_list=menu_list,
@@ -640,8 +645,16 @@ def _detect_staff_availability(
         for it in inbox_items:
             if not isinstance(it, dict):
                 continue
-            rb = cast(dict[str, Any], it.get("rang_buoc")) if isinstance(it.get("rang_buoc"), dict) else {}
-            hl = cast(dict[str, Any], it.get("hieu_luc")) if isinstance(it.get("hieu_luc"), dict) else {}
+            rb = (
+                cast(dict[str, Any], it.get("rang_buoc"))
+                if isinstance(it.get("rang_buoc"), dict)
+                else {}
+            )
+            hl = (
+                cast(dict[str, Any], it.get("hieu_luc"))
+                if isinstance(it.get("hieu_luc"), dict)
+                else {}
+            )
             it_tuan = rb.get("tuan_id") or hl.get("tuan_id") or it.get("tuan_id")
             if it_tuan == tuan_iso:
                 nvid = it.get("nv_id") or hl.get("nv_id")
@@ -682,11 +695,13 @@ def _detect_staff_availability(
 
         if decision == "du_bi":
             nv_status_map[nvid] = "du_bi"
-            du_bi.append({
-                "id": nvid,
-                "ten": ten,
-                "vai": vai,
-            })
+            du_bi.append(
+                {
+                    "id": nvid,
+                    "ten": ten,
+                    "vai": vai,
+                }
+            )
         elif decision == "bo_ca":
             nv_status_map[nvid] = "bo_ca"
         elif decision == "xac_nhan":
@@ -697,13 +712,15 @@ def _detect_staff_availability(
             else:
                 nv_status_map[nvid] = "chua_xac_nhan"
                 if assigned_count.get(nvid, 0) > 0:
-                    chua_xac_nhan.append({
-                        "id": nvid,
-                        "ten": ten,
-                        "vai": vai,
-                        "so_ca_du_kien": assigned_count[nvid],
-                        "ca_ids": assigned_shifts.get(nvid, []),
-                    })
+                    chua_xac_nhan.append(
+                        {
+                            "id": nvid,
+                            "ten": ten,
+                            "vai": vai,
+                            "so_ca_du_kien": assigned_count[nvid],
+                            "ca_ids": assigned_shifts.get(nvid, []),
+                        }
+                    )
 
     return chua_xac_nhan, du_bi, nv_status_map
 
@@ -751,7 +768,9 @@ def _build_lich_tuan_from_seed(
     status_store = kv_get("roster_nv_status", {})
     week_decisions = status_store.get(tuan_iso, {}) if isinstance(status_store, dict) else {}
     for ca_id, nv_ids in phan_cong.items():
-        phan_cong[ca_id] = [nid for nid in nv_ids if week_decisions.get(nid) not in {"du_bi", "bo_ca"}]
+        phan_cong[ca_id] = [
+            nid for nid in nv_ids if week_decisions.get(nid) not in {"du_bi", "bo_ca"}
+        ]
 
     # KHÔNG lọc theo `nhan_vien` ở nhánh này.
     #
@@ -846,7 +865,9 @@ def get_lich_tuan(
         status_store = kv_get("roster_nv_status", {})
         week_decisions = status_store.get(tuan_iso, {}) if isinstance(status_store, dict) else {}
         for ca_id, nv_ids in phan_cong.items():
-            phan_cong[ca_id] = [nid for nid in nv_ids if week_decisions.get(nid) not in {"du_bi", "bo_ca"}]
+            phan_cong[ca_id] = [
+                nid for nid in nv_ids if week_decisions.get(nid) not in {"du_bi", "bo_ca"}
+            ]
 
         nhan_vien = list_nhan_vien_ops()
 
@@ -861,14 +882,19 @@ def get_lich_tuan(
         if not tu_seed_lich_su:
             _loc_phan_cong_theo_nhan_su(phan_cong, nhan_vien)
 
-        chua_xac_nhan, du_bi, nv_status_map = _detect_staff_availability(tuan_iso, phan_cong, nhan_vien)
+        chua_xac_nhan, du_bi, nv_status_map = _detect_staff_availability(
+            tuan_iso, phan_cong, nhan_vien
+        )
 
         # Bỏ ca thiếu ĐÃ ĐƯỢC LẤP (đủ người trong `phan_cong` hiện tại) — dùng
         # chung `current_open_shifts` với chợ đổi ca để hai bề mặt không lệch.
         from ca_api.services.scheduling_service import current_open_shifts
 
         open_shifts = current_open_shifts(
-            store_id, tuan_iso, phan_cong=phan_cong, ca_list=ca_list,
+            store_id,
+            tuan_iso,
+            phan_cong=phan_cong,
+            ca_list=ca_list,
         )
 
         lifecycle = _week_value("lich_tuan_lifecycle_by_week", tuan_iso, {})
@@ -909,7 +935,8 @@ def get_lich_tuan(
     from ca_api.services.scheduling_service import current_open_shifts
 
     result["open_shifts"] = current_open_shifts(
-        store_id, tuan_iso,
+        store_id,
+        tuan_iso,
         phan_cong=cast(dict[str, list[str]], result.get("phan_cong") or {}),
         ca_list=cast(list[dict[str, Any]], result.get("ca") or []),
     )
@@ -1004,7 +1031,9 @@ async def pin_assignment(
     solver_result: dict[str, Any] | None = None
     if body.pinned:
         # Chạy thử với pin mới: đây là kiểm tra đồng thời C01–C06, không chỉ kỹ năng.
-        solver_result = run_solver(body.tuan_iso, extra_pin=(body.ca_id, body.nv_id), store_id=store_id)
+        solver_result = run_solver(
+            body.tuan_iso, extra_pin=(body.ca_id, body.nv_id), store_id=store_id
+        )
         if not solver_result.get("ok"):
             baseline = run_solver(body.tuan_iso, store_id=store_id)
             if baseline.get("ok"):
@@ -1132,9 +1161,12 @@ async def patch_lifecycle(
     authoritative: dict[str, Any] | None = None
     if body.trang_thai == "dang_giai":
         from ca_api.services.scheduling_service import authoritative_input_fingerprint
+
         _, fingerprint = authoritative_input_fingerprint(store_id, week)
         authoritative = run_authoritative_schedule(
-            store_id=store_id, tuan_iso=week, actor_id=_role,
+            store_id=store_id,
+            tuan_iso=week,
+            actor_id=_role,
             idempotency_key=f"lifecycle:{week}:solve:{fingerprint[:16]}",
         )
         solver_ket_qua = authoritative.get("result") or {}
@@ -1233,6 +1265,7 @@ async def post_nv_status(
     kv_mutate("roster_nv_status", mut_status, {})
 
     if body.hanh_dong in {"du_bi", "bo_ca"}:
+
         def mut_pc(cur: dict[str, Any]) -> dict[str, Any]:
             for cid, nv_ids in list(cur.items()):
                 if isinstance(nv_ids, list):
