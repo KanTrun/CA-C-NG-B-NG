@@ -24,6 +24,13 @@ export type ListToolbarProps = {
   shown?: number;
   total?: number;
   filtered?: boolean;
+  /**
+   * Tiền tố cho `id` của các ô điều khiển. PHẢI khác nhau khi trang đặt nhiều
+   * thanh lọc: `id` là duy nhất trong trang, và `<label for>` trỏ nhầm sẽ khiến
+   * bấm nhãn "Trạng thái" lại nhảy con trỏ sang bộ lọc kia thay vì bộ lọc của
+   * nó. `/quay` đặt cùng lúc thanh lọc menu và thanh lọc đơn.
+   */
+  idPrefix?: string;
   children?: ReactNode;
 };
 
@@ -75,6 +82,7 @@ export function ListToolbar({
   shown,
   total,
   filtered = false,
+  idPrefix = "nq-filter",
   children,
 }: ListToolbarProps) {
   const countText =
@@ -85,10 +93,10 @@ export function ListToolbar({
   return (
     <div className="nq-list-toolbar" role="search">
       <div className="nq-list-toolbar-row">
-        <label className="nq-filter-field nq-filter-field--grow" htmlFor="nq-list-search">
+        <label className="nq-filter-field nq-filter-field--grow" htmlFor={`${idPrefix}-search`}>
           <span className="nq-filter-label">Tìm kiếm</span>
           <input
-            id="nq-list-search"
+            id={`${idPrefix}-search`}
             type="search"
             className="nq-input"
             value={search}
@@ -99,7 +107,7 @@ export function ListToolbar({
         </label>
         {onStatusChange ? (
           <SelectFilter
-            id="nq-filter-status"
+            id={`${idPrefix}-status`}
             label={statusLabel}
             value={status}
             options={statusOptions}
@@ -108,7 +116,7 @@ export function ListToolbar({
         ) : null}
         {onPersonChange ? (
           <SelectFilter
-            id="nq-filter-person"
+            id={`${idPrefix}-person`}
             label={personLabel}
             value={person}
             options={personOptions}
@@ -117,7 +125,7 @@ export function ListToolbar({
         ) : null}
         {onTimeChange ? (
           <SelectFilter
-            id="nq-filter-time"
+            id={`${idPrefix}-time`}
             label={timeLabel}
             value={time}
             options={timeOptions}

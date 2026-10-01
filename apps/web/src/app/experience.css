@@ -151,15 +151,13 @@
   50% { box-shadow: 0 0 0 6px color-mix(in srgb, var(--nq-warn) 0%, transparent); }
 }
 
-.nq-stepper {
-  position: relative;
-  display: grid; grid-template-columns: repeat(3, 1fr);
-  gap: 4px;
-  padding: 4px;
-  border: 1px solid var(--nq-line);
-  border-radius: var(--nq-radius-pill);
-  background: var(--nq-bg);
-}
+/* ĐÃ GỠ: khối `.nq-stepper { display: grid; grid-template-columns: repeat(3,1fr) }`
+   ở đây. Nó là cái vỏ của một "meter" cũ đã bị thay, nhưng class trùng tên với
+   stepper của quầy (`globals.css`) và file này NẠP SAU globals.css nên grid này
+   thắng — làm nút −/+ của `/quay` bị kéo giãn thành ba ô, và
+   `justify-content: flex-start` trong `globals.css` trở thành vô nghĩa vì trên
+   grid nó không có tác dụng. `.nq-stepper` giờ chỉ thuộc `pos.css`. */
+
 /* Input phủ toàn chip, trong suốt lên trên — vẫn bấm được bằng chuột, chạm,
    và checkbox thật nên automation `.uncheck()` hợp lệ. */
 @keyframes nq-meter-in { from { transform: scaleX(0); transform-origin: left; } to { transform: scaleX(1); transform-origin: left; } }

@@ -10,8 +10,162 @@
    cùng độ ưu tiên — đúng ý đồ "quầy là vùng riêng của quầy".
    ═══════════════════════════════════════════════════════════════════════════ */
 
+/* ── Cột dùng chung: `.nq-columns` (Columns trong kit.tsx) ──
+   `kit.tsx` phát `<div class="nq-columns" data-cols="3">` nhưng TRƯỚC đây KHÔNG
+   có stylesheet nào khai báo `.nq-columns`. Mọi `OpsCard` bên trong đều
+   `width:100%`, nên "Ba cột theo dòng chảy: chờ pha → đang pha → đã xong" ở
+   `/pha` thực ra xếp DỌC ở mọi bề rộng màn hình — nhân viên pha phải cuộn qua
+   cột rỗng rồi mới tới cột có việc. Cùng lỗi này ăn vào `/de-xuat-thong-minh`
+   và `/thu-nghiem-an-toan`.
+
+   Số cột đọc từ `data-cols` nên component không phải hardcode từng biến thể. */
+.nq-columns {
+  display: grid;
+  gap: var(--nq-s4);
+  align-items: start;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+@media (min-width: 900px) {
+  .nq-columns[data-cols="2"] {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  /* 3+ cột cần bề rộng thật: mỗi cột phải đủ chỗ cho tên món tiếng Việt dài
+     và hai nút thao tác cạnh nhau, nếu không tên vỡ dòng và nút chồng nhau. */
+  .nq-columns[data-cols="3"],
+  .nq-columns[data-cols="4"] {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 1280px) {
+  .nq-columns[data-cols="3"],
+  .nq-columns[data-cols="4"] {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 1700px) {
+  .nq-columns[data-cols="4"] {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+/* ── Lưới riêng cho bàn pha: 2 cột việc + 2 cột lịch sử ──
+   Bàn pha có bốn cột nhưng KHÔNG phải bốn cột ngang hàng: "chờ pha" và "đang
+   pha" là nơi làm việc, mỗi phiếu phải đủ rộng cho tên món tiếng Việt dài và hai
+   nút thao tác cạnh nhau; "đã xong" và "đã hủy" là lịch sử, mặc định thu gọn
+   và chỉ cần một dải hẹp. Đều bằng nhau thì hoặc cột việc chật, hoặc cột
+   lịch sử phình to mà trống trơn. */
+.nq-columns--kds {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+@media (min-width: 1100px) {
+  .nq-columns--kds {
+    grid-template-columns: minmax(0, 1.35fr) minmax(0, 1.35fr) minmax(0, 0.7fr) minmax(0, 0.7fr);
+  }
+}
+
+/* ── Cột bàn pha ──
+   Cột pha là một hàng dọc có đầu dính và thân cuộn riêng: đầu giữ nguyên khi
+   danh sách phiếu dài, và mỗi cột cuộn độc lập nên cuộn cột "chờ pha" không
+   kéo theo cột "đang pha". `max-height` theo viewport để bàn pha vừa một màn
+   hình — không cần lăn chuột cả trang để tìm nút "Nhận pha". */
+.nq-kds-col-wrap {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  padding: 0.9rem 1rem 1rem;
+  border: 1px solid var(--nq-line);
+  border-radius: var(--nq-radius-bubble);
+  background: color-mix(in srgb, var(--nq-bg-elevated) 82%, transparent);
+}
+
+.nq-kds-col-head {
+  flex: 0 0 auto;
+  margin-bottom: 0.5rem;
+  padding-bottom: 0.4rem;
+  border-bottom: 1px solid var(--nq-line);
+}
+
+.nq-kds-col {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  max-height: calc(100vh - 17rem);
+}
+
+.nq-kds-col__body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 2px;
+}
+
+.nq-kds-col--collapsed .nq-kds-col__body {
+  display: none;
+}
+
+/* Nút thu gọn/mở cột. Cả tiêu đề cột là nút: bấm bất cứ chỗ nào trên dải tiêu đề
+   cũng thu gọn được, không cần trúng mũi tên. `aria-expanded` để trình đọc
+   màn hình đọc đúng trạng thái. */
+.nq-kds-toggle {
+  display: flex;
+  align-items: center;
+  gap: var(--nq-s2);
+  width: 100%;
+  padding: 0.25rem 0.2rem;
+  border: 0;
+  border-radius: var(--nq-radius);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.nq-kds-toggle:hover {
+  background: color-mix(in srgb, var(--nq-fg) 6%, transparent);
+}
+
+.nq-kds-toggle__ten {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-weight: 700;
+  font-size: 0.95rem;
+  line-height: 1.3;
+}
+
+.nq-kds-toggle__dem {
+  flex-shrink: 0;
+  font-family: var(--nq-font-mono);
+  font-size: 0.7rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--nq-ink-muted);
+}
+
+.nq-kds-toggle__muc {
+  flex-shrink: 0;
+  font-family: var(--nq-font-mono);
+  font-size: 0.75rem;
+  color: var(--nq-dim);
+  transition: transform var(--nq-dur-t0) var(--nq-ease-out, ease);
+}
+
+.nq-kds-toggle[aria-expanded="false"] .nq-kds-toggle__muc {
+  transform: rotate(-90deg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nq-kds-toggle__muc {
+    transition: none;
+  }
+}
+
 /* ── Mục menu theo nhóm món ──
-   Menu phẳng 40 món thì nhân viên phải quét mắt cả danh sách mỗi lần gọi món.
+   Menu phẳng 49 món thì nhân viên phải quét mắt cả danh sách mỗi lần gọi món.
    Mỗi nhóm là một khối có tiêu đề + số món, ngăn bằng vạch mảnh để mắt bám
    được mốc. Tiêu đề dùng mono hoa nhỏ, đúng giọng nhãn khu vực của hệ. */
 .nq-pos-nhom + .nq-pos-nhom {
@@ -20,19 +174,149 @@
 
 /*
   LƯỚI NGANG: mỗi món là một ô trong hàng, không phải một dòng dọc chiếm trọn
-  bề rộng. Bản cũ để `.nq-pos-menu` là `flex-direction: column` nên 40 món là 40
+  bề rộng. Bản cũ để `.nq-pos-menu` là `flex-direction: column` nên 49 món là 49
   dòng — nhân viên phải cuộn rất sâu mới thấy hết nhóm.
 
-  Ngưỡng cột: `minmax(280px, 1fr)`. Bản thử 240px cho ra 4 cột ở 1366px, nhưng
-  bề rộng thật của một cột khi đó chỉ ~240px — không đủ cho ảnh 56px + tên món
-  tiếng Việt + giá + stepper nằm CÙNG HÀNG: tên bị cắt thành "Cà ph…", giá đè
-  lên nút "−". 280px là bề rộng tối thiểu để thẻ 2 tầng (thông tin trên, stepper
-  dưới) đọc được trọn vẹn; ở 1366px nó cho 3 cột thoáng thay vì 4 cột chật.
+  Ngưỡng cột 240px (bản trước 280px): menu nay nằm trong cột trái của
+  `.nq-pos-layout` cạnh giỏ hàng, nên bề rộng sẵn có hẹp đi. 280px ở 1400px màn
+  hình chỉ còn 3 cột và mỗi cột trống trơn; 240px cho 4 cột thoáng mà thẻ hai
+  tầng (thông tin trên, stepper dưới) vẫn đọc trọn tên môn tiếng Việt.
 */
 .nq-pos-menu {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 240px), 1fr));
   gap: var(--nq-s3);
+}
+
+/* ── Khung 2 cột: menu trái, giỏ dính phải ──
+   Bản trước `.nq-pos-shell` chỉ chứa giỏ + báo cáo, còn menu nằm ở một khối
+   riêng PHÍA TRÊN toàn bộ trang. Hệ quả: phải cuộn qua 49 món mới tới giỏ,
+   trong khi lời giới thiệu trang lại hứa "giỏ cố định bên phải". Nay menu vào
+   cột trái và giỏ dính cột phải nên lời giới thiệu đúng với cái nhìn thấy. */
+.nq-pos-layout {
+  display: grid;
+  gap: clamp(1rem, 2vw, 1.75rem);
+  align-items: start;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+@media (min-width: 1024px) {
+  .nq-pos-layout {
+    grid-template-columns: minmax(0, 1fr) minmax(300px, 360px);
+  }
+}
+
+.nq-pos-side {
+  display: flex;
+  flex-direction: column;
+  gap: var(--nq-s4);
+  min-width: 0;
+  /* Dính theo cột phải: giỏ luôn trong tầm mắt khi nhân viên cuộn tìm món ở
+     nhóm cuối. `top` chừa bằng chiều cao AppShell để không trượt dưới thanh
+     điều hướng. `max-height` + cuộn riêng khi giỏ dài hơn màn hình. */
+  position: sticky;
+  top: var(--nq-s5);
+  max-height: calc(100vh - 7rem);
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+@media (max-width: 1023px) {
+  .nq-pos-side {
+    position: static;
+    max-height: none;
+    overflow: visible;
+  }
+}
+
+/* ── Thẻ món: cả thẻ bấm được để thêm ──
+   `__top` là nút thật nên bàn phím và trình đọc màn hình dùng được, không phải
+   một `div` có `onClick` — bản trước gắn `onClick` lên `<article>` thì toàn bộ
+   menu không vào được bằng Tab, và lời giới thiệu "Chạm món để thêm" là nói dối
+   vì chỉ nút "+" mới thêm được. */
+.nq-pos-row__top {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  border-radius: var(--nq-radius);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.nq-pos-row__top:focus-visible {
+  outline: 2px solid var(--nq-accent);
+  outline-offset: 3px;
+}
+
+.nq-pos-row__top:hover .nq-pos-row__name {
+  color: var(--nq-accent);
+}
+
+/* ── Chip lọc nhóm món ──
+   49 món trải 6 nhóm: cuộn để tìm thì lâu, và nhóm nào đang bán nhiều thì không
+   thấy ngay. Chip là cách lọc nhanh nhất trên bàn pha — bấm "Trà" là chỉ còn
+   nhóm trà, bấm lại để bỏ lọc.
+
+   Tên lớp CỐ Ý là `nq-pos-chip` chứ không phải `nq-chip`: `StatusChip` trong
+   `kit.tsx` đã dùng `nq-chip` cho MỌI nhãn trạng thái của cả hệ thống
+   (`--ok/--warn/--danger/--info`). Đặt tên trùng ở đây sẽ biến mọi nhãn trạng
+   thái trên toàn app thành pill có `cursor: pointer`. */
+.nq-pos-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--nq-s2);
+  margin: 0 0 var(--nq-s3);
+  padding: 0;
+  list-style: none;
+}
+
+.nq-pos-chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.4rem;
+  padding: 0.32rem 0.7rem;
+  border: 1px solid var(--nq-line);
+  border-radius: var(--nq-radius-pill);
+  background: color-mix(in srgb, var(--nq-bg-elevated) 80%, transparent);
+  color: var(--nq-ink-muted);
+  font-size: 0.8rem;
+  line-height: 1.3;
+  cursor: pointer;
+  transition:
+    border-color var(--nq-dur-t0),
+    color var(--nq-dur-t0),
+    background var(--nq-dur-t0);
+}
+
+.nq-pos-chip:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--nq-accent) 55%, var(--nq-line));
+  color: var(--nq-fg);
+}
+
+.nq-pos-chip--on {
+  border-color: var(--nq-accent);
+  background: color-mix(in srgb, var(--nq-accent) 14%, transparent);
+  color: var(--nq-accent);
+  font-weight: 600;
+}
+
+.nq-pos-chip:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.nq-pos-chip__dem {
+  font-family: var(--nq-font-mono);
+  font-size: 0.68rem;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.75;
 }
 
 .nq-pos-nhom__head {
@@ -128,6 +412,33 @@
 
 .nq-phieu--dang_pha {
   border-color: color-mix(in srgb, var(--nq-st-warn) 55%, var(--nq-line));
+}
+
+/* Đơn đã hủy: lùi hẳn về nền vì nó việc đã xong (theo nghĩa đen) — chỉ còn giá
+   trị để tra "hủy vì lý do gì", không được trông như việc đang chờ. */
+.nq-phieu--huy {
+  border-color: color-mix(in srgb, var(--nq-st-danger, var(--nq-danger)) 35%, var(--nq-line));
+  background: color-mix(in srgb, var(--nq-bg) 60%, transparent);
+  box-shadow: none;
+}
+
+.nq-phieu--huy .nq-phieu__ten {
+  color: var(--nq-ink-muted);
+  text-decoration: line-through;
+  text-decoration-color: color-mix(in srgb, var(--nq-ink-muted) 50%, transparent);
+}
+
+/* Lý do hủy do người làm ghi. Không có chỗ này thì `ly_do_huy` chỉ nằm trong DB
+   mà không ai đọc được, và một đơn biến mất khỏi bàn pha là không truy vết được. */
+.nq-phieu__lydo {
+  margin-top: var(--nq-s2);
+  padding: 0.4rem 0.55rem;
+  border-left: 2px solid color-mix(in srgb, var(--nq-st-danger, var(--nq-danger)) 60%, transparent);
+  background: color-mix(in srgb, var(--nq-st-danger, var(--nq-danger)) 8%, transparent);
+  border-radius: 0 var(--nq-radius) var(--nq-radius) 0;
+  font-size: 0.8rem;
+  line-height: 1.4;
+  color: var(--nq-fg);
 }
 
 .nq-phieu__head {

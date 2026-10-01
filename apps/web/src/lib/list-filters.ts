@@ -11,8 +11,18 @@ export const TIME_FILTER_OPTIONS: { value: TimeFilter; label: string }[] = [
   { value: "month", label: "30 ngày qua" },
 ];
 
+/**
+ * Bỏ dấu + hạ chữ thường để so khớp tiếng Việt không phân biệt dấu.
+ *
+ * Phải bỏ riêng `đ`/`Đ` TRƯỚC khi NFD: U+0111 là ký tự có sẵn dấu mũ, NFD không
+ * tách nó ra thành `d` + dấu, nên nếu chỉ dựa vào `normalize("NFD")` thì tìm
+ * "da" không ra "đá" và tìm "đa" không ra "da". Ô tìm món ở `/quay` và tìm đơn ở
+ * `/pha` đều dùng hàm này.
+ */
 export function normalize(s: string): string {
   return s
+    .replace(/đ/g, "d")
+    .replace(/Đ/g, "D")
     .normalize("NFD")
     .replace(/\p{M}/gu, "")
     .toLowerCase()
