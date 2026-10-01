@@ -1,4 +1,19 @@
 /** @type {import('next').NextConfig} */
+
+// Origin của API lấy từ biến BUILD-TIME (giống cơ chế `NEXT_PUBLIC_*` của Next):
+// ảnh món (`/api/v1/menu/{id}/anh`) do API phục vụ thẳng trong `<img>`, mà ở
+// dev/e2e API đứng ở origin KHÁC web (`http://127.0.0.1:8000` vs
+// `localhost:3000`) — CSP `img-src 'self'` chặn luôn request, `<img>` onError
+// rơi về placeholder chữ và hao-hut.spec.ts "mọi món đều có ảnh" đỏ (CI
+// 2026-10-01). `https:` đã có sẵn trong img-src nên prod không đổi hành vi.
+const API_ORIGIN = (() => {
+  try {
+    return new URL(process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000").origin;
+  } catch {
+    return "";
+  }
+})();
+
 const nextConfig = {
   output: "standalone",
 
@@ -32,8 +47,9 @@ const nextConfig = {
    *
    * - CSP phải nới hơn API (`default-src 'none'` sẽ giết Next.js vì framework
    *   cần inline script/style): cho phép `'self'` + inline/eval cho
-   *   script/style do Next Generics, ảnh `data:/blob:/https:` (ảnh món + tile
-   *   bản đồ), font `data:/https:`, kết nối `http:/https:/ws:/wss:` (`http/ws`
+   *   script/style do Next Generics, ảnh `data:/blob:/https:` + origin API
+   *   (xem `API_ORIGIN` đầu tệp — ảnh món dev/e2e nằm trên `http://127.0.0.1:8000`),
+   *   font `data:/https:`, kết nối `http:/https:/ws:/wss:` (`http/ws`
    *   cho dev local `localhost:3000 → localhost:8000`, prod dùng https/wss).
    *   `frame-ancestors 'none'` đi cùng `X-Frame-Options: DENY` chống clickjacking.
    * - Permissions-Policy PHẢI mở `(self)` cho camera/microphone/geolocation:
@@ -59,7 +75,8 @@ const nextConfig = {
           {
             key: "Content-Security-Policy",
             value:
-              "default-src 'self'; img-src 'self' data: blob: https:; " +
+              "default-src 'self'; img-src 'self' data: blob: https: " +
+                `${API_ORIGIN}; ` +
               "script-src 'self' 'unsafe-inline' 'unsafe-eval'; " +
               "style-src 'self' 'unsafe-inline' https:; " +
               "font-src 'self' data: https:; " +

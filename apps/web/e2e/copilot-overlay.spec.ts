@@ -80,7 +80,11 @@ const CASES = [
   { user: "hung", path: "/menu", label: "Thêm món" },
   { user: "lan", path: "/cau-hinh-quan", label: "Lưu thông tin quán" },
   { user: "lan", path: "/page-quan/dat-ban", label: "Đã hủy" },
-  { user: "lan", path: "/quay", label: "Thêm Combo sang" },
+  // `/quay`: stepper món theo aria-label `Thêm ${tên món}` — phải là món CÓ TRONG
+  // seed demo (persist.py). Nhãn cũ "Thêm Combo sang" chỉ tồn tại trên DB máy dev
+  // vì dính fixture `fx_mon_combo` tích luỹ từ unit test, nên CI (DB trắng) báo
+  // element not found dù local xanh — bug "xanh máy tôi" đúng nghĩa.
+  { user: "lan", path: "/quay", label: "Thêm Bạc xỉu" },
 ];
 
 for (const c of CASES) {
