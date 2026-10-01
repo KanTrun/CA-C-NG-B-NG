@@ -2452,6 +2452,27 @@ async def swap_duyet(
                 raise HTTPException(status_code=409, detail="swap_da_tu_choi")
             if it.get("da_duyet_boi"):
                 raise HTTPException(status_code=409, detail="swap_da_duyet_roi")
+            # Chặn duyệt phiếu không bao giờ áp được: người nhường không giữ
+            # ca MÀ người nhận cũng chưa có ca (phiếu hỏng từ lúc mở). Còn khi
+            # người nhận đã vào ca (phiếu áp rồi ở bước đồng ý của quản lý/chủ)
+            # thì duyệt chỉ ghi nhận phê chuẩn — `_apply` là noop an toàn.
+            # Chưa có người nhận (`b == "all"`) cũng không được duyệt: tránh ghi
+            # chuỗi "all" vào phân công. Xung đột giờ của người nhận thì KHÔNG
+            # chặn: đó là quyết định của quản lý khi đã thấy cảnh báo.
+            if str(it.get("b") or "") == "all":
+                raise HTTPException(status_code=409, detail="swap_chua_co_nguoi_nhan")
+            wk = str(it.get("tuan_id") or _life().get("tuan_iso") or "2026-W01")
+            danh_sach = [
+                str(x)
+                for x in _phan_cong_tuan(wk).get(str(it.get("ca_id") or ""), [])
+            ]
+            con_nhuong = str(it.get("a") or "") in danh_sach
+            da_nhan = str(it.get("b") or "") in danh_sach
+            if not con_nhuong and not da_nhan:
+                raise HTTPException(
+                    status_code=409,
+                    detail="ca_khong_trong_phan_cong_cua_nguoi_nhuong",
+                )
             it["da_duyet_boi"] = str(caller.get("nv_id") or caller.get("username") or "")
             it["trang_thai"] = "da_duyet"
             found = dict(it)
