@@ -29,16 +29,26 @@ $jobDir = Join-Path ([System.IO.Path]::GetTempPath()) "opencode-jobs"
 $log = Join-Path $jobDir "$Name.log"
 $exitFile = Join-Path $jobDir "$Name.exit"
 
-if ($WaitSeconds -gt 0) {
+function Get-JobExitCode {
+  # Trả $null khi job CHƯA xong. Runner tạo file exit rồi mới ghi nội dung,
+  # nên đọc file tồn tại nhưng rỗng = đang chạy (race), không phải DONE.
+  if (-not (Test-Path -LiteralPath $exitFile)) { return $null }
+  $raw = Get-Content -LiteralPath $exitFile -Raw -ErrorAction SilentlyContinue
+  if ($null -eq $raw -or $raw.Trim() -eq '') { return $null }
+  return $raw.Trim()
+}
+
+$code = Get-JobExitCode
+if ($null -eq $code -and $WaitSeconds -gt 0) {
   $deadline = (Get-Date).AddSeconds($WaitSeconds)
-  while (-not (Test-Path -LiteralPath $exitFile)) {
+  while ($null -eq $code) {
     if ((Get-Date) -ge $deadline) { break }
     Start-Sleep -Milliseconds 1500
+    $code = Get-JobExitCode
   }
 }
 
-if (Test-Path -LiteralPath $exitFile) {
-  $code = (Get-Content -LiteralPath $exitFile -Raw).Trim()
+if ($null -ne $code) {
   Write-Output "=== DONE (exit=$code) ==="
   if (Test-Path -LiteralPath $log) {
     Get-Content -LiteralPath $log -Tail $Tail
