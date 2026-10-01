@@ -596,6 +596,9 @@ def copilot_message_stream(
             "citations": list(getattr(response, "citations", []) or []),
             "direct_answer": getattr(response, "direct_answer", None),
             "agent_mode": getattr(response, "agent_mode", "replay"),
+            # Client dùng cờ này để biết lượt sau câu của người dùng có phải
+            # câu TRẢ LỜI làm rõ không, thay vì so chuỗi trong `reply_text`.
+            "clarification_kind": getattr(response, "clarification_kind", None),
         }
         yield _sse("meta", meta)
 

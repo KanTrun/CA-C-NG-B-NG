@@ -239,6 +239,7 @@ def run_copilot(
             action_proposal=None,
             direct_answer=None,
             agent_mode=_current_agent_mode(),
+            clarification_kind=parsed.clarification_kind,
         )
 
     # 1.3 Out of scope / Conversational QA

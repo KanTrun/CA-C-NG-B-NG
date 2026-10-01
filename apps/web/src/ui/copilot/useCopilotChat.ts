@@ -144,6 +144,9 @@ export function useCopilotChat(mode: Mode = "pane") {
   const [streamingId, setStreamingId] = useState<string | null>(null);
   const typingTimers = useRef<Record<string, number>>({});
   const messagesRef = useRef<ChatMessage[]>(messages);
+  // Loại làm rõ của lượt gần nhất ("thieu_ly_do" | "thieu_thu" | …). Lưu theo
+  // CỜ do server gửi, không so chuỗi trong `reply_text`.
+  const clarifRef = useRef<string | null>(null);
 
   // Cập nhật ref mỗi render để handleSendMessage có state mới nhất
   useEffect(() => {
@@ -355,14 +358,10 @@ export function useCopilotChat(mode: Mode = "pane") {
         const ganDay = messagesRef.current.filter((m) => m.sender === "user");
         const recent = ganDay.slice(-3).map((m) => m.text);
         // Lượt trước copilot đã hỏi "lý do xin nghỉ là gì?" → câu này là câu TRẢ
-        // LỜI. Không báo thì agent rơi vào ngoài phạm vi và lý do NV vừa nói
-        // bị bỏ rơi.
-        const lastCopilot = [...messagesRef.current]
-          .reverse()
-          .find((m) => m.sender === "copilot");
-        const choPhepNoiLyDo = lastCopilot
-          ? lastCopilot.text.includes("cho em xin lý do xin nghỉ")
-          : false;
+        // LỜI. Dùng cờ `clarification_kind` từ response thay vì so chuỗi trong
+        // `reply_text`: đổi câu chữ là hỏng ngay, và không phân biệt được
+        // "hỏi lý do" với các câu hỏi làm rõ khác.
+        const choPhepNoiLyDo = clarifRef.current === "thieu_ly_do";
         const payload = JSON.stringify({
           message: text,
           channel: mode === "page" ? "web-page" : "web",
@@ -430,6 +429,10 @@ export function useCopilotChat(mode: Mode = "pane") {
         const citations: string[] | null = Array.isArray(data.citations)
           ? data.citations
           : null;
+        clarifRef.current =
+          typeof data.clarification_kind === "string"
+            ? data.clarification_kind
+            : null;
 
         setMessages((prev) =>
           prev.map((m) =>
@@ -552,6 +555,10 @@ async function streamCopilot(
             try {
               const data = JSON.parse(dataStr);
               if (eventName === "meta") {
+                clarifRef.current =
+                  typeof data.clarification_kind === "string"
+                    ? data.clarification_kind
+                    : null;
                 meta = {
                   action_proposal: data.action_proposal ?? null,
                   citations: Array.isArray(data.citations) ? data.citations : null,

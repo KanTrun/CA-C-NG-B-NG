@@ -1,6 +1,15 @@
-"""Intent Parser & Prompt Injection Guard for AG-COPILOT.
+﻿"""Intent Parser & Prompt Injection Guard cho AG-COPILOT.
 
-Classifies natural language input into 7 whitelisted intents with confidence scoring.
+Phân loại câu tiếng Việt thành intent trong danh sách whitelist, kèm trích tham số
+và chống prompt injection.
+
+Cơ chế nhận diện: `_INTENT_KEYWORDS` là tầng TẤT ĐỊNH (35 intent / 611 từ khóa,
+khớp bằng `kw in lower`) — đường này chạy ở mọi chế độ, kể cả replay/CI nên
+test tất định. Đổi lại nó không nhận diện được cách nói không nằm trong từ khóa;
+xem `docs`/ghi chú về đường LLM để mở rộng.
+
+Ghi chú: số "7 intent" trong docstring cũ đã lệch — hiện có 35 intent whitelist
+cộng `OUT_OF_SCOPE`.
 """
 
 from __future__ import annotations
@@ -245,7 +254,7 @@ _INTENT_KEYWORDS: list[tuple[str, list[str], float]] = [
     ),
     (
         PROPOSE_PIN,
-        ["ghim ca", "ghim ca", "pin ca", "ghim lịch", "ghim lich"],
+        ["ghim ca", "pin ca", "ghim lịch", "ghim lich"],
         0.9,
     ),    # PR12 external channels
     (
@@ -322,7 +331,7 @@ _INTENT_KEYWORDS: list[tuple[str, list[str], float]] = [
             "ràng buộc chờ duyệt", "rang buoc cho duyet", "ràng buộc nào", "rang buoc nao",
             "xin nghỉ chờ", "xin nghi cho", "inbox ràng buộc", "inbox rang buoc",
             "danh sách ràng buộc", "danh sach rang buoc", "ràng buộc chưa duyệt", "rang buoc chua duyet",
-            "ai có thể thay ca", "ai co the thay ca", "ai thay ca", "ai thay ca",
+            "ai có thể thay ca", "ai co the thay ca", "ai thay ca",
             "ai có thể thay", "ai co the thay", "ai thay được ca", "ai thay duoc ca",
             "ai thay ca tối nay", "ai thay ca toi nay", "ai có thể thay ca tối nay", "ai co the thay ca toi nay",
             "ai thay ca tuần này", "ai thay ca tuan nay", "ai có thể thay ca tuần này", "ai co the thay ca tuan nay",
@@ -534,6 +543,10 @@ class IntentParseResult:
     clarification_needed: bool = False
     clarification_question: str | None = None
     security_flag: str | None = None
+    # Tên tham số đang thiếu khiến phải hỏi lại (vd "thieu_ly_do"). Để client
+    # biết lượt sau có cần coi câu của người dùng là câu TRẢ LỜI hay không,
+    # thay vì so chuỗi trong câu hỏi.
+    clarification_kind: str | None = None
 
 
 def _iso_week(d: Any) -> str:
@@ -839,20 +852,21 @@ def _chuan_hoa_cau_hoi(text: str) -> str:
     return " ".join(str(text or "").lower().split())
 
 
-def _cau_hoi_lam_ro(intent: str, params: dict[str, Any]) -> str | None:
+def _cau_hoi_lam_ro(intent: str, params: dict[str, Any]) -> tuple[str, str] | None:
+    """`(loại_thiếu, câu_hỏi)` cho intent khi `params` còn thiếu thông tin bắt buộc."""
     if intent == PROPOSE_TIME_OFF:
         thieu_ngay = bool(params.get("thieu_thu"))
         thieu_ly_do = bool(params.get("thieu_ly_do"))
         if thieu_ngay and thieu_ly_do:
-            return CAU_HOI_TIME_OFF_CA_NHAY
+            return "thieu_ly_do", CAU_HOI_TIME_OFF_CA_NHAY
         if thieu_ngay:
-            return CAU_HOI_TIME_OFF_NGAY
+            return "thieu_thu", CAU_HOI_TIME_OFF_NGAY
         if thieu_ly_do:
-            return CAU_HOI_TIME_OFF_LY_DO
+            return "thieu_ly_do", CAU_HOI_TIME_OFF_LY_DO
         return None
     for flag, question in _CAU_HOI_LAM_RO.get(intent, {}).items():
         if params.get(flag):
-            return question
+            return flag, question
     return None
 
 
@@ -1389,12 +1403,14 @@ def parse_intent(message: str, context: dict[str, Any] | None = None) -> IntentP
     # phải hỏi khi thiếu lý do/ngày — đây là chỗ cũ để lọt "tự điền bận".
     cau_hoi = _cau_hoi_lam_ro(matched_intent, params)
     if cau_hoi is not None:
+        loai, cau = cau_hoi
         return IntentParseResult(
             intent=matched_intent,
             confidence=matched_conf,
             params=params,
             clarification_needed=True,
-            clarification_question=cau_hoi,
+            clarification_question=cau,
+            clarification_kind=loai,
         )
 
     # 5. Confidence thresholds:
