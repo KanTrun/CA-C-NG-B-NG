@@ -65,7 +65,7 @@ def setup() -> dict[str, Any]:
     if not isinstance(ton, list):
         ton = []
     ton = [x for x in ton if not str(x.get("id") or "").startswith(_PREFIX)]
-    demo_items = [
+    demo_items: list[dict[str, Any]] = [
         {"hang": "Sua tuoi", "so_luong": 1},
         {"hang": "Ca phe hat", "so_luong": 8},
         {"hang": "Duong", "so_luong": 6},
@@ -73,12 +73,13 @@ def setup() -> dict[str, Any]:
         {"hang": "Ly giay", "so_luong": 12},
     ]
     for idx, it in enumerate(demo_items):
+        so_luong = int(it["so_luong"])
         ton.append({
             "id": f"{_PREFIX}ton_{idx:02d}",
             "hang": it["hang"],
-            "so_luong": it["so_luong"],
+            "so_luong": so_luong,
             "don_vi": "phan",
-            "duoi_nguong": it["so_luong"] < 2,
+            "duoi_nguong": so_luong < 2,
             "ai": "demo_setup",
             "luc": now.isoformat(),
         })

@@ -79,8 +79,11 @@ def build_evidence(store_id: str = "quan_01") -> dict[str, Any]:
 
     chi_so = st.get("chi_so") or {} if isinstance(st, dict) else {}
     don_dang_xu_ly = int(chi_so.get("don_dang_xu_ly") or 0)
-    stations_rows = st.get("stations") or [] if isinstance(st, dict) else []
-    pha = next((s for s in stations_rows if s.get("zone_id") == "quay_pha"), {})
+    stations_rows: list[Any] = list(st.get("stations") or []) if isinstance(st, dict) else []
+    pha: dict[str, Any] = next(
+        (s for s in stations_rows if isinstance(s, dict) and s.get("zone_id") == "quay_pha"),
+        {},
+    )
     pha_tai = pha.get("tai")
     pha_muc = pha.get("muc_day", 5)
     pha_canh_bao = pha.get("canh_bao", "binh_thuong")

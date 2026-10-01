@@ -51,21 +51,23 @@ def _fallback_judge(evidence: dict[str, Any]) -> dict[str, Any]:
 
 
 def _fallback_rank(evidence: dict[str, Any]) -> list[dict[str, Any]]:
-    cands = [c for c in (evidence.get("candidates") or []) if c.get("eligible")]
+    raw_cands = evidence.get("candidates") or []
+    cands: list[dict[str, Any]] = [c for c in raw_cands if isinstance(c, dict) and c.get("eligible")]
     if not cands:
-        cands = [c for c in (evidence.get("candidates") or []) if c.get("id") == "E"]
+        cands = [c for c in raw_cands if isinstance(c, dict) and c.get("id") == "E"]
     # Thứ tự nghiêm trọng: C (pha) > D (treo) > B (kho) > A (lịch) > E.
     thu_tu = {"C": 0, "D": 1, "B": 2, "A": 3, "E": 4}
     cands = sorted(cands, key=lambda c: thu_tu.get(str(c.get("id")), 9))
     tong = len(cands)
-    out = []
+    out: list[dict[str, Any]] = []
+    mau_so = float(sum(range(1, tong + 1))) if tong else 1.0
     for i, c in enumerate(cands[:3]):
         # Phân phối giảm dần, chuẩn hoá tổng = 1 trong top.
-        w = (tong - i) / sum(range(1, tong + 1)) if tong else 1.0
+        w = (float(tong - i)) / mau_so if tong else 1.0
         out.append({"id": str(c.get("id")), "p": round(w, 2)})
-    s = sum(x["p"] for x in out) or 1.0
+    s = float(sum(float(x["p"]) for x in out)) or 1.0
     for x in out:
-        x["p"] = round(x["p"] / s, 2)
+        x["p"] = round(float(x["p"]) / s, 2)
     return out
 
 
@@ -83,7 +85,8 @@ def _goi_jev_http(payload: dict[str, Any], timeout_s: float) -> dict[str, Any] |
             method="POST",
         )
         with urllib.request.urlopen(req, timeout=timeout_s) as resp:
-            return json.loads(resp.read().decode("utf-8"))
+            body: Any = json.loads(resp.read().decode("utf-8"))
+            return body if isinstance(body, dict) else None
     except Exception:
         return None
 
@@ -123,7 +126,8 @@ def judge(evidence: dict[str, Any]) -> dict[str, Any]:
             p = min(0.99, max(0.01, p))
         except (TypeError, ValueError):
             p = 0.6
-        ranking = raw.get("ranking") if isinstance(raw.get("ranking"), list) else _fallback_rank(evidence)
+        ranking_raw: Any = raw.get("ranking")
+        ranking: list[Any] = list(ranking_raw) if isinstance(ranking_raw, list) else _fallback_rank(evidence)
         return {
             "goi_jev": True,
             "verdict": raw["verdict"],
