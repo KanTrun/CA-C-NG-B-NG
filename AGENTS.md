@@ -14,12 +14,18 @@ Cách làm đúng — dùng 2 script trong `scripts/`:
 # 1. Chạy nền (lệnh về NGAY LẬP TỨC, không chặn)
 & scripts/run_bg.ps1 -Name t1 -Command "& '.\.venv312\Scripts\python.exe' -m pytest ... -q"
 
-# 2. Poll — luôn trả lời trong <1s
+# 2. Poll — mặc định trả lời trong <1s
 & scripts/poll_bg.ps1 -Name t1        # -> "=== DANG CHAY ===" hoặc "=== DONE (exit=0) ==="
+
+# 2b. Muốn chờ job xong thì DÙNG -WaitSeconds, KHÔNG tự Start-Sleep
+& scripts/poll_bg.ps1 -Name t1 -WaitSeconds 240
 ```
 
 Quy tắc kèm theo:
 
+- **Không đoán số giây rồi `Start-Sleep`** (kiểu `Start-Sleep 115; poll`): số đó
+  tùy ý, job xong sớm thì chờ phí, job lâu hơn thì phải poll lại. `-WaitSeconds`
+  chờ có hạn, 1.5s/lần, về ngay khi job xong.
 - **Không mắc `Select-Object -First/-Last` trong lệnh nền** — nó buffer tới cuối
   mới ghi, nên log 0 byte suốt 10 phút và tưởng như treo.
 - Chia nhỏ test theo `-k` để mỗi lần <2 phút khi có thể.
