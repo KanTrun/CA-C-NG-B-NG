@@ -4,11 +4,12 @@ from __future__ import annotations
 
 from ca_agents.ag_rule_learning.discover import DecisionSignal, discover_rule_candidates
 from ca_agents.ag_rule_learning.shadow_test import run_shadow_test
+from ca_contracts import RuleCandidate
 
 SNAP = "snap_shadow_20260918_abcd"
 
 
-def _candidates() -> list:
+def _candidates() -> list[RuleCandidate]:
     sigs = [
         DecisionSignal(signal_id="e1", decision="them_nguoi", outcome="ok", day_part="toi"),
         DecisionSignal(signal_id="e2", decision="them_nguoi", outcome="ok", day_part="toi"),

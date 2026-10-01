@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from ca_agents.ag_quanverse.brief import brief_living_map
 from ca_contracts import QuanversePage
 
 
-def _base_zones() -> list[dict]:
+def _base_zones() -> list[dict[str, Any]]:
     return [
         {"zone_id": "bar", "label": "Quầy bar", "load_signal": 0.3, "active": True},
         {"zone_id": "ngoai", "label": "Ngoài trời", "load_signal": 0.5, "active": True},

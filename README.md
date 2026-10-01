@@ -731,7 +731,7 @@ Crew-Operations/
 │   ├── docker/                  # compose.yml — postgres·redis·api·worker·web
 │   ├── templates/               # phiếu YAML: mo_quan, dong_quan, ban_giao_ca
 │   ├── aws/ · oracle/           # runbook triển khai cloud
-├── skills/                      # 13 skill + 1 router + skills_index.jsonl (SHA256)
+├── skills/                      # 14 skill + 1 router + skills_index.jsonl (SHA256) 
 ├── scripts/                     # 143 script Python: demo, eval, seed, docker_stack.py, metrics…
 ├── plans/                       # kế hoạch & nhật ký triển khai theo phiên
 └── docs/                        # 21 ADR · 16 runbook · hướng dẫn · hồ sơ
@@ -748,7 +748,7 @@ Crew-Operations/
 | API | `apps/api` | FastAPI · SQLite/Postgres · worker nền |
 | Web | `apps/web` | Next.js PWA (quản lý, NV, inbox, page quán, gmail) |
 | Infra | `infra/docker` | Compose 5 dịch vụ |
-| Skills | `skills/` | 14 kỹ năng vận hành đã kiểm định (13 skill + 1 router) |
+| Skills | `skills/` | 15 kỹ năng vận hành đã kiểm định (14 skill + 1 router) | 
 
 ---
 
@@ -1693,7 +1693,7 @@ Các agent chuyên trách chính và nơi triển khai:
 <a id="skills"></a>
 ## Thư viện Kỹ năng (Skills)
 
-**14 kỹ năng** = 13 skill chưng cất (Repo-To-Skill / Playbook-To-Skill) + 1 Skill Router, tuân chuẩn [Agent Skills Format](https://github.com/agentskills/agentskills). Mỗi skill gồm `SKILL.md` + `references/` + `scripts/` (smoke test offline). Xem [`skills/README.md`](./skills/README.md) và index [`skills/skills_index.jsonl`](./skills/skills_index.jsonl).
+**15 kỹ năng** = 14 skill chưng cất (Repo-To-Skill / Playbook-To-Skill) + 1 Skill Router, tuân chuẩn [Agent Skills Format](https://github.com/agentskills/agentskills). Mỗi skill gồm `SKILL.md` + `references/` + `scripts/` (smoke test offline). Xem [`skills/README.md`](./skills/README.md) và index [`skills/skills_index.jsonl`](./skills/skills_index.jsonl).
 
 > [!TIP]
 > **Skill Router** giữ context **≤ 1.500 tokens** bằng Progressive Disclosure — chỉ nạp skill khớp trigger từ khóa.

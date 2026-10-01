@@ -218,8 +218,12 @@ export function CopilotBody({ chat, mode, onClose, onOpenFullPage, onClearHistor
     if (lastMsg && lastMsg.sender === "copilot") {
       if (lastMsg.action_proposal?.status === "executed") return "success";
       const txt = lastMsg.text.toLowerCase();
-      if (txt.includes("lỗi") || txt.includes("thất bại") || txt.includes("không thể")) return "error";
-      if (txt.includes("cảnh báo") || txt.includes("chú ý") || txt.includes("thiếu ca")) return "alert";
+      // "Không thể tìm phương án..." (INFEASIBLE) là kết quả nghiệp vụ của
+      // solver, không phải sự cố hệ thống — nếu xếp vào "error" Tinh Linh đeo
+      // mặt "Hệ thống lỗi" suốt ca (gặp thật 2026-10-01).
+      if (txt.includes("lỗi") || txt.includes("thất bại")) return "error";
+      if (txt.includes("không thể") || txt.includes("cảnh báo") || txt.includes("chú ý") || txt.includes("thiếu ca"))
+        return "alert";
       if (txt.includes("xin chào") || txt.includes("chào ký chủ") || txt.includes("chào bạn") || txt.startsWith("chào"))
         return "greeting";
       if (txt.includes("tuyệt vời") || txt.includes("hoàn tất") || txt.includes("chúc mừng") || txt.includes("xuất sắc"))

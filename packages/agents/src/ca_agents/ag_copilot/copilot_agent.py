@@ -165,12 +165,22 @@ def _generate_conversational_reply(
 
 def run_copilot(
     message: str,
-    context: dict[str, Any] | None = None,
+    context: dict[str, Any] | Any | None = None,
     *,
     ttl_minutes: int = _DEFAULT_TTL_MINUTES,
 ) -> CopilotResponse:
     """Main AG-COPILOT entrypoint."""
-    ctx = context or {}
+    if hasattr(context, "model_dump"):
+        ctx = context.model_dump()
+    elif isinstance(context, dict):
+        ctx = context
+    elif context is not None:
+        try:
+            ctx = dict(context)
+        except Exception:
+            ctx = {}
+    else:
+        ctx = {}
     store_id = str(ctx.get("store_id") or "quan_01")
     user_id = str(ctx.get("user_id") or "nv_01")
 

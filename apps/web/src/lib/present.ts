@@ -32,6 +32,7 @@ export type ErrorCopy = {
   forbidden?: string;
   missing?: string;
   conflict?: string;
+  invalid?: string;
 };
 
 /**
@@ -64,7 +65,21 @@ export function viError(err: unknown, copy: ErrorCopy): string {
     return copy.conflict ?? "Dữ liệu vừa đổi ở nơi khác. Tải lại trang rồi làm lại từ đầu.";
   }
   if (status === 400 || status === 422) {
-    return "Thông tin nhập chưa hợp lệ. Kiểm tra lại các ô rồi gửi lại.";
+    // Máy chủ trả detail là câu tiếng Việt hoàn chỉnh (vd bản thu im lặng của
+    // process-audio) thì hiện thẳng — thông báo chung "nhập chưa hợp lệ" vô
+    // nghĩa với người không nhập gì cả (gặp thật 2026-10-01). Chỉ nhận câu có
+    // dấu tiếng Việt để không lộ chuỗi kỹ thuật tiếng Anh ra UI.
+    if (err instanceof ApiError) {
+      const detail = err.detail;
+      if (
+        typeof detail === "string" &&
+        /\s/.test(detail.trim()) &&
+        /[ăâđêôơưàáảãạằắẳẵặầấẩẫậèéẻẽẹềếểễệìíỉĩịòóỏõọồốổỗộùúủũụỳýỷỹỵ]/i.test(detail)
+      ) {
+        return detail.trim();
+      }
+    }
+    return copy.invalid ?? "Thông tin nhập chưa hợp lệ. Kiểm tra lại các ô rồi gửi lại.";
   }
   if (status === 429) {
     return "Quá nhiều lượt trong thời gian ngắn. Chờ một phút rồi thử lại.";

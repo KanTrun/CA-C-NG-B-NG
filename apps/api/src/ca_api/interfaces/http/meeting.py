@@ -21,6 +21,7 @@ from ca_agents.ag_meeting import (
     clarify_meeting_actions,
     create_meeting_stream_session,
     extract_meeting,
+    resolve_staff_id,
     transcribe_audio_live,
     transcribe_audio_live_async,
 )
@@ -244,9 +245,15 @@ async def process_audio_upload(
         audio_bytes=audio_bytes, mime_type=_clean_audio_mime(file.content_type)
     )
     if not trans_res.ok and not live_transcript.strip():
+        # Chi tiết riêng cho bản thu im lặng/quá ngắn — khác với file sai định
+        # dạng (TC-33), để frontend hiển thị đúng việc cần làm thay vì thông
+        # báo chung "nhập chưa hợp lệ" (gặp thật 2026-10-01).
         raise HTTPException(
             status_code=400,
-            detail="Không thể đọc file âm thanh, vui lòng kiểm tra lại định dạng.",
+            detail=(
+                "Bản thu quá ngắn hoặc im lặng nên không bóc băng được. "
+                "Ghi âm dài hơn rồi bấm Hoàn tất & trích xuất lại."
+            ),
         )
 
     staff = _get_staff_list()
@@ -330,6 +337,7 @@ def apply_meeting_decisions(
     selected_actions = [a for a in body.action_items if a.da_chon]
     created_tasks = 0
     gop_y_converted: list[dict[str, Any]] = []
+    staff = _get_staff_list() if selected_actions else []
 
     if selected_actions:
 
@@ -378,9 +386,21 @@ def apply_meeting_decisions(
                 if (act_nv, act_core) in open_tasks:
                     continue
 
+                # nv_id phải là mã nhân viên thật (nv_xx) để việc treo gắn đúng
+                # người trong lịch/treo. Tên hiển thị ("Minh Phạm — ...") không
+                # phải mã; không resolve được thì giữ tên ở `nhan_vien`.
+                treo_nv_id = act.nhan_vien_id or resolve_staff_id(
+                    str(act.ten_nguoi_nhan or ""), staff
+                )
+
+                # Bảo vệ: không đẩy việc treo mồ côi (không người nhận) vào ca (Rule 5: không thả việc vô chủ)
+                raw_receiver = str(act.ten_nguoi_nhan or "").strip()
+                if not treo_nv_id and (not raw_receiver or raw_receiver.lower() in ("", "chưa rõ")):
+                    continue
+
                 treo_item = {
                     "id": f"treo_{uuid.uuid4().hex[:8]}",
-                    "nv_id": act.nhan_vien_id or act.ten_nguoi_nhan,
+                    "nv_id": treo_nv_id,
                     "nhan_vien": act.ten_nguoi_nhan,
                     "noi_dung": task_noi_dung,
                     "trang_thai": "dang_cho",

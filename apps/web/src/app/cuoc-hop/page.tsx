@@ -355,6 +355,14 @@ export default function MeetingPage() {
     setLiveTranscript("");
     setInterimText("");
 
+    if (typeof navigator === "undefined" || !navigator.mediaDevices?.getDisplayMedia) {
+      setError(
+        "Trình duyệt hiện tại không hỗ trợ bắt âm thanh từ tab Google Meet (thiếu getDisplayMedia). " +
+        "Vui lòng dùng Chrome hoặc Edge trên máy tính để thu trực tiếp từ tab, hoặc chuyển sang tab 'Micro' / 'Tải file' bên cạnh."
+      );
+      return;
+    }
+
     try {
       const displayStream = await navigator.mediaDevices.getDisplayMedia({
         video: true,
@@ -455,6 +463,14 @@ export default function MeetingPage() {
     } catch (e: unknown) {
       if (e instanceof Error && (e.name === "NotAllowedError" || e.message.toLowerCase().includes("permission denied"))) {
         setError("Bạn chưa cấp quyền chia sẻ âm thanh hoặc đã hủy thao tác. Vui lòng thử lại và chọn tab Google Meet cùng tùy chọn chia sẻ âm thanh.");
+      } else if (
+        e instanceof Error &&
+        (e.name === "NotSupportedError" || e.message.toLowerCase().includes("not supported"))
+      ) {
+        setError(
+          "Trình duyệt hiện tại không hỗ trợ bắt âm thanh từ tab Google Meet (Not supported). " +
+          "Vui lòng dùng Chrome hoặc Edge trên máy tính để thu trực tiếp từ tab Google Meet, hoặc chuyển sang tab 'Micro' / 'Tải file'."
+        );
       } else {
         setError(e instanceof Error ? e.message : "Không thể bắt luồng âm thanh Google Meet.");
       }
@@ -606,7 +622,12 @@ export default function MeetingPage() {
       setMeeting(res);
       setSuccess("Bóc băng và phân tích cuộc họp hoàn tất!");
     } catch (e) {
-      setError(viError(e, { doing: "xử lý âm thanh cuộc họp" }));
+      setError(
+        viError(e, {
+          doing: "xử lý âm thanh cuộc họp",
+          invalid: "Bản thu quá ngắn hoặc không có tiếng nói để bóc băng. Ghi âm dài hơn rồi bấm Hoàn tất & trích xuất lại.",
+        }),
+      );
     } finally {
       setBusy(false);
       setStatusMsg("");
@@ -659,7 +680,12 @@ export default function MeetingPage() {
       setMeeting(res);
       setSuccess("Bóc băng file âm thanh thành công!");
     } catch (e) {
-      setError(viError(e, { doing: "xử lý file âm thanh" }));
+      setError(
+        viError(e, {
+          doing: "xử lý file âm thanh",
+          invalid: "File âm thanh quá ngắn hoặc không có tiếng nói. Vui lòng chọn file ghi âm rõ tiếng hơn.",
+        }),
+      );
     } finally {
       setBusy(false);
       setStatusMsg("");
@@ -671,6 +697,24 @@ export default function MeetingPage() {
     if (!meeting) return;
     setError(null);
     setSuccess(null);
+
+    // Kiểm tra: Không cho phép duyệt các việc đã chọn mà không có người phụ trách
+    const actionsWithoutAssignee = (meeting.action_items || []).filter(
+      (a) =>
+        a.da_chon &&
+        a.loai_cong_viec !== "gop_y" &&
+        (!a.ten_nguoi_nhan ||
+          a.ten_nguoi_nhan.trim() === "" ||
+          a.ten_nguoi_nhan.trim().toLowerCase() === "chưa rõ"),
+    );
+    if (actionsWithoutAssignee.length > 0) {
+      setError(
+        `Còn ${actionsWithoutAssignee.length} công việc chưa có người nhận (đang để trống hoặc "Chưa rõ"). ` +
+          "Vui lòng điền tên người nhận ở ô 'Giao cho' hoặc bỏ tick chọn trước khi duyệt.",
+      );
+      return;
+    }
+
     setBusy(true);
     setStatusMsg("Đang đẩy việc treo vào ca & cập nhật Cẩm nang...");
     try {

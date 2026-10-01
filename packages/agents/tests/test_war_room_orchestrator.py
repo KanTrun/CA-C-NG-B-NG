@@ -68,10 +68,15 @@ def test_stale_baseline_marks_stale() -> None:
 
 def test_unknown_scenario_type_rejected() -> None:
     with pytest.raises(ValidationError):
-        WarRoomScenario(scenario_id="s", loai="khong_biet")
+        WarRoomScenario(scenario_id="s", loai="khong_biet")  # type: ignore[arg-type]
 
     with pytest.raises(ValidationError):
-        normalize_command("r1", SNAP, [WarRoomScenario(scenario_id="s", loai="khong_biet")], "x")
+        normalize_command(
+            "r1",
+            SNAP,
+            [WarRoomScenario(scenario_id="s", loai="khong_biet")],  # type: ignore[arg-type]
+            "x",
+        )
 
 
 def test_command_empty_scenarios_rejected() -> None:

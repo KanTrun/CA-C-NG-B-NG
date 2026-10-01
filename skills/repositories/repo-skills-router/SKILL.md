@@ -6,7 +6,7 @@ metadata:
   system: nhip-quan
 ---
 
-# NHỊP QUÁN Repository Skills Router (13 Kỹ Năng Hoàn Chỉnh)
+# NHỊP QUÁN Repository Skills Router (14 Kỹ Năng Hoàn Chỉnh)
 
 Bộ điều hướng này sử dụng mô hình **Progressive Disclosure** theo chuẩn DisCo / AREX-Skill: Agent trước tiên đọc router này để xác định nhánh kỹ năng cần dùng, sau đó **chỉ nạp duy nhất** file `SKILL.md` của nhánh đó vào context.
 
@@ -26,6 +26,7 @@ Bộ điều hướng này sử dụng mô hình **Progressive Disclosure** theo
 | **Biên bản họp ca** | Ghi biên bản họp, trích xuất đầu việc, phân công người phụ trách, hạn chót | `meeting-memo-extractor` | `../repo-skills/meeting-memo-extractor/SKILL.md` |
 | **Khách quen & VOC** | Đánh giá khách hàng, khen chê, khách quen, dị ứng, sở thích ít ngọt/không đá | `customer-memory-voc` | `../repo-skills/customer-memory-voc/SKILL.md` |
 | **Fanpage & Đặt bàn** | Trực fanpage, trả lời menu, giá đồ uống, giờ mở cửa, đặt bàn trước | `fbpage-concierge` | `../repo-skills/fbpage-concierge/SKILL.md` |
+| **Nhắn tin tự nhiên (Gen Z)** | Thiết kế chatbot/AI agent nhắn tin giống người, debounce gộp tin dồn dập, chia nhỏ phản hồi thành nhiều bubble, giọng văn/tone Gen Z, teencode, dùng emoji/sticker đúng liều | `genz-texting-agent` | `../repo-skills/genz-texting-agent/SKILL.md` |
 | **Soạn thảo Email** | Soạn email gửi nhà cung cấp, đặt hàng qua mail, thông báo nội bộ nhân viên | `mailwriter-notification` | `../repo-skills/mailwriter-notification/SKILL.md` |
 
 ## 2. Quy trình Thực thi cho Agent (AG-COPILOT & Workers)
