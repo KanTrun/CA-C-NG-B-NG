@@ -170,7 +170,7 @@ def run_copilot(
     ttl_minutes: int = _DEFAULT_TTL_MINUTES,
 ) -> CopilotResponse:
     """Main AG-COPILOT entrypoint."""
-    if hasattr(context, "model_dump"):
+    if context is not None and hasattr(context, "model_dump"):
         ctx = context.model_dump()
     elif isinstance(context, dict):
         ctx = context
