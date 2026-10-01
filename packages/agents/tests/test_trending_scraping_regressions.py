@@ -13,6 +13,7 @@ tại tầng parse thay vì âm thầm trả rỗng trên production.
 from __future__ import annotations
 
 import json
+import time
 import urllib.error
 from typing import Any
 from unittest.mock import patch
@@ -365,7 +366,7 @@ def test_filter_vn_videos_drops_foreign() -> None:
     """
     from ca_agents.ag_trend import _filter_vn_videos
 
-    videos = [
+    videos: list[dict[str, Any]] = [
         {"video_id": "1", "region": "MM"},
         {"video_id": "2", "region": "VN"},
         {"video_id": "3", "region": "TH"},
@@ -403,7 +404,7 @@ def test_fetch_tikwm_feed_vn_accumulates_and_dedupes() -> None:
 
     with (
         patch.object(agt, "_fetch_tikwm_feed", side_effect=_fake_feed),
-        patch.object(agt.time, "sleep"),
+        patch.object(time, "sleep"),
     ):
         videos = agt._fetch_tikwm_feed_vn(attempts=3)
 
@@ -418,7 +419,7 @@ def test_fetch_tikwm_feed_vn_raises_when_all_attempts_fail() -> None:
 
     with (
         patch.object(agt, "_fetch_tikwm_feed", side_effect=TimeoutError("down")),
-        patch.object(agt.time, "sleep"),
+        patch.object(time, "sleep"),
         pytest.raises(TimeoutError),
     ):
         agt._fetch_tikwm_feed_vn(attempts=2)
@@ -432,6 +433,6 @@ def test_fetch_tikwm_feed_vn_returns_empty_when_only_foreign() -> None:
         patch.object(
             agt, "_fetch_tikwm_feed", return_value=[{"video_id": "x", "region": "MM"}]
         ),
-        patch.object(agt.time, "sleep"),
+        patch.object(time, "sleep"),
     ):
         assert agt._fetch_tikwm_feed_vn(attempts=2) == []

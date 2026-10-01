@@ -7,6 +7,7 @@ tại write boundary + replay determinism (không mở mạng).
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 import pytest
 from ca_contracts import (
@@ -39,7 +40,7 @@ def _utc(offset_hours: float = -1.0) -> datetime:
 
 
 def _valid_event(**over: object) -> ExperienceEvent:
-    data: dict[str, object] = {
+    data: dict[str, Any] = {
         "event_id": "evt_001",
         "event_type": ExperienceEventType.INCIDENT.value,
         "occurred_at": _utc(),
@@ -154,7 +155,7 @@ def test_memory_status_is_closed_set() -> None:
             memory_id="m1",
             owner_scope="abc",
             content="x",
-            status="cho_xac_nhan",  # chỉ draft/confirmed/superseded/deleted
+            status="cho_xac_nhan",  # type: ignore[arg-type]  # chỉ draft/confirmed/superseded/deleted
         )
 
 
@@ -239,7 +240,7 @@ def test_war_room_scenario_closed_enum() -> None:
     with pytest.raises(ValidationError):
         WarRoomScenario(
             scenario_id="s1",
-            loai="phan_tich_thi_truong",  # lạ
+            loai="phan_tich_thi_truong",  # type: ignore[arg-type]  # lạ
         )
 
 
@@ -259,7 +260,7 @@ def test_war_room_option_rejects_unknown_label() -> None:
         WarRoomOption(
             option_id="o1",
             scenario_id="s1",
-            labels=["thuc_te"],  # chỉ "mo_phong"|"uoc_tinh"
+            labels=["thuc_te"],  # type: ignore[list-item]  # chỉ "mo_phong"|"uoc_tinh"
         )
 
 
@@ -287,7 +288,7 @@ def test_contracts_registered() -> None:
 
 def test_living_snapshot_role_required() -> None:
     with pytest.raises(ValidationError):
-        LivingCafeSnapshot(snapshot_id="s1", store_id="quan_01")  # thiếu role
+        LivingCafeSnapshot(snapshot_id="s1", store_id="quan_01")  # type: ignore[call-arg]  # thiếu role
 
 
 def test_living_snapshot_valid() -> None:

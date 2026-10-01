@@ -20,12 +20,14 @@ def test_full_lifecycle() -> None:
     c = _case()
     c.transition(RescueState.PROPOSED, actor="quan_ly_test")
     c.invite(["nv_1", "nv_2"], actor="quan_ly_test")
-    assert c.state == RescueState.INVITED
+    assert c.state is RescueState.INVITED
     assert c.invited_candidates == ["nv_1", "nv_2"]
     c.respond("nv_1", accept=True, actor="nv_1")
-    assert c.state == RescueState.RESPONDED
+    state_after: RescueState = c.state
+    assert state_after is RescueState.RESPONDED
     c.confirm("nv_1", actor="quan_ly_test")
-    assert c.state == RescueState.CONFIRMED
+    state_confirmed: RescueState = c.state
+    assert state_confirmed is RescueState.CONFIRMED
     assert c.confirmed_candidate_id == "nv_1"
 
 

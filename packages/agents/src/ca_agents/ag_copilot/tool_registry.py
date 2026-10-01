@@ -55,12 +55,12 @@ log = logging.getLogger(__name__)
 # các hàm đọc dữ liệu thật. Tools chỉ gọi qua các callable này — không import
 # trực tiếp ca_api / ca_playbook / agent khác.
 
-DataSources = dict[str, Callable[..., Any]]
+DataSources = dict[str, Callable[..., Any] | None]
 
 _SOURCES: DataSources = {}
 
 
-def configure_data_sources(**sources: Callable[..., Any]) -> None:
+def configure_data_sources(**sources: Callable[..., Any] | None) -> None:
     """Inject data sources từ API layer. Gọi 1 lần lúc startup.
 
     Keys kỳ vọng:
@@ -74,6 +74,8 @@ def configure_data_sources(**sources: Callable[..., Any]) -> None:
       - waste_cluster(notes) -> list[WasteHint]
       - loss_engine(kiem_ke, don_quay, menu, waste_notes, nguong, ky) -> LossSummary
       - list_ca_meta() -> dict[str, dict]   (ca_id -> {thu, khung, bat_dau, ket_thuc})
+
+    Giá trị None = TẮT nguồn đó (test dùng cách này để mô phỏng thiếu dữ liệu).
     """
     _SOURCES.clear()
     _SOURCES.update(sources)

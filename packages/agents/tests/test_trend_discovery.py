@@ -11,6 +11,7 @@ cách viết thì test fail ngay thay vì âm thầm mất tín hiệu.
 
 from __future__ import annotations
 
+import time
 from unittest.mock import patch
 
 import pytest
@@ -393,7 +394,7 @@ def test_query_delay_between_requests(monkeypatch: pytest.MonkeyPatch) -> None:
     """Query thứ 2 trở đi phải nghỉ `delay` giây (lịch sự với nguồn miễn phí)."""
     monkeypatch.setenv("TREND_DISCOVERY_QUERY_DELAY_S", "0.5")
     sleeps: list[float] = []
-    monkeypatch.setattr(src.time, "sleep", lambda s: sleeps.append(s))
+    monkeypatch.setattr(time, "sleep", lambda s: sleeps.append(s))
     with patch.object(src, "_fetch_gnews", return_value=[]):
         discover_candidates(month=9, year=2026, max_queries=3)
     assert sleeps == [0.5, 0.5], "3 query → nghỉ 2 lần (không nghỉ trước query đầu)"
@@ -402,7 +403,7 @@ def test_query_delay_between_requests(monkeypatch: pytest.MonkeyPatch) -> None:
 def test_no_sleep_before_first_query(monkeypatch: pytest.MonkeyPatch) -> None:
     """KHÔNG nghỉ trước query đầu — tránh chậm vô ích."""
     sleeps: list[float] = []
-    monkeypatch.setattr(src.time, "sleep", lambda s: sleeps.append(s))
+    monkeypatch.setattr(time, "sleep", lambda s: sleeps.append(s))
     with patch.object(src, "_fetch_gnews", return_value=[]):
         discover_candidates(month=9, year=2026, max_queries=1, query_delay_s=1.0)
     assert sleeps == []
