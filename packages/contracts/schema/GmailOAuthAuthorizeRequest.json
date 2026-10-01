@@ -1,0 +1,18 @@
+{
+  "properties": {
+    "state": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "State"
+    }
+  },
+  "title": "GmailOAuthAuthorizeRequest",
+  "type": "object"
+}

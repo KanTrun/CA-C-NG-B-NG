@@ -1,0 +1,18 @@
+{
+  "properties": {
+    "code": {
+      "title": "Code",
+      "type": "string"
+    },
+    "state": {
+      "title": "State",
+      "type": "string"
+    }
+  },
+  "required": [
+    "code",
+    "state"
+  ],
+  "title": "GmailOAuthCallbackRequest",
+  "type": "object"
+}

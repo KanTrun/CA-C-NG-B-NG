@@ -1,0 +1,120 @@
+{
+  "properties": {
+    "id": {
+      "title": "Id",
+      "type": "string"
+    },
+    "account_id": {
+      "title": "Account Id",
+      "type": "string"
+    },
+    "thread_id": {
+      "title": "Thread Id",
+      "type": "string"
+    },
+    "label_ids": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Label Ids",
+      "type": "array"
+    },
+    "snippet": {
+      "default": "",
+      "title": "Snippet",
+      "type": "string"
+    },
+    "from_email": {
+      "default": "",
+      "title": "From Email",
+      "type": "string"
+    },
+    "to_emails": {
+      "items": {
+        "type": "string"
+      },
+      "title": "To Emails",
+      "type": "array"
+    },
+    "cc_emails": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Cc Emails",
+      "type": "array"
+    },
+    "subject": {
+      "default": "",
+      "title": "Subject",
+      "type": "string"
+    },
+    "body_text": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Body Text"
+    },
+    "body_html": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Body Html"
+    },
+    "internal_date": {
+      "title": "Internal Date",
+      "type": "string"
+    },
+    "is_read": {
+      "default": false,
+      "title": "Is Read",
+      "type": "boolean"
+    },
+    "is_starred": {
+      "default": false,
+      "title": "Is Starred",
+      "type": "boolean"
+    },
+    "has_attachment": {
+      "default": false,
+      "title": "Has Attachment",
+      "type": "boolean"
+    },
+    "raw_headers": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Raw Headers"
+    },
+    "created_at": {
+      "title": "Created At",
+      "type": "string"
+    }
+  },
+  "required": [
+    "id",
+    "account_id",
+    "thread_id",
+    "internal_date",
+    "created_at"
+  ],
+  "title": "GmailMessage",
+  "type": "object"
+}

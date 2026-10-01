@@ -72,6 +72,13 @@ Sinh khoá mã hoá:
 python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
 ```
 
+> [!NOTE]
+> API tự nạp file `.env` khi khởi động (ROOT/.env trước, rồi `apps/api/.env`;
+> biến môi trường sẵn có như Docker `--env-file` luôn được ưu tiên). Sửa
+> `.env` xong vẫn phải **restart API** — `uvicorn --reload` chỉ theo dõi code.
+> Key mã hoá cũng chỉ đọc lúc dùng, nên đặt key trước lần Connect đầu tiên
+> là token dùng đúng key đó sau mọi lần restart.
+
 > [!WARNING]
 > **Thiếu `NHIPQUAN_ENCRYPTION_KEY`** ⇒ hệ thống sinh khoá tạm mỗi lần khởi động.
 > Token đã lưu sẽ **không đọc lại được** sau khi restart, và bạn phải kết nối lại OAuth.
@@ -85,7 +92,7 @@ python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().d
 
 ## 4. Kết nối tài khoản qua giao diện
 
-1. Đăng nhập NHỊP QUÁN bằng vai **quản lý** hoặc **chủ quán**.
+1. Đăng nhập NHỊP QUÁN bằng vai **chủ quán** (quản lý/nhân viên không thấy mục Gmail).
 2. Mở `/gmail` (menu **Thêm** → **Quản lý Gmail**, hoặc gõ trực tiếp đường dẫn).
 3. Tab **Tài khoản** → **Kết nối Gmail qua OAuth**.
 4. Google hiện màn hình đồng ý: chọn tài khoản quán → **Cho phép**.
@@ -200,10 +207,11 @@ Cách 2 — từ phía Google: [myaccount.google.com/permissions](https://myacco
 ## 8. Bảo mật
 
 - Token được mã hoá bằng Fernet trước khi ghi DB (`gmail_oauth_tokens`).
-- **Cách ly theo nhân viên:** nhân viên chỉ truy cập được tài khoản Gmail của
-  chính mình. Hỏi tài khoản của đồng nghiệp trả **404** (không phải 403) để
-  không tiết lộ tài khoản đó có tồn tại. Quản lý/chủ quán thấy và quản lý toàn quán.
-- Chỉ chủ tài khoản hoặc quản lý trở lên mới được gửi mail / sửa nhãn / xoá tài khoản.
+- **Chỉ chủ quán:** mọi endpoint `/api/v1/gmail/*` đòi vai `chu_quan`
+  (403 `chi_danh_cho_chu_quan`); quản lý/nhân viên không thấy mục Gmail.
+  Mỗi tài khoản gắn với đúng chủ quán đã thêm (`nv_id`) — hỏi tài khoản của
+  người khác trả **404** để không tiết lộ sự tồn tại.
+- Chỉ tài khoản do chính mình thêm mới được gửi mail / sửa nhãn / xoá.
 - `state` OAuth chống CSRF: ngẫu nhiên, gắn người dùng, hạn 10 phút, dùng một lần.
 - Thông báo lỗi dùng mã kỹ thuật (`state_oauth_het_han`…), không lộ chi tiết nội bộ.
 - Khi khoá mã hoá đổi, tài khoản được đánh dấu **Cần kết nối lại** thay vì làm

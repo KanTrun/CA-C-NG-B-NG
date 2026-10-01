@@ -17,6 +17,7 @@ try:
     from datetime import UTC, datetime, timedelta, timezone
 except ImportError:
     from datetime import datetime, timedelta, timezone
+
     UTC = timezone.utc
 from pathlib import Path
 from typing import Any, cast
@@ -33,7 +34,11 @@ _AUDIT_REQUEST_STATE: ContextVar[dict[str, bool] | None] = ContextVar(
 
 try:
     import psycopg
-    _DB_INTEGRITY_ERRORS: tuple[type[Exception], ...] = (sqlite3.IntegrityError, psycopg.IntegrityError)
+
+    _DB_INTEGRITY_ERRORS: tuple[type[Exception], ...] = (
+        sqlite3.IntegrityError,
+        psycopg.IntegrityError,
+    )
 except ImportError:
     _DB_INTEGRITY_ERRORS = (sqlite3.IntegrityError,)
 
@@ -43,44 +48,66 @@ _VN_TZ = timezone(timedelta(hours=7))
 # ── Encryption for sensitive data (OAuth tokens) ──────────────────────────
 # Sử dụng Fernet (AES-128-GCM) từ cryptography. Key lấy từ env NHIPQUAN_ENCRYPTION_KEY
 # (base64-encoded 32 bytes). Nếu chưa có, tự sinh và cảnh báo (chỉ dev).
+#
+# Fernet được dựng LAZY (lần mã hoá/giải mã đầu tiên), KHÔNG phải lúc import:
+# lifespan của API nạp `.env` SAU khi import module — đọc key lúc import thì key
+# trong `.env` không bao giờ được dùng, token mã hoá bằng key tạm và hỏng sau
+# restart (đúng lỗi "Cần kết nối lại" sau mỗi lần khởi động lại API).
+_FernetCls: Any
 try:
-    from cryptography.fernet import Fernet
-    _ENCRYPTION_KEY = os.environ.get("NHIPQUAN_ENCRYPTION_KEY")
-    if _ENCRYPTION_KEY:
-        _FERNET = Fernet(_ENCRYPTION_KEY.encode())
-    else:
-        # Dev fallback: sinh key tạm (KHÔNG dùng production)
-        import warnings
-        _FERNET = Fernet(Fernet.generate_key())
-        warnings.warn(
-            "NHIPQUAN_ENCRYPTION_KEY not set; using ephemeral key. "
-            "Tokens will be unreadable after restart. Set NHIPQUAN_ENCRYPTION_KEY in production.",
-            RuntimeWarning,
-            stacklevel=2,
-        )
-except ImportError:
-    _FERNET = None  # type: ignore
+    from cryptography.fernet import Fernet as _FernetCls
+
+    _FERNET_IMPORT_OK = True
+except ImportError:  # pragma: no cover — cryptography là dependency bắt buộc
+    _FernetCls = None
+    _FERNET_IMPORT_OK = False
+
+_FERNET: Any = None
+_FERNET_KEY: str | None = None
+_FERNET_WARNED = False
+
+
+def _fernet() -> Any:
+    """Fernet theo key HIỆN TẠI trong env. Cache theo giá trị key."""
+    global _FERNET, _FERNET_KEY, _FERNET_WARNED
+    if not _FERNET_IMPORT_OK or _FernetCls is None:
+        raise RuntimeError("cryptography not installed; cannot encrypt")
+    key = os.environ.get("NHIPQUAN_ENCRYPTION_KEY")
+    if _FERNET is None or key != _FERNET_KEY:
+        if key:
+            _FERNET = _FernetCls(key.encode())
+        else:
+            # Dev fallback: sinh key tạm (KHÔNG dùng production)
+            import warnings
+
+            _FERNET = _FernetCls(_FernetCls.generate_key())
+            if not _FERNET_WARNED:
+                warnings.warn(
+                    "NHIPQUAN_ENCRYPTION_KEY not set; using ephemeral key. "
+                    "Tokens will be unreadable after restart. Set NHIPQUAN_ENCRYPTION_KEY in production.",
+                    RuntimeWarning,
+                    stacklevel=2,
+                )
+                _FERNET_WARNED = True
+        _FERNET_KEY = key
+    return _FERNET
 
 
 def _encrypt(plaintext: str) -> str:
     """Mã hoá chuỗi nhạy cảm (OAuth token). Trả về base64 string."""
-    if _FERNET is None:
-        raise RuntimeError("cryptography not installed; cannot encrypt")
-    return _FERNET.encrypt(plaintext.encode()).decode()
+    return cast(str, _fernet().encrypt(plaintext.encode()).decode())
 
 
 def _decrypt(ciphertext: str) -> str:
     """Giải mã chuỗi đã mã hoá."""
-    if _FERNET is None:
-        raise RuntimeError("cryptography not installed; cannot decrypt")
-    return _FERNET.decrypt(ciphertext.encode()).decode()
+    return cast(str, _fernet().decrypt(ciphertext.encode()).decode())
+
 
 USERS = (
     ("lan", "nhipquan", "quan_ly", "nv_01", "Lan — quản lý"),
     ("minh", "nhipquan", "nhan_vien", "nv_03", "Minh — ca sáng"),
     ("hung", "nhipquan", "chu_quan", "nv_02", "Hùng — chủ quán"),
 )
-
 
 
 # ── Mật khẩu ──────────────────────────────────────────────────────────────
@@ -734,7 +761,7 @@ def _init_db_locked(p_str: str) -> None:
             );
             CREATE INDEX IF NOT EXISTS idx_thong_bao_lich_user ON thong_bao_lich(store_id, nv_id, da_xem, created_at DESC);
             """
-        )
+            )
         if not _database_url():
             _migrate_schema(cx)
         _ensure_scheduling_schema(cx)
@@ -918,7 +945,13 @@ def availability_confirmation_upsert(
                 SET availability=?, status=?, source=?, updated_at=?
                 WHERE id=?
                 """,
-                (json.dumps(availability, ensure_ascii=False), status, source, now, str(existing[0])),
+                (
+                    json.dumps(availability, ensure_ascii=False),
+                    status,
+                    source,
+                    now,
+                    str(existing[0]),
+                ),
             )
         else:
             cx.execute(
@@ -927,7 +960,17 @@ def availability_confirmation_upsert(
                     (id, store_id, nv_id, tuan_iso, availability, status, source, created_at, updated_at)
                 VALUES (?,?,?,?,?,?,?,?,?)
                 """,
-                (item_id, store_id, nv_id, tuan_iso, json.dumps(availability, ensure_ascii=False), status, source, now, now),
+                (
+                    item_id,
+                    store_id,
+                    nv_id,
+                    tuan_iso,
+                    json.dumps(availability, ensure_ascii=False),
+                    status,
+                    source,
+                    now,
+                    now,
+                ),
             )
 
 
@@ -999,7 +1042,13 @@ def schedule_run_create(
             ).fetchone()
             if existing:
                 cx.execute("COMMIT")
-                return {"id": str(existing[0]), "version": int(existing[1]), "status": str(existing[2]), "fingerprint": str(existing[3]), "reused": True}
+                return {
+                    "id": str(existing[0]),
+                    "version": int(existing[1]),
+                    "status": str(existing[2]),
+                    "fingerprint": str(existing[3]),
+                    "reused": True,
+                }
             version_row = cx.execute(
                 "SELECT COALESCE(MAX(version), 0) + 1 FROM schedule_runs WHERE store_id=? AND tuan_iso=?",
                 (store_id, tuan_iso),
@@ -1007,16 +1056,36 @@ def schedule_run_create(
             version = int(version_row[0])
             cx.execute(
                 "INSERT INTO schedule_runs(id, store_id, tuan_iso, version, status, input_snapshot, fingerprint, result_snapshot, idempotency_key, created_by, created_at) VALUES (?,?,?,?,?,?,?,?,?,?,?)",
-                (run_id, store_id, tuan_iso, version, status, json.dumps(input_snapshot, ensure_ascii=False, sort_keys=True), fingerprint, json.dumps(result_snapshot or {}, ensure_ascii=False, sort_keys=True), idempotency_key, created_by, now),
+                (
+                    run_id,
+                    store_id,
+                    tuan_iso,
+                    version,
+                    status,
+                    json.dumps(input_snapshot, ensure_ascii=False, sort_keys=True),
+                    fingerprint,
+                    json.dumps(result_snapshot or {}, ensure_ascii=False, sort_keys=True),
+                    idempotency_key,
+                    created_by,
+                    now,
+                ),
             )
             cx.execute("COMMIT")
         except Exception:
             cx.execute("ROLLBACK")
             raise
-    return {"id": run_id, "version": version, "status": status, "fingerprint": fingerprint, "reused": False}
+    return {
+        "id": run_id,
+        "version": version,
+        "status": status,
+        "fingerprint": fingerprint,
+        "reused": False,
+    }
 
 
-def schedule_run_update_result(run_id: str, *, status: str, result_snapshot: dict[str, Any]) -> None:
+def schedule_run_update_result(
+    run_id: str, *, status: str, result_snapshot: dict[str, Any]
+) -> None:
     init_db()
     with _conn() as cx:
         cx.execute(
@@ -1035,11 +1104,17 @@ def schedule_run_get(run_id: str) -> dict[str, Any] | None:
     if not row:
         return None
     return {
-        "id": str(row[0]), "store_id": str(row[1]), "tuan_iso": str(row[2]),
-        "version": int(row[3]), "status": str(row[4]),
-        "input_snapshot": json.loads(row[5]), "fingerprint": str(row[6]),
-        "result": json.loads(row[7]), "idempotency_key": str(row[8]),
-        "created_by": str(row[9]), "created_at": str(row[10]),
+        "id": str(row[0]),
+        "store_id": str(row[1]),
+        "tuan_iso": str(row[2]),
+        "version": int(row[3]),
+        "status": str(row[4]),
+        "input_snapshot": json.loads(row[5]),
+        "fingerprint": str(row[6]),
+        "result": json.loads(row[7]),
+        "idempotency_key": str(row[8]),
+        "created_by": str(row[9]),
+        "created_at": str(row[10]),
     }
 
 
@@ -1070,7 +1145,9 @@ def authoritative_assignments_replace(
     init_db()
     now = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
     with _conn() as cx:
-        cx.execute("DELETE FROM authoritative_assignments WHERE schedule_run_id=?", (schedule_run_id,))
+        cx.execute(
+            "DELETE FROM authoritative_assignments WHERE schedule_run_id=?", (schedule_run_id,)
+        )
         for ca_id, nv_ids in assignments.items():
             for nv_id in nv_ids:
                 cx.execute(
@@ -1079,7 +1156,15 @@ def authoritative_assignments_replace(
                         (id, schedule_run_id, store_id, tuan_iso, ca_id, nv_id, created_at)
                     VALUES (?,?,?,?,?,?,?)
                     """,
-                    (f"assignment_{uuid.uuid4().hex}", schedule_run_id, store_id, tuan_iso, str(ca_id), str(nv_id), now),
+                    (
+                        f"assignment_{uuid.uuid4().hex}",
+                        schedule_run_id,
+                        store_id,
+                        tuan_iso,
+                        str(ca_id),
+                        str(nv_id),
+                        now,
+                    ),
                 )
 
 
@@ -1103,7 +1188,15 @@ def shift_application_claim_first(
                 return None
             cx.execute(
                 "INSERT INTO shift_applications(id, open_shift_id, store_id, nv_id, status, created_at, decided_at) VALUES (?,?,?,?,?,?,?)",
-                (application_id, open_shift_id, store_id, nv_id, "accepted", claimed_at, claimed_at),
+                (
+                    application_id,
+                    open_shift_id,
+                    store_id,
+                    nv_id,
+                    "accepted",
+                    claimed_at,
+                    claimed_at,
+                ),
             )
             cx.execute(
                 """UPDATE open_shifts SET status='claimed', claimed_by=?, claimed_at=?
@@ -1120,7 +1213,13 @@ def shift_application_claim_first(
         except Exception:
             cx.execute("ROLLBACK")
             raise
-    return {"id": application_id, "open_shift_id": open_shift_id, "nv_id": nv_id, "status": "accepted", "claimed_at": claimed_at}
+    return {
+        "id": application_id,
+        "open_shift_id": open_shift_id,
+        "nv_id": nv_id,
+        "status": "accepted",
+        "claimed_at": claimed_at,
+    }
 
 
 def open_shift_create(
@@ -1143,10 +1242,18 @@ def open_shift_create(
             "SELECT id, status, deadline_at, claimed_by, claimed_at, escalated_at FROM open_shifts WHERE store_id=? AND schedule_run_id=? AND ca_id=?",
             (store_id, schedule_run_id, ca_id),
         ).fetchone()
-    return {"id": str(row[0]), "status": str(row[1]), "deadline_at": str(row[2]), "claimed_by": row[3], "claimed_at": row[4]}
+    return {
+        "id": str(row[0]),
+        "status": str(row[1]),
+        "deadline_at": str(row[2]),
+        "claimed_by": row[3],
+        "claimed_at": row[4],
+    }
 
 
-def open_shift_list(store_id: str, *, tuan_iso: str | None = None, status: str = "open") -> list[dict[str, Any]]:
+def open_shift_list(
+    store_id: str, *, tuan_iso: str | None = None, status: str = "open"
+) -> list[dict[str, Any]]:
     init_db()
     with _conn() as cx:
         query = "SELECT id, schedule_run_id, tuan_iso, ca_id, status, deadline_at, claimed_by, claimed_at, escalated_at FROM open_shifts WHERE store_id=? AND status=?"
@@ -1156,7 +1263,17 @@ def open_shift_list(store_id: str, *, tuan_iso: str | None = None, status: str =
             params.append(tuan_iso)
         rows = cx.execute(query + " ORDER BY deadline_at, created_at", params).fetchall()
     return [
-        {"id": str(row[0]), "schedule_run_id": str(row[1]), "tuan_iso": str(row[2]), "ca_id": str(row[3]), "status": str(row[4]), "deadline_at": str(row[5]), "claimed_by": row[6], "claimed_at": row[7], "escalated_at": row[8]}
+        {
+            "id": str(row[0]),
+            "schedule_run_id": str(row[1]),
+            "tuan_iso": str(row[2]),
+            "ca_id": str(row[3]),
+            "status": str(row[4]),
+            "deadline_at": str(row[5]),
+            "claimed_by": row[6],
+            "claimed_at": row[7],
+            "escalated_at": row[8],
+        }
         for row in rows
     ]
 
@@ -1184,7 +1301,12 @@ def open_shift_escalate_due(store_id: str, *, now_iso: str) -> list[dict[str, An
             (store_id, now_iso),
         ).fetchall()
     return [
-        {"id": str(row[0]), "tuan_iso": str(row[1]), "ca_id": str(row[2]), "deadline_at": str(row[3])}
+        {
+            "id": str(row[0]),
+            "tuan_iso": str(row[1]),
+            "ca_id": str(row[2]),
+            "deadline_at": str(row[3]),
+        }
         for row in rows
     ]
 
@@ -1205,7 +1327,9 @@ def shift_application_claim_eligible(
 ) -> dict[str, Any] | None:
     if not eligible:
         return None
-    return shift_application_claim_first(open_shift_id=open_shift_id, store_id=store_id, nv_id=nv_id)
+    return shift_application_claim_first(
+        open_shift_id=open_shift_id, store_id=store_id, nv_id=nv_id
+    )
 
 
 def _migrate_schema(cx: sqlite3.Connection) -> None:
@@ -1248,22 +1372,34 @@ def _migrate_schema(cx: sqlite3.Connection) -> None:
         # Phiên cũ không có mốc tạo → TTL coi như chưa từng hết hạn nhưng vẫn
         # được ghi mốc mới từ lần đăng nhập kế tiếp (migration an toàn, idempotent).
         _safe_alter("ALTER TABLE sessions ADD COLUMN created_at TEXT NOT NULL DEFAULT ''")
-    cx.execute("UPDATE sessions SET store_id=(SELECT store_id FROM users WHERE users.username=sessions.username) WHERE store_id='quan_01' AND EXISTS (SELECT 1 FROM users WHERE users.username=sessions.username)")
+    cx.execute(
+        "UPDATE sessions SET store_id=(SELECT store_id FROM users WHERE users.username=sessions.username) WHERE store_id='quan_01' AND EXISTS (SELECT 1 FROM users WHERE users.username=sessions.username)"
+    )
     evaluation_cols = {r[1] for r in cx.execute("PRAGMA table_info(ai_evaluations)")}
     if "idempotency_key" not in evaluation_cols:
-        _safe_alter("ALTER TABLE ai_evaluations ADD COLUMN idempotency_key TEXT NOT NULL DEFAULT ''")
-        _safe_alter("CREATE UNIQUE INDEX IF NOT EXISTS idx_ai_evaluation_store_idem ON ai_evaluations(store_id, idempotency_key)")
+        _safe_alter(
+            "ALTER TABLE ai_evaluations ADD COLUMN idempotency_key TEXT NOT NULL DEFAULT ''"
+        )
+        _safe_alter(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_ai_evaluation_store_idem ON ai_evaluations(store_id, idempotency_key)"
+        )
     proposal_cols = {r[1] for r in cx.execute("PRAGMA table_info(ai_rule_proposals)")}
     if "idempotency_key" not in proposal_cols:
-        _safe_alter("ALTER TABLE ai_rule_proposals ADD COLUMN idempotency_key TEXT NOT NULL DEFAULT ''")
-        _safe_alter("CREATE UNIQUE INDEX IF NOT EXISTS idx_ai_rule_proposal_store_idem ON ai_rule_proposals(store_id, idempotency_key)")
+        _safe_alter(
+            "ALTER TABLE ai_rule_proposals ADD COLUMN idempotency_key TEXT NOT NULL DEFAULT ''"
+        )
+        _safe_alter(
+            "CREATE UNIQUE INDEX IF NOT EXISTS idx_ai_rule_proposal_store_idem ON ai_rule_proposals(store_id, idempotency_key)"
+        )
     review_cols = {r[1] for r in cx.execute("PRAGMA table_info(fb_review_queue)")}
     if "ai_generation_id" not in review_cols:
         _safe_alter("ALTER TABLE fb_review_queue ADD COLUMN ai_generation_id TEXT")
     if "event_at" not in review_cols:
         _safe_alter("ALTER TABLE fb_review_queue ADD COLUMN event_at TEXT")
     if "store_id" not in review_cols:
-        _safe_alter("ALTER TABLE fb_review_queue ADD COLUMN store_id TEXT NOT NULL DEFAULT 'quan_01'")
+        _safe_alter(
+            "ALTER TABLE fb_review_queue ADD COLUMN store_id TEXT NOT NULL DEFAULT 'quan_01'"
+        )
 
     ccols = {r[1] for r in cx.execute("PRAGMA table_info(chat_conversations)")}
     if ccols and "display_name" not in ccols:
@@ -1512,7 +1648,15 @@ def login(username: str, password: str) -> dict[str, str] | None:
         if not row or str(row[6] or "active") != "active" or not verify_password(password, row[4]):
             cx.execute(
                 "INSERT INTO audit(at, ai, hanh, payload) VALUES (?,?,?,?)",
-                (datetime.now(UTC).isoformat(), "system", "user.login_failed", json.dumps({"entity_type": "user", "entity_id": username.strip().lower()}, ensure_ascii=False)),
+                (
+                    datetime.now(UTC).isoformat(),
+                    "system",
+                    "user.login_failed",
+                    json.dumps(
+                        {"entity_type": "user", "entity_id": username.strip().lower()},
+                        ensure_ascii=False,
+                    ),
+                ),
             )
             return None
         token = uuid.uuid4().hex
@@ -1522,7 +1666,15 @@ def login(username: str, password: str) -> dict[str, str] | None:
         )
         cx.execute(
             "INSERT INTO audit(at, ai, hanh, payload) VALUES (?,?,?,?)",
-            (datetime.now(UTC).isoformat(), row[2], "user.login", json.dumps({"entity_type": "session", "entity_id": token, "username": row[0]}, ensure_ascii=False)),
+            (
+                datetime.now(UTC).isoformat(),
+                row[2],
+                "user.login",
+                json.dumps(
+                    {"entity_type": "session", "entity_id": token, "username": row[0]},
+                    ensure_ascii=False,
+                ),
+            ),
         )
         return {
             "token": token,
@@ -1609,7 +1761,15 @@ def register(username: str, password: str, display_name: str) -> dict[str, str]:
                 VALUES (?,?,?,?,?,TRUE,?,?)
                 ON CONFLICT(id) DO NOTHING
                 """,
-                (conv_general_id, store_id, "general", "☕ NHỊP QUÁN · Hội Quán Chung", "", now_iso, now_iso),
+                (
+                    conv_general_id,
+                    store_id,
+                    "general",
+                    "☕ NHỊP QUÁN · Hội Quán Chung",
+                    "",
+                    now_iso,
+                    now_iso,
+                ),
             )
             cx.execute(
                 """
@@ -1643,7 +1803,13 @@ def register(username: str, password: str, display_name: str) -> dict[str, str]:
         except Exception:
             cx.execute("ROLLBACK")
             raise
-    return {"token": token, "role": VAI_TU_DANG_KY, "nv_id": nv, "display_name": ten, "store_id": store_id}
+    return {
+        "token": token,
+        "role": VAI_TU_DANG_KY,
+        "nv_id": nv,
+        "display_name": ten,
+        "store_id": store_id,
+    }
 
 
 # TTL phiên đăng nhập (ngày). Hết hạn → token bị xóa, phải đăng nhập lại.
@@ -1687,7 +1853,13 @@ def session(authorization: str | None) -> dict[str, str] | None:
         if str(row[6] or "active") != "active":
             cx.execute("DELETE FROM sessions WHERE token=?", (raw,))
             return None
-        return {"username": row[0], "role": row[1], "nv_id": row[2], "email": str(row[3] or ""), "store_id": row[4]}
+        return {
+            "username": row[0],
+            "role": row[1],
+            "nv_id": row[2],
+            "email": str(row[3] or ""),
+            "store_id": row[4],
+        }
 
 
 def logout(token: str) -> bool:
@@ -1734,9 +1906,7 @@ def kv_get_many(keys: Sequence[str], defaults: Mapping[str, Any] | None = None) 
         for i in range(0, len(keys), 500):
             lo = keys[i : i + 500]
             placeholders = ",".join("?" for _ in lo)
-            rows = cx.execute(
-                f"SELECT k, v FROM kv WHERE k IN ({placeholders})", lo
-            ).fetchall()
+            rows = cx.execute(f"SELECT k, v FROM kv WHERE k IN ({placeholders})", lo).fetchall()
             for k, v in rows:
                 try:
                     out[str(k)] = json.loads(v)
@@ -1777,8 +1947,7 @@ def kv_mutate(key: str, fn: Callable[[Any], Any], default: Any) -> Any:
                 cur = list(cur)
             new = fn(cur)
             cx.execute(
-                "INSERT INTO kv(k,v) VALUES(?,?) "
-                "ON CONFLICT(k) DO UPDATE SET v=excluded.v",
+                "INSERT INTO kv(k,v) VALUES(?,?) ON CONFLICT(k) DO UPDATE SET v=excluded.v",
                 (key, json.dumps(new, ensure_ascii=False)),
             )
             cx.execute("COMMIT")
@@ -1839,8 +2008,7 @@ def copilot_commit_internal_execution(
                     current = list(current)
                 updated = mutator(current)
                 cx.execute(
-                    "INSERT INTO kv(k,v) VALUES(?,?) "
-                    "ON CONFLICT(k) DO UPDATE SET v=excluded.v",
+                    "INSERT INTO kv(k,v) VALUES(?,?) ON CONFLICT(k) DO UPDATE SET v=excluded.v",
                     (key, json.dumps(updated, ensure_ascii=False)),
                 )
 
@@ -1854,12 +2022,19 @@ def copilot_commit_internal_execution(
 
             now_iso = _iso_now()
             cx.execute(
-                "INSERT INTO copilot_audit_log(" 
+                "INSERT INTO copilot_audit_log("
                 "action_id, actor_user_id, store_id, intent, decision, payload_diff, "
                 "timestamp, channel, latency_ms) VALUES (?,?,?,?,?,?,?,?,?)",
                 (
-                    action_id, actor_user_id, store_id, intent, "approve",
-                    json.dumps(payload_diff, ensure_ascii=False), now_iso, channel, latency_ms,
+                    action_id,
+                    actor_user_id,
+                    store_id,
+                    intent,
+                    "approve",
+                    json.dumps(payload_diff, ensure_ascii=False),
+                    now_iso,
+                    channel,
+                    latency_ms,
                 ),
             )
             receipt_update = cx.execute(
@@ -1867,8 +2042,11 @@ def copilot_commit_internal_execution(
                 "SET status='completed', outcome=?, completed_at=? "
                 "WHERE store_id=? AND action_id=? AND idempotency_key=? AND status='pending'",
                 (
-                    json.dumps(outcome, ensure_ascii=False), now_iso,
-                    store_id, action_id, idempotency_key,
+                    json.dumps(outcome, ensure_ascii=False),
+                    now_iso,
+                    store_id,
+                    action_id,
+                    idempotency_key,
                 ),
             )
             if receipt_update.rowcount != 1:
@@ -1938,8 +2116,9 @@ def audit_add(
         state["written"] = True
 
 
-def list_users(*, store_id: str | None = None, include_bots: bool = False,
-               include_inactive: bool = False) -> list[dict[str, str]]:
+def list_users(
+    *, store_id: str | None = None, include_bots: bool = False, include_inactive: bool = False
+) -> list[dict[str, str]]:
     """Liệt kê tài khoản NGƯỜI THẬT đang hoạt động của quán.
 
     Bug QA đợt 5: bot nội bộ `ai_scheduler` (vai `ai_assistant`) lọt vào danh
@@ -1990,8 +2169,14 @@ def list_users(*, store_id: str | None = None, include_bots: bool = False,
 
 
 def thong_bao_lich_create_for_week(
-    *, tuan_iso: str, su_kien: str, tieu_de: str, noi_dung: str,
-    url: str, nv_ids: list[str], store_id: str = DEFAULT_STORE_ID,
+    *,
+    tuan_iso: str,
+    su_kien: str,
+    tieu_de: str,
+    noi_dung: str,
+    url: str,
+    nv_ids: list[str],
+    store_id: str = DEFAULT_STORE_ID,
 ) -> int:
     """Tạo thông báo lịch cho người dùng thật; lặp lại cùng sự kiện là no-op."""
     init_db()
@@ -2003,15 +2188,27 @@ def thong_bao_lich_create_for_week(
                 """INSERT OR IGNORE INTO thong_bao_lich
                    (id, store_id, tuan_iso, su_kien, tieu_de, noi_dung, url, nv_id, created_at)
                    VALUES (?,?,?,?,?,?,?,?,?)""",
-                (f"tbl_{uuid.uuid4().hex[:12]}", store_id, tuan_iso, su_kien,
-                 tieu_de, noi_dung, url, nv_id, now),
+                (
+                    f"tbl_{uuid.uuid4().hex[:12]}",
+                    store_id,
+                    tuan_iso,
+                    su_kien,
+                    tieu_de,
+                    noi_dung,
+                    url,
+                    nv_id,
+                    now,
+                ),
             )
             created += int(cur.rowcount > 0)
     return created
 
 
 def thong_bao_lich_list(
-    nv_id: str, *, unread_only: bool = False, store_id: str = DEFAULT_STORE_ID,
+    nv_id: str,
+    *,
+    unread_only: bool = False,
+    store_id: str = DEFAULT_STORE_ID,
 ) -> list[dict[str, Any]]:
     init_db()
     with _conn() as cx:
@@ -2025,7 +2222,9 @@ def thong_bao_lich_list(
 
 
 def thong_bao_lich_list_for_week(
-    tuan_iso: str, *, store_id: str = DEFAULT_STORE_ID,
+    tuan_iso: str,
+    *,
+    store_id: str = DEFAULT_STORE_ID,
 ) -> list[dict[str, Any]]:
     """Liệt kê MỌI thông báo của một tuần trong quán (không lọc theo nhân viên).
 
@@ -2045,7 +2244,9 @@ def thong_bao_lich_list_for_week(
         return [dict(row) for row in rows]
 
 
-def thong_bao_lich_ack(notification_id: str, nv_id: str, *, store_id: str = DEFAULT_STORE_ID) -> bool:
+def thong_bao_lich_ack(
+    notification_id: str, nv_id: str, *, store_id: str = DEFAULT_STORE_ID
+) -> bool:
     init_db()
     with _conn() as cx:
         cur = cx.execute(
@@ -2061,9 +2262,7 @@ def set_user_email(username: str, email: str) -> dict[str, str]:
     em = (email or "").strip()
     init_db()
     with _conn() as cx:
-        row = cx.execute(
-            "SELECT username FROM users WHERE username=?", (u,)
-        ).fetchone()
+        row = cx.execute("SELECT username FROM users WHERE username=?", (u,)).fetchone()
         if not row:
             raise DangKyLoi("khong_co_tai_khoan")
         cx.execute("UPDATE users SET email=? WHERE username=?", (em, u))
@@ -2074,13 +2273,12 @@ def get_user_emails() -> dict[str, str]:
     """Trả map nv_id -> email (đã set). Dùng cho AI gửi mail."""
     init_db()
     with _conn() as cx:
-        rows = cx.execute(
-            "SELECT nv_id, email FROM users WHERE email != ''"
-        ).fetchall()
+        rows = cx.execute("SELECT nv_id, email FROM users WHERE email != ''").fetchall()
     return {str(r[0]): str(r[1]) for r in rows}
 
 
 # ── Gmail Account Management ──────────────────────────────────────────────
+
 
 def gmail_account_create(
     *,
@@ -2093,6 +2291,7 @@ def gmail_account_create(
     """Tạo tài khoản Gmail mới cho nhân viên."""
     import uuid
     from datetime import UTC, datetime
+
     init_db()
     with _conn() as cx:
         # Nếu set is_primary, bỏ primary của account cũ
@@ -2189,6 +2388,7 @@ def gmail_account_update(
 ) -> dict[str, Any] | None:
     """Cập nhật tài khoản Gmail."""
     from datetime import UTC, datetime
+
     init_db()
     with _conn() as cx:
         row = cx.execute(
@@ -2244,6 +2444,7 @@ def gmail_account_delete(account_id: str) -> bool:
 
 
 # ── Gmail OAuth Tokens ────────────────────────────────────────────────────
+
 
 def gmail_token_save(
     account_id: str,
@@ -2384,6 +2585,7 @@ def gmail_token_status(account_id: str) -> dict[str, Any] | None:
 
 # ── Gmail Sync State ──────────────────────────────────────────────────────
 
+
 def gmail_sync_state_get(account_id: str) -> dict[str, Any] | None:
     """Lấy trạng thái đồng bộ Gmail."""
     init_db()
@@ -2422,6 +2624,7 @@ def gmail_sync_state_upsert(
     không được hạ về 0.
     """
     from datetime import UTC, datetime
+
     init_db()
     with _conn() as cx:
         now = datetime.now(UTC).isoformat()
@@ -2453,6 +2656,7 @@ def gmail_sync_state_upsert(
 
 # ── Gmail Messages ────────────────────────────────────────────────────────
 
+
 def gmail_message_upsert(
     account_id: str,
     *,
@@ -2475,6 +2679,7 @@ def gmail_message_upsert(
     """Upsert email message."""
     import json
     from datetime import UTC, datetime
+
     init_db()
     with _conn() as cx:
         cx.execute(
@@ -2530,6 +2735,7 @@ def gmail_messages_list(
 ) -> list[dict[str, Any]]:
     """Liệt kê email với bộ lọc."""
     import json
+
     init_db()
     with _conn() as cx:
         where = ["account_id=?"]
@@ -2557,7 +2763,7 @@ def gmail_messages_list(
         sql = f"""SELECT id, account_id, thread_id, label_ids, snippet, from_email, to_emails, cc_emails,
                          subject, body_text, body_html, internal_date, is_read, is_starred, has_attachment, raw_headers, created_at
                   FROM gmail_messages
-                  WHERE {' AND '.join(where)}
+                  WHERE {" AND ".join(where)}
                   ORDER BY internal_date DESC
                   LIMIT ? OFFSET ?"""
         params.extend([limit, offset])
@@ -2589,6 +2795,7 @@ def gmail_messages_list(
 def gmail_message_get(account_id: str, message_id: str) -> dict[str, Any] | None:
     """Lấy chi tiết một email."""
     import json
+
     init_db()
     with _conn() as cx:
         row = cx.execute(
@@ -2690,6 +2897,7 @@ def gmail_message_exists(account_id: str, message_id: str) -> bool:
 
 # ── Gmail Labels ──────────────────────────────────────────────────────────
 
+
 def gmail_label_upsert(
     account_id: str,
     *,
@@ -2705,6 +2913,7 @@ def gmail_label_upsert(
 ) -> None:
     """Upsert Gmail label."""
     from datetime import UTC, datetime
+
     init_db()
     with _conn() as cx:
         cx.execute(
@@ -2771,11 +2980,14 @@ def gmail_label_delete(account_id: str, label_id: str) -> bool:
     """Xoá label."""
     init_db()
     with _conn() as cx:
-        cur = cx.execute("DELETE FROM gmail_labels WHERE account_id=? AND id=?", (account_id, label_id))
+        cur = cx.execute(
+            "DELETE FROM gmail_labels WHERE account_id=? AND id=?", (account_id, label_id)
+        )
     return bool(cur.rowcount > 0)
 
 
 # ── Gmail Filters ─────────────────────────────────────────────────────────
+
 
 def gmail_filter_upsert(
     account_id: str,
@@ -2787,6 +2999,7 @@ def gmail_filter_upsert(
     """Upsert Gmail filter."""
     import json
     from datetime import UTC, datetime
+
     init_db()
     with _conn() as cx:
         cx.execute(
@@ -2811,6 +3024,7 @@ def gmail_filter_upsert(
 def gmail_filters_list(account_id: str) -> list[dict[str, Any]]:
     """Liệt kê filters của tài khoản."""
     import json
+
     init_db()
     with _conn() as cx:
         rows = cx.execute(
@@ -2836,7 +3050,9 @@ def gmail_filter_delete(account_id: str, filter_id: str) -> bool:
     """Xoá filter."""
     init_db()
     with _conn() as cx:
-        cur = cx.execute("DELETE FROM gmail_filters WHERE account_id=? AND id=?", (account_id, filter_id))
+        cur = cx.execute(
+            "DELETE FROM gmail_filters WHERE account_id=? AND id=?", (account_id, filter_id)
+        )
     return bool(cur.rowcount > 0)
 
 
@@ -2921,9 +3137,7 @@ _MENU_COLS = "id, ten, gia, an, bom, hinh_url, nhom"
 def menu_list(*, gom_an: bool = False) -> list[dict[str, Any]]:
     init_db()
     with _conn() as cx:
-        rows = cx.execute(
-            f"SELECT {_MENU_COLS} FROM menu_mon ORDER BY ten"
-        ).fetchall()
+        rows = cx.execute(f"SELECT {_MENU_COLS} FROM menu_mon ORDER BY ten").fetchall()
     out = []
     for row in rows:
         if not gom_an and int(row[3]):
@@ -2958,9 +3172,7 @@ def menu_upsert(mon: dict[str, Any]) -> dict[str, Any]:
 def menu_get(mon_id: str) -> dict[str, Any] | None:
     init_db()
     with _conn() as cx:
-        row = cx.execute(
-            f"SELECT {_MENU_COLS} FROM menu_mon WHERE id=?", (mon_id,)
-        ).fetchone()
+        row = cx.execute(f"SELECT {_MENU_COLS} FROM menu_mon WHERE id=?", (mon_id,)).fetchone()
     if not row:
         return None
     return _menu_from_row(row)
@@ -2969,9 +3181,7 @@ def menu_get(mon_id: str) -> dict[str, Any] | None:
 def menu_set_hinh(mon_id: str, hinh_url: str) -> dict[str, Any] | None:
     init_db()
     with _conn() as cx:
-        row = cx.execute(
-            f"SELECT {_MENU_COLS} FROM menu_mon WHERE id=?", (mon_id,)
-        ).fetchone()
+        row = cx.execute(f"SELECT {_MENU_COLS} FROM menu_mon WHERE id=?", (mon_id,)).fetchone()
         if not row:
             return None
         cx.execute("UPDATE menu_mon SET hinh_url=? WHERE id=?", (hinh_url, mon_id))
@@ -3189,6 +3399,7 @@ def audit_list(limit: int = 200) -> list[dict[str, Any]]:
 
 # ── Copilot Drafts & Audit ───────────────────────────────────────────────────
 
+
 def copilot_draft_save(draft: dict[str, Any]) -> None:
     init_db()
     with _conn() as cx:
@@ -3355,8 +3566,7 @@ def copilot_execution_rearm_internal(
         cx.execute("BEGIN IMMEDIATE")
         try:
             row = cx.execute(
-                "SELECT status FROM copilot_execution_receipts "
-                "WHERE store_id=? AND action_id=?",
+                "SELECT status FROM copilot_execution_receipts WHERE store_id=? AND action_id=?",
                 (store_id, action_id),
             ).fetchone()
             if not row or str(row[0]) != "failed":
@@ -3445,7 +3655,7 @@ def copilot_mail_delivery_reserve(
     with _conn() as cx:
         try:
             cx.execute(
-                "INSERT INTO copilot_mail_delivery_receipts(" 
+                "INSERT INTO copilot_mail_delivery_receipts("
                 "store_id, idempotency_key, request_hash, status, created_at) "
                 "VALUES (?,?,?,?,?)",
                 (store_id, idempotency_key, request_hash, "pending", _iso_now()),
@@ -3480,8 +3690,11 @@ def copilot_mail_delivery_complete(
             "UPDATE copilot_mail_delivery_receipts SET status=?, outcome=?, completed_at=? "
             "WHERE store_id=? AND idempotency_key=? AND status='pending'",
             (
-                status, json.dumps(outcome, ensure_ascii=False), _iso_now(),
-                store_id, idempotency_key,
+                status,
+                json.dumps(outcome, ensure_ascii=False),
+                _iso_now(),
+                store_id,
+                idempotency_key,
             ),
         )
         return bool(cur.rowcount == 1)
@@ -3555,6 +3768,7 @@ def copilot_audit_add(
         from datetime import UTC, datetime
     except ImportError:
         from datetime import datetime, timezone
+
         UTC = timezone.utc
 
     init_db()
@@ -3653,11 +3867,15 @@ def fb_try_claim_event(event_id: str) -> bool:
             raise
 
 
-def fb_try_claim_scoped_event(*, store_id: str, page_id: str, event_type: str, external_event_id: str) -> bool:
+def fb_try_claim_scoped_event(
+    *, store_id: str, page_id: str, event_type: str, external_event_id: str
+) -> bool:
     """Atomically claim one Facebook event in its tenant/Page/type scope."""
     if not all(value.strip() for value in (store_id, page_id, event_type, external_event_id)):
         return False
-    idempotency_key = hashlib.sha256(f"{store_id}:{page_id}:{event_type}:{external_event_id}".encode()).hexdigest()
+    idempotency_key = hashlib.sha256(
+        f"{store_id}:{page_id}:{event_type}:{external_event_id}".encode()
+    ).hexdigest()
     init_db()
     with _conn() as cx:
         cur = cx.execute(
@@ -3667,11 +3885,22 @@ def fb_try_claim_scoped_event(*, store_id: str, page_id: str, event_type: str, e
         return bool(cur.rowcount == 1)
 
 
-_AI_LEARNING_TABLES = {"generation": "ai_generation_records", "feedback": "ai_feedback_events", "evaluation": "ai_evaluations", "rule_proposal": "ai_rule_proposals"}
+_AI_LEARNING_TABLES = {
+    "generation": "ai_generation_records",
+    "feedback": "ai_feedback_events",
+    "evaluation": "ai_evaluations",
+    "rule_proposal": "ai_rule_proposals",
+}
 
 
 def _ai_generation_exists(cx: sqlite3.Connection, *, store_id: str, generation_id: str) -> bool:
-    return cx.execute("SELECT 1 FROM ai_generation_records WHERE store_id=? AND id=?", (store_id, generation_id)).fetchone() is not None
+    return (
+        cx.execute(
+            "SELECT 1 FROM ai_generation_records WHERE store_id=? AND id=?",
+            (store_id, generation_id),
+        ).fetchone()
+        is not None
+    )
 
 
 def ai_learning_save(kind: str, record: dict[str, Any]) -> bool:
@@ -3679,7 +3908,9 @@ def ai_learning_save(kind: str, record: dict[str, Any]) -> bool:
     if kind not in _AI_LEARNING_TABLES:
         raise ValueError("ai_learning_record_invalid")
     try:
-        store_id, record_id, channel, created_at = (str(record[key]).strip() for key in ("store_id", "id", "channel", "created_at"))
+        store_id, record_id, channel, created_at = (
+            str(record[key]).strip() for key in ("store_id", "id", "channel", "created_at")
+        )
     except (KeyError, TypeError):
         raise ValueError("ai_learning_record_invalid") from None
     if not all((store_id, record_id, channel, created_at)):
@@ -3688,24 +3919,69 @@ def ai_learning_save(kind: str, record: dict[str, Any]) -> bool:
     init_db()
     with _conn() as cx:
         if kind == "generation":
-            cur = cx.execute("INSERT INTO ai_generation_records(id, store_id, channel, idempotency_key, payload, created_at) VALUES (?,?,?,?,?,?) ON CONFLICT(store_id, idempotency_key) DO NOTHING", (record_id, store_id, channel, str(record["idempotency_key"]), payload, created_at))
+            cur = cx.execute(
+                "INSERT INTO ai_generation_records(id, store_id, channel, idempotency_key, payload, created_at) VALUES (?,?,?,?,?,?) ON CONFLICT(store_id, idempotency_key) DO NOTHING",
+                (record_id, store_id, channel, str(record["idempotency_key"]), payload, created_at),
+            )
         elif kind == "feedback":
-            if not _ai_generation_exists(cx, store_id=store_id, generation_id=str(record["generation_id"])):
+            if not _ai_generation_exists(
+                cx, store_id=store_id, generation_id=str(record["generation_id"])
+            ):
                 raise ValueError("ai_learning_cross_tenant_generation")
-            cur = cx.execute("INSERT INTO ai_feedback_events(id, store_id, generation_id, channel, idempotency_key, payload, created_at) VALUES (?,?,?,?,?,?,?) ON CONFLICT(store_id, idempotency_key) DO NOTHING", (record_id, store_id, str(record["generation_id"]), channel, str(record["idempotency_key"]), payload, created_at))
+            cur = cx.execute(
+                "INSERT INTO ai_feedback_events(id, store_id, generation_id, channel, idempotency_key, payload, created_at) VALUES (?,?,?,?,?,?,?) ON CONFLICT(store_id, idempotency_key) DO NOTHING",
+                (
+                    record_id,
+                    store_id,
+                    str(record["generation_id"]),
+                    channel,
+                    str(record["idempotency_key"]),
+                    payload,
+                    created_at,
+                ),
+            )
         elif kind == "evaluation":
-            if not _ai_generation_exists(cx, store_id=store_id, generation_id=str(record["generation_id"])):
+            if not _ai_generation_exists(
+                cx, store_id=store_id, generation_id=str(record["generation_id"])
+            ):
                 raise ValueError("ai_learning_cross_tenant_generation")
-            cur = cx.execute("INSERT INTO ai_evaluations(id, store_id, generation_id, channel, idempotency_key, payload, created_at) VALUES (?,?,?,?,?,?,?) ON CONFLICT(store_id, idempotency_key) DO NOTHING", (record_id, store_id, str(record["generation_id"]), channel, str(record["idempotency_key"]), payload, created_at))
+            cur = cx.execute(
+                "INSERT INTO ai_evaluations(id, store_id, generation_id, channel, idempotency_key, payload, created_at) VALUES (?,?,?,?,?,?,?) ON CONFLICT(store_id, idempotency_key) DO NOTHING",
+                (
+                    record_id,
+                    store_id,
+                    str(record["generation_id"]),
+                    channel,
+                    str(record["idempotency_key"]),
+                    payload,
+                    created_at,
+                ),
+            )
         else:
             evidence_ids = [str(value) for value in record.get("evidence_ids", [])]
             if not evidence_ids:
                 raise ValueError("ai_learning_evidence_missing")
             placeholders = ",".join("?" for _ in evidence_ids)
-            rows = cx.execute(f"SELECT id FROM ai_feedback_events WHERE store_id=? AND id IN ({placeholders})", [store_id, *evidence_ids]).fetchall()
+            rows = cx.execute(
+                f"SELECT id FROM ai_feedback_events WHERE store_id=? AND id IN ({placeholders})",
+                [store_id, *evidence_ids],
+            ).fetchall()
             if {str(row[0]) for row in rows} != set(evidence_ids):
                 raise ValueError("ai_learning_cross_tenant_evidence")
-            cur = cx.execute("INSERT INTO ai_rule_proposals(id, store_id, channel, status, version, idempotency_key, payload, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?) ON CONFLICT(store_id, idempotency_key) DO NOTHING", (record_id, store_id, channel, str(record.get("status", "pending")), int(record["version"]), str(record["idempotency_key"]), payload, created_at, str(record["updated_at"])))
+            cur = cx.execute(
+                "INSERT INTO ai_rule_proposals(id, store_id, channel, status, version, idempotency_key, payload, created_at, updated_at) VALUES (?,?,?,?,?,?,?,?,?) ON CONFLICT(store_id, idempotency_key) DO NOTHING",
+                (
+                    record_id,
+                    store_id,
+                    channel,
+                    str(record.get("status", "pending")),
+                    int(record["version"]),
+                    str(record["idempotency_key"]),
+                    payload,
+                    created_at,
+                    str(record["updated_at"]),
+                ),
+            )
         return bool(cur.rowcount == 1)
 
 
@@ -3715,7 +3991,10 @@ def ai_learning_list(kind: str, *, store_id: str, limit: int = 50) -> list[dict[
         raise ValueError("ai_learning_query_invalid")
     init_db()
     with _conn() as cx:
-        rows = cx.execute(f"SELECT payload FROM {_AI_LEARNING_TABLES[kind]} WHERE store_id=? ORDER BY created_at, id LIMIT ?", (store_id, max(1, min(limit, 200)))).fetchall()
+        rows = cx.execute(
+            f"SELECT payload FROM {_AI_LEARNING_TABLES[kind]} WHERE store_id=? ORDER BY created_at, id LIMIT ?",
+            (store_id, max(1, min(limit, 200))),
+        ).fetchall()
     return [json.loads(str(row[0])) for row in rows]
 
 
@@ -3764,11 +4043,18 @@ def ai_rule_proposal_list(
 
 
 def ai_rule_proposal_transition(
-    *, store_id: str, proposal_id: str, target_status: str, actor_id: str, updated_at: str,
+    *,
+    store_id: str,
+    proposal_id: str,
+    target_status: str,
+    actor_id: str,
+    updated_at: str,
     rejection_reason: str | None = None,
 ) -> dict[str, Any] | None:
     """Atomically apply a legal, tenant-scoped human rule lifecycle transition."""
-    if not all(value.strip() for value in (store_id, proposal_id, target_status, actor_id, updated_at)):
+    if not all(
+        value.strip() for value in (store_id, proposal_id, target_status, actor_id, updated_at)
+    ):
         raise ValueError("ai_learning_transition_invalid")
     init_db()
     with _conn() as cx:
@@ -3803,7 +4089,11 @@ def ai_rule_active_list(*, store_id: str, channel: str, limit: int = 50) -> list
     rules = ai_rule_proposal_list(store_id=store_id, channel=channel, status="active", limit=limit)
     return sorted(
         rules,
-        key=lambda rule: (-int((rule.get("rule") or {}).get("priority", 0)), str(rule.get("created_at", "")), str(rule.get("id", ""))),
+        key=lambda rule: (
+            -int((rule.get("rule") or {}).get("priority", 0)),
+            str(rule.get("created_at", "")),
+            str(rule.get("id", "")),
+        ),
     )
 
 
@@ -3816,13 +4106,24 @@ def ai_learning_snapshot(*, store_id: str) -> dict[str, Any]:
         cx.isolation_level = None
         cx.execute("BEGIN")
         try:
-            records = {kind: [json.loads(str(row[0])) for row in cx.execute(f"SELECT payload FROM {table} WHERE store_id=? ORDER BY created_at, id", (store_id,)).fetchall()] for kind, table in _AI_LEARNING_TABLES.items()}
+            records = {
+                kind: [
+                    json.loads(str(row[0]))
+                    for row in cx.execute(
+                        f"SELECT payload FROM {table} WHERE store_id=? ORDER BY created_at, id",
+                        (store_id,),
+                    ).fetchall()
+                ]
+                for kind, table in _AI_LEARNING_TABLES.items()
+            }
             cx.execute("COMMIT")
         except Exception:
             cx.execute("ROLLBACK")
             raise
     snapshot = {"schema_version": 1, "store_id": store_id, "records": records}
-    payload = json.dumps(snapshot, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()
+    payload = json.dumps(
+        snapshot, ensure_ascii=False, sort_keys=True, separators=(",", ":")
+    ).encode()
     return {"snapshot": snapshot, "checksum_sha256": hashlib.sha256(payload).hexdigest()}
 
 
@@ -3831,7 +4132,9 @@ def ai_learning_backup(*, store_id: str, directory: Path | None = None) -> dict[
     from ca_api.ai_learning.security import require_encrypted_data_path
 
     backup = ai_learning_snapshot(store_id=store_id)
-    output_dir = directory or Path(os.environ.get("NHIPQUAN_AI_LEARNING_BACKUP_DIR", ROOT / "data" / "backups"))
+    output_dir = directory or Path(
+        os.environ.get("NHIPQUAN_AI_LEARNING_BACKUP_DIR", ROOT / "data" / "backups")
+    )
     require_encrypted_data_path(output_dir)
     output_dir.mkdir(parents=True, exist_ok=True)
     stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
@@ -3845,11 +4148,16 @@ def ai_learning_backup(*, store_id: str, directory: Path | None = None) -> dict[
         "schema_version": backup["snapshot"]["schema_version"],
         "store_id": store_id,
         "store_coverage": [store_id],
-        "record_counts": {kind: len(records) for kind, records in backup["snapshot"]["records"].items()},
+        "record_counts": {
+            kind: len(records) for kind, records in backup["snapshot"]["records"].items()
+        },
         "checksum_sha256": backup["checksum_sha256"],
         "snapshot_file": snapshot_path.name,
     }
-    for path, content in ((snapshot_path, snapshot_payload), (manifest_path, json.dumps(manifest, indent=2, sort_keys=True))):
+    for path, content in (
+        (snapshot_path, snapshot_payload),
+        (manifest_path, json.dumps(manifest, indent=2, sort_keys=True)),
+    ):
         temporary = path.with_suffix(f"{path.suffix}.tmp")
         temporary.write_text(content, encoding="utf-8")
         temporary.replace(path)
@@ -3860,7 +4168,9 @@ def ai_learning_verify_backup(*, snapshot_path: Path, manifest_path: Path) -> bo
     """Verify backup format, manifest coverage, and SHA-256 before a restore."""
     snapshot = json.loads(snapshot_path.read_text(encoding="utf-8"))
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
-    digest = hashlib.sha256(json.dumps(snapshot, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
+    digest = hashlib.sha256(
+        json.dumps(snapshot, ensure_ascii=False, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
     return bool(
         manifest.get("backup_format_version") == 1
         and manifest.get("schema_version") == snapshot.get("schema_version") == 1
@@ -3882,7 +4192,8 @@ def fb_review_insert(item: dict[str, Any]) -> int:
                 confidence, policy_action, assigned_role, proposed_response,
                 flagged_reasons, status, trace_id, created_at, event_at, expires_at
             ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-            """ + returning,
+            """
+            + returning,
             (
                 item.get("store_id", "quan_01"),
                 item["source"],
@@ -3942,9 +4253,7 @@ def fb_review_get(item_id: int) -> dict[str, Any] | None:
     init_db()
     with _conn() as cx:
         cx.row_factory = sqlite3.Row
-        row = cx.execute(
-            "SELECT * FROM fb_review_queue WHERE id=?", (item_id,)
-        ).fetchone()
+        row = cx.execute("SELECT * FROM fb_review_queue WHERE id=?", (item_id,)).fetchone()
     return dict(row) if row else None
 
 
@@ -3963,8 +4272,7 @@ def fb_review_update_proposed(item_id: int, *, proposed_response: str) -> bool:
     init_db()
     with _conn() as cx:
         cur = cx.execute(
-            "UPDATE fb_review_queue SET proposed_response=? "
-            "WHERE id=? AND status='pending'",
+            "UPDATE fb_review_queue SET proposed_response=? WHERE id=? AND status='pending'",
             (proposed_response, item_id),
         )
         return bool(cur.rowcount == 1)
@@ -4010,9 +4318,7 @@ def fb_review_finalize_claim(
             "WHERE id=? AND status='approved'",
             (status, decided_by, _iso_now(), final_response, item_id),
         )
-        row = cx.execute(
-            "SELECT * FROM fb_review_queue WHERE id=?", (item_id,)
-        ).fetchone()
+        row = cx.execute("SELECT * FROM fb_review_queue WHERE id=?", (item_id,)).fetchone()
     return dict(row) if row else None
 
 
@@ -4027,9 +4333,7 @@ def fb_review_decide(
     init_db()
     with _conn() as cx:
         cx.row_factory = sqlite3.Row
-        row = cx.execute(
-            "SELECT status FROM fb_review_queue WHERE id=?", (item_id,)
-        ).fetchone()
+        row = cx.execute("SELECT status FROM fb_review_queue WHERE id=?", (item_id,)).fetchone()
         if not row:
             return None
         if str(row["status"]) != "pending":
@@ -4041,9 +4345,7 @@ def fb_review_decide(
         )
         if cur.rowcount != 1:
             return None
-        row2 = cx.execute(
-            "SELECT * FROM fb_review_queue WHERE id=?", (item_id,)
-        ).fetchone()
+        row2 = cx.execute("SELECT * FROM fb_review_queue WHERE id=?", (item_id,)).fetchone()
     return dict(row2) if row2 else None
 
 
@@ -4135,6 +4437,7 @@ def fb_stats(store_id: str | None = None) -> dict[str, Any]:
 
 # ── Chat Nội Bộ Nhân Viên (Messenger-Style) ──────────────────────────────────
 
+
 def _seed_chat_neu_trong(cx: sqlite3.Connection) -> None:
     """Tạo phòng chat chung mặc định '☕ NHỊP QUÁN · Hội Quán Chung' (is_locked=1) và mời toàn bộ nhân viên active."""
     now = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -4147,7 +4450,9 @@ def _seed_chat_neu_trong(cx: sqlite3.Connection) -> None:
         """,
         (conv_id, DEFAULT_STORE_ID, "general", "☕ NHỊP QUÁN · Hội Quán Chung", "", now, now),
     )
-    users = cx.execute("SELECT nv_id, role, status FROM users WHERE store_id=?", (DEFAULT_STORE_ID,)).fetchall()
+    users = cx.execute(
+        "SELECT nv_id, role, status FROM users WHERE store_id=?", (DEFAULT_STORE_ID,)
+    ).fetchall()
     for nv, role, st in users:
         if st == "inactive":
             continue
@@ -4160,7 +4465,9 @@ def _seed_chat_neu_trong(cx: sqlite3.Connection) -> None:
             """,
             (conv_id, nv, part_role, "active", now),
         )
-    has_msg = cx.execute("SELECT 1 FROM chat_messages WHERE conversation_id=? LIMIT 1", (conv_id,)).fetchone()
+    has_msg = cx.execute(
+        "SELECT 1 FROM chat_messages WHERE conversation_id=? LIMIT 1", (conv_id,)
+    ).fetchone()
     if not has_msg:
         msg_id = f"msg_{uuid.uuid4().hex[:12]}"
         cx.execute(
@@ -4213,7 +4520,9 @@ def user_deactivate(nv_id: str, store_id: str = "quan_01") -> bool:
     init_db()
     now = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
     with _conn() as cx:
-        user = cx.execute("SELECT username, display_name FROM users WHERE nv_id=?", (nv_id,)).fetchone()
+        user = cx.execute(
+            "SELECT username, display_name FROM users WHERE nv_id=?", (nv_id,)
+        ).fetchone()
         if not user:
             return False
         u_name, d_name = str(user[0]), str(user[1])
@@ -4229,7 +4538,12 @@ def user_deactivate(nv_id: str, store_id: str = "quan_01") -> bool:
         )
         cx.execute(
             "INSERT INTO audit(at, ai, hanh, payload) VALUES (?,?,?,?)",
-            (now, "system", "user_deactivate", json.dumps({"nv_id": nv_id, "username": u_name, "name": d_name})),
+            (
+                now,
+                "system",
+                "user_deactivate",
+                json.dumps({"nv_id": nv_id, "username": u_name, "name": d_name}),
+            ),
         )
     return True
 
@@ -4398,7 +4712,15 @@ def chat_conversation_list_for_user(nv_id: str, store_id: str = "quan_01") -> li
             VALUES (?,?,?,?,?,TRUE,?,?)
             ON CONFLICT(id) DO NOTHING
             """,
-            (conv_general_id, store_id, "general", "☕ NHỊP QUÁN · Hội Quán Chung", "", now_iso, now_iso),
+            (
+                conv_general_id,
+                store_id,
+                "general",
+                "☕ NHỊP QUÁN · Hội Quán Chung",
+                "",
+                now_iso,
+                now_iso,
+            ),
         )
         cx.execute(
             """
@@ -4607,7 +4929,9 @@ def chat_participant_remove(conv_id: str, nv_id: str) -> bool:
     """Xóa thành viên khỏi nhóm tự do. Nhóm bị khóa (is_locked=1) không được xóa."""
     init_db()
     with _conn() as cx:
-        locked = cx.execute("SELECT is_locked FROM chat_conversations WHERE id=?", (conv_id,)).fetchone()
+        locked = cx.execute(
+            "SELECT is_locked FROM chat_conversations WHERE id=?", (conv_id,)
+        ).fetchone()
         if locked and bool(locked[0]):
             return False
         cx.execute(
@@ -4670,7 +4994,11 @@ def chat_message_create(
                 "UPDATE chat_participants SET last_read_at = ? WHERE conversation_id = ? AND nv_id = ?",
                 (now, conv_id, sender_id),
             )
-    return chat_message_get(msg_id) or {"id": msg_id, "conversation_id": conv_id, "content": content}
+    return chat_message_get(msg_id) or {
+        "id": msg_id,
+        "conversation_id": conv_id,
+        "content": content,
+    }
 
 
 def chat_message_get(message_id: str) -> dict[str, Any] | None:
@@ -4835,11 +5163,15 @@ def chat_message_react(message_id: str, nv_id: str, emoji: str) -> dict[str, Any
     return chat_message_get(message_id) or {"id": message_id}
 
 
-def chat_messages_list(conv_id: str, limit: int = 50, before_id: str | None = None) -> list[dict[str, Any]]:
+def chat_messages_list(
+    conv_id: str, limit: int = 50, before_id: str | None = None
+) -> list[dict[str, Any]]:
     init_db()
     with _conn() as cx:
         if before_id:
-            b_row = cx.execute("SELECT created_at FROM chat_messages WHERE id = ?", (before_id,)).fetchone()
+            b_row = cx.execute(
+                "SELECT created_at FROM chat_messages WHERE id = ?", (before_id,)
+            ).fetchone()
             if b_row:
                 before_time = str(b_row[0])
                 rows = cx.execute(
@@ -5111,7 +5443,9 @@ def reservation_get(res_id: str) -> dict[str, Any] | None:
         return d
 
 
-def reservation_get_by_idempotency(idem_key: str, store_id: str = "quan_01") -> dict[str, Any] | None:
+def reservation_get_by_idempotency(
+    idem_key: str, store_id: str = "quan_01"
+) -> dict[str, Any] | None:
     if not idem_key:
         return None
     init_db()
@@ -5299,7 +5633,9 @@ def thong_bao_ca_create(row: dict[str, Any]) -> str:
     return tb_id
 
 
-def thong_bao_ca_list(nv_id: str, unread_only: bool = False, store_id: str = "quan_01") -> list[dict[str, Any]]:
+def thong_bao_ca_list(
+    nv_id: str, unread_only: bool = False, store_id: str = "quan_01"
+) -> list[dict[str, Any]]:
     init_db()
     with _conn() as cx:
         cx.row_factory = sqlite3.Row
@@ -5322,7 +5658,9 @@ def thong_bao_ca_ack(thong_bao_id: str, nv_id: str) -> bool:
         )
         if res.rowcount > 0:
             # Also update dat_ban notification_acked_at
-            tb = cx.execute("SELECT dat_ban_id FROM thong_bao_ca WHERE id=?", (thong_bao_id,)).fetchone()
+            tb = cx.execute(
+                "SELECT dat_ban_id FROM thong_bao_ca WHERE id=?", (thong_bao_id,)
+            ).fetchone()
             if tb and tb[0]:
                 cx.execute(
                     "UPDATE dat_ban SET notification_acked_at=? WHERE id=? AND notification_acked_at IS NULL",
@@ -5352,4 +5690,3 @@ def list_active_stores() -> list[str]:
     # Luôn bao gồm store mặc định
     stores.add(DEFAULT_STORE_ID)
     return sorted(stores)
-
