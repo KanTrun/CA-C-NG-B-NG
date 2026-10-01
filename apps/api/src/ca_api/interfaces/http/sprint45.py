@@ -1983,6 +1983,36 @@ def qr_use(
     return {"ok": True, "nv_id": used["nv_id"]}
 
 
+def _o_truc_con_thieu(ca_id: str, week: str) -> dict[str, Any] | None:
+    """Ô ngày+khung chứa ca vừa đổi còn thiếu người không?
+
+    Lưới lịch tuần gom các ca VỊ TRÍ cùng khung giờ thành MỘT ô và đếm theo
+    SUẤT trực (mỗi vị trí một suất), nên kiểm tra thiếu phải cùng đơn vị:
+    tổng suất đã xếp so với tổng định biên của cả ô. Trả None khi đã đủ —
+    caller hiện cảnh báo chỉ khi có dict (tránh spam khi mọi thứ đã ổn).
+    """
+    meta = _ca_meta_map().get(str(ca_id))
+    if not meta:
+        return None
+    thu, khung = str(meta.get("thu") or ""), str(meta.get("khung") or "")
+    if not thu or not khung:
+        return None
+    metas = _ca_meta_map()
+    o_ca_ids = [
+        cid for cid, m in metas.items()
+        if str(m.get("thu")) == thu and str(m.get("khung")) == khung
+    ]
+    if not o_ca_ids:
+        return None
+    dinh_bien = _so_nguoi_toi_thieu_map()
+    pc = _phan_cong_tuan(week)
+    da_xep = sum(len(pc.get(cid, [])) for cid in o_ca_ids)
+    can = sum(int(dinh_bien.get(cid, 1)) for cid in o_ca_ids)
+    if da_xep >= can:
+        return None
+    return {"thu": thu, "khung": khung, "da_xep": da_xep, "can": can, "thieu": can - da_xep}
+
+
 def _apply_swap_to_assignments(
     *, giver: str, taker: str, ca_id: str, week: str, swap_id: str, actor: str,
 ) -> None:
@@ -2357,7 +2387,10 @@ async def swap_dong_y(
         "audit:shift_swap",
         details={"action": "shift_swap.confirm", "swap_id": swap_id},
     )
-    return found
+    # Báo cho UI biết ô trực sau đổi còn thiếu người không — đổi ca là thay
+    # người (tổng suất không đổi) nên ô vốn thiếu vẫn thiếu; im lặng sẽ khiến
+    # người đọc tưởng hệ thống quên cộng người.
+    return {**found, "con_thieu": _o_truc_con_thieu(ca_id, swap_week)}
 
 
 @router.post("/api/v1/cho-doi-ca/{swap_id}/tu-choi")
@@ -2484,10 +2517,11 @@ async def swap_duyet(
         raise HTTPException(status_code=404, detail="swap_khong_tim_thay")
 
     week = str(found.get("tuan_id") or _life().get("tuan_iso") or "2026-W01")
+    ca_id = str(found.get("ca_id") or "")
     _apply_swap_to_assignments(
         giver=str(found.get("a") or ""),
         taker=str(found.get("b") or ""),
-        ca_id=str(found.get("ca_id") or ""),
+        ca_id=ca_id,
         week=week,
         swap_id=swap_id,
         actor=str(caller.get("nv_id") or caller.get("username") or "quan_ly"),
@@ -2501,7 +2535,7 @@ async def swap_duyet(
         "audit:shift_swap",
         details={"action": "shift_swap.approve", "swap_id": swap_id},
     )
-    return found
+    return {**found, "con_thieu": _o_truc_con_thieu(ca_id, week)}
 
 
 @router.get("/api/v1/ops/pickers")
