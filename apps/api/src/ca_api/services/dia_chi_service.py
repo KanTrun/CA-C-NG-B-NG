@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import logging
 import urllib.error
+import urllib.parse
 import urllib.request
 from pathlib import Path
 from typing import Any, cast
@@ -143,3 +144,83 @@ def get_wards(district_code: int) -> list[dict[str, Any]]:
         log.info("Khong the goi open-api.vn cho phuong xa (code=%s): %s", district_code, e)
 
     return []
+
+
+def geocode_address(
+    address: str = "",
+    *,
+    phuong_xa: str = "",
+    quan_huyen: str = "",
+    tinh: str = "",
+) -> dict[str, Any] | None:
+    """Giải mã địa chỉ thành toạ độ lat/lon (Nominatim OSM -> Open-Meteo)."""
+    candidates: list[str] = []
+    addr_clean = address.strip()
+    if addr_clean:
+        candidates.append(addr_clean)
+
+    # Tổ hợp các cấp hành chính
+    parts_full = [p.strip() for p in (phuong_xa, quan_huyen, tinh) if p and p.strip()]
+    if parts_full:
+        c_full = ", ".join(parts_full)
+        if c_full not in candidates:
+            candidates.append(c_full)
+
+    parts_dist = [p.strip() for p in (quan_huyen, tinh) if p and p.strip()]
+    if parts_dist:
+        c_dist = ", ".join(parts_dist)
+        if c_dist not in candidates:
+            candidates.append(c_dist)
+
+    if tinh and tinh.strip() and tinh.strip() not in candidates:
+        candidates.append(tinh.strip())
+
+    for cand in candidates:
+        # Thêm Việt Nam nếu chưa có
+        query = f"{cand}, Việt Nam" if "việt" not in cand.lower() and "vietnam" not in cand.lower() else cand
+
+        # 1. Thử OSM Nominatim
+        try:
+            qs = urllib.parse.urlencode({"q": query, "format": "json", "limit": 1, "countrycodes": "vn"})
+            url = f"https://nominatim.openstreetmap.org/search?{qs}"
+            req = urllib.request.Request(url, headers={"User-Agent": "NhipQuan-Geo/1.0 (ops@nhipquan.local)"})
+            with urllib.request.urlopen(req, timeout=4.0) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+                if isinstance(data, list) and data:
+                    hit = data[0]
+                    return {
+                        "lat": round(float(hit["lat"]), 6),
+                        "lon": round(float(hit["lon"]), 6),
+                        "display_name": hit.get("display_name", ""),
+                        "source": "osm",
+                    }
+        except Exception:
+            pass
+
+        # 2. Thử Open-Meteo Geocoding
+        try:
+            qs = urllib.parse.urlencode({
+                "name": cand,
+                "count": 1,
+                "language": "vi",
+                "format": "json",
+                "countryCode": "VN",
+            })
+            url = f"https://geocoding-api.open-meteo.com/v1/search?{qs}"
+            req = urllib.request.Request(url, headers={"User-Agent": "NhipQuan-Geo/1.0"})
+            with urllib.request.urlopen(req, timeout=4.0) as resp:
+                data = json.loads(resp.read().decode("utf-8"))
+                results = data.get("results") if isinstance(data, dict) else None
+                if isinstance(results, list) and results:
+                    hit = results[0]
+                    return {
+                        "lat": round(float(hit["latitude"]), 6),
+                        "lon": round(float(hit["longitude"]), 6),
+                        "display_name": hit.get("name", ""),
+                        "source": "open-meteo",
+                    }
+        except Exception:
+            pass
+
+    return None
+

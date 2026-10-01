@@ -73,6 +73,16 @@ GET_SURVEY_RESULT = "GET_SURVEY_RESULT"
 QUERY_AUDIT = "QUERY_AUDIT"
 # Hỏi về 4 mặt Trải nghiệm AI (Living Map / War Room / Cứu ca / Hồn quán)
 QUERY_QUANVERSE = "QUERY_QUANVERSE"
+# Mở rộng năng lực vận hành (R0_READ)
+GET_WEATHER = "GET_WEATHER"
+GET_TODAY_OPERATIONS = "GET_TODAY_OPERATIONS"
+GET_FAIRNESS_SUMMARY = "GET_FAIRNESS_SUMMARY"
+GET_MY_CHECKLIST = "GET_MY_CHECKLIST"
+SEARCH_TRENDS = "SEARCH_TRENDS"
+GET_RESERVATIONS = "GET_RESERVATIONS"
+GET_OPEN_SHIFTS = "GET_OPEN_SHIFTS"
+GET_MEETINGS = "GET_MEETINGS"
+GET_PREDICTIVE_INSIGHTS = "GET_PREDICTIVE_INSIGHTS"
 OUT_OF_SCOPE = "OUT_OF_SCOPE"
 # Patterns detecting attempts to bypass two-phase approval
 _BYPASS_PATTERNS = [
@@ -94,8 +104,13 @@ _CONVERSATIONAL_STOP_WORDS = frozenset({
     "xong rồi", "xong roi", "dạ vâng", "da vang", "vâng", "vang", "dạ", "da",
     "chào", "chao", "alo", "hi", "hello", "sao vậy", "sao vay", "tại sao", "tai sao",
     "thế nào", "the nao", "là sao", "la sao", "là gì", "la gi", "?", "ngáo", "kỳ vậy",
-    "quán", "quan", "ai làm", "ai lam", "thời tiết", "thoi tiet"
+    "quán", "quan", "ai làm", "ai lam"
 })
+
+# Trần chờ của tầng-2 LLM. Số này CHƯA được tối ưu — đo thật p50/p95 trên câu hỏi
+# của nhân viên trước khi chốt. Hiện tạm lấy bằng timeout chat đang dùng
+# (`copilot_agent._generate_conversational_reply` dùng 15.0).
+_LLM_TIER2_TIMEOUT_S = 15.0
 
 # Intent matching keywords
 # PR9 read intents đặt ĐẦU danh sách: cụm hỏi đọc cụ thể ("đổi ca nào",
@@ -177,6 +192,131 @@ _INTENT_KEYWORDS: list[tuple[str, list[str], float]] = [
             "mô phỏng kịch bản", "mo phong kich ban", "kịch bản nào", "kich ban nao",
         ],
         0.88,
+    ),
+    (
+        GET_WEATHER,
+        [
+            "thời tiết hôm nay", "thoi tiet hom nay",
+            "thời tiết thế nào", "thoi tiet the nao",
+            "thời tiết quán", "thoi tiet quan",
+            "dự báo thời tiết", "du bao thoi tiet",
+            "thời tiết", "thoi tiet",
+            "trời mưa không", "troi mua khong",
+            "trời có mưa không", "troi co mua khong",
+            "hôm nay có mưa không", "hom nay co mua khong",
+            "nhiệt độ hôm nay", "nhiet do hom nay",
+            "khuyến nghị thời tiết", "khuyen nghi thoi tiet",
+        ],
+        0.92,
+    ),
+    (
+        GET_TODAY_OPERATIONS,
+        [
+            "tình hình hôm nay", "tinh hinh hom nay",
+            "vận hành hôm nay", "van hanh hom nay",
+            "tình hình quán hôm nay", "tinh hinh quan hom nay",
+            "hôm nay quán thế nào", "hom nay quan the nao",
+            "tổng quan hôm nay", "tong quan hom nay",
+            "doanh thu hôm nay", "doanh thu hom nay",
+            "hôm nay bán được bao nhiêu", "hom nay ban duoc bao nhieu",
+            "bán được bao nhiêu", "ban duoc bao nhieu",
+            "bao nhiêu đơn hôm nay", "bao nhieu don hom nay",
+            "dashboard hôm nay", "dashboard hom nay",
+        ],
+        0.90,
+    ),
+    (
+        GET_FAIRNESS_SUMMARY,
+        [
+            "báo cáo công bằng", "bao cao cong bang",
+            "công bằng lịch ca", "cong bang lich ca",
+            "ai làm nhiều nhất", "ai lam nhieu nhat",
+            "ai làm ít nhất", "ai lam it nhat",
+            "so sánh giờ làm", "so sanh gio lam",
+            "độ lệch công bằng", "do lech cong bang",
+            "thiếu giờ làm", "thieu gio lam",
+            "phân bổ giờ làm", "phan bo gio lam",
+        ],
+        0.90,
+    ),
+    (
+        GET_MY_CHECKLIST,
+        [
+            "checklist của tôi", "checklist cua toi",
+            "phiếu của tôi", "phieu cua toi",
+            "việc ca này của tôi", "viec ca nay cua toi",
+            "đầu việc của tôi", "dau viec cua toi",
+            "checklist ca", "checklist ca",
+            "phiếu ca", "phieu ca",
+            "mẫu phiếu", "mau phieu",
+            "đầu việc ca này", "dau viec ca nay",
+        ],
+        0.90,
+    ),
+    (
+        SEARCH_TRENDS,
+        [
+            "xu hướng", "xu huong",
+            "xu hướng f&b", "xu huong f&b",
+            "món hot", "mon hot",
+            "món trending", "mon trending",
+            "trend đồ uống", "trend do uong",
+            "đồ uống hot trend", "do uong hot trend",
+            "món đang viral", "mon dang viral",
+            "thị trường đang hot món gì", "thi truong dang hot mon gi",
+            "món mới viral", "mon moi viral",
+        ],
+        0.90,
+    ),
+    (
+        GET_RESERVATIONS,
+        [
+            "đặt bàn hôm nay", "dat ban hom nay",
+            "danh sách đặt bàn", "danh sach dat ban",
+            "khách đặt bàn", "khach dat ban",
+            "có ai đặt bàn không", "co ai dat ban khong",
+            "ai đặt bàn", "ai dat ban",
+            "bàn đặt hôm nay", "ban dat hom nay",
+            "bàn nào đặt", "ban nao dat",
+            "bàn đặt", "ban dat",
+            "sơ đồ bàn", "so do ban",
+            "bàn trống", "ban trong",
+            "bàn còn trống", "ban con trong",
+            "kiểm tra bàn", "kiem tra ban",
+            "đặt bàn", "dat ban",
+            "đặt chỗ", "dat cho",
+        ],
+        0.91,
+    ),
+    (
+        GET_OPEN_SHIFTS,
+        [
+            "chợ ca", "cho ca",
+            "ca mở", "ca mo",
+            "ca trống", "ca trong",
+            "ca thiếu người", "ca thieu nguoi",
+            "có ca nào trống không", "co ca nao trong khong",
+            "danh sách ca mở", "danh sach ca mo",
+            "danh sách chợ ca", "danh sach cho ca",
+            "open shift", "open shifts",
+            "nhận thêm ca", "nhan them ca",
+            "ca cần người", "ca can nguoi",
+        ],
+        0.91,
+    ),
+    (
+        GET_PREDICTIVE_INSIGHTS,
+        [
+            "gợi ý vận hành", "goi y van hanh",
+            "đề xuất tối ưu", "de xuat toi uu",
+            "dự báo vận hành", "du bao van hanh",
+            "playbook vận hành", "playbook van hanh",
+            "luật tích cực", "luat tich cuc",
+            "đề xuất luật tích cực", "de xuat luat tich cuc",
+            "gợi ý tối ưu", "goi y toi uu",
+            "predictive suggestions", "predictive playbook",
+        ],
+        0.90,
     ),
     (
         GET_SHIFT_SWAPS,
@@ -417,6 +557,22 @@ _INTENT_KEYWORDS: list[tuple[str, list[str], float]] = [
         0.92,
     ),
     (
+        GET_MEETINGS,
+        [
+            "biên bản họp", "bien ban hop",
+            "họp giao ban", "hop giao ban",
+            "cuộc họp gần nhất", "cuoc hop gan nhat",
+            "kết quả cuộc họp", "ket qua cuoc hop",
+            "kết quả họp", "ket qua hop",
+            "nội dung cuộc họp", "noi dung cuoc hop",
+            "nội dung họp", "noi dung hop",
+            "biên bản cuộc họp", "bien ban cuoc hop",
+            "tóm tắt cuộc họp", "tom tat cuoc hop",
+            "cuộc họp", "cuoc hop",
+        ],
+        0.89,
+    ),
+    (
         APPROVE_SHIFT_SWAP,
         [
             "duyệt đổi ca", "duyet doi ca",
@@ -481,6 +637,25 @@ _INTENT_KEYWORDS: list[tuple[str, list[str], float]] = [
         CREATE_RULE_PROPOSAL,
         ["đề xuất luật", "luật mới", "cẩm nang sống", "tạo luật", "học luật", "thêm quy tắc"],
         0.90,
+    ),
+    # GET_INVENTORY (đọc tồn kho) đặt TRƯỚC INVENTORY_RESTOCK_CHECK: "xem tồn kho"
+    # là câu hỏi, còn "kiểm tồn kho" là mệnh lệnh kiểm kê. Cùng một từ "tồn kho" nhưng
+    # hai intent khác nhau — nếu để restock trước thì câu hỏi bị nuốt mất.
+    # Chỉ dùng cụm có nghĩa "XEM", tránh bare "tồn kho" để không cướp mất câu kiểm kê.
+    (
+        GET_INVENTORY,
+        [
+            "xem tồn kho", "xem ton kho",
+            "tồn kho còn", "ton kho con",
+            "kho còn bao nhiêu", "kho con bao nhieu",
+            "trong kho còn", "trong kho con",
+            "tồn kho hiện tại", "ton kho hien tai",
+            "còn bao nhiêu trong kho", "con bao nhieu trong kho",
+            "hàng còn bao nhiêu", "hang con bao nhieu",
+            "nguyên liệu còn bao nhiêu", "nguyen lieu con bao nhieu",
+            "xem kho", "xem còn gì trong kho", "xem con gi trong kho",
+        ],
+        0.92,
     ),
     (
         INVENTORY_RESTOCK_CHECK,
@@ -852,6 +1027,59 @@ def _chuan_hoa_cau_hoi(text: str) -> str:
     return " ".join(str(text or "").lower().split())
 
 
+def _parse_intent_llm(text: str) -> tuple[str, float] | None:
+    """Tầng-2: nhờ LLM đoán intent khi tầng từ khóa không khớp. Trả None nếu không dùng được.
+
+    Fail-closed ở mọi nhánh: không có key, không phải live, provider lỗi, timeout,
+    JSON hỏng, hoặc LLM trả intent ngoài whitelist → None → rơi về OUT_OF_SCOPE
+    đúng như trước khi có tầng này. Không bao giờ để LLM tự thêm intent mới.
+
+    An toàn KHÔNG phụ thuộc ở đây: RBAC (`copilot_agent.copilot_role_can_use_intent`),
+    chặn prompt-injection, ngưỡng confidence cuối hàm, và `requires_confirmation`
+    của từng tool đều chạy SAU parse. LLM đoán đúng intent vẫn bị chặn nếu vượm
+    quyền, và intent ghi vẫn ra ActionProposal chờ người duyệt.
+    """
+    import os
+
+    if os.environ.get("CA_AGENT_MODE", "replay").strip().lower() != "live":
+        return None
+    try:
+        from ca_agents.llm import complete, parse_json_object, provider_status
+
+        if not any(provider_status().values()):
+            return None
+        # Whitelist chính là _INTENT_KEYWORDS — LLM chỉ được chọn trong đó, không
+        # được chọn thêm intent chưa khai báo từ khóa (giữ đúng bất biến tier-1).
+        hop_le = sorted({name for name, _, _ in _INTENT_KEYWORDS})
+        res = complete(
+            system=(
+                "Phân loại câu hỏi nhân viên quán cà phê vào ĐÚNG MỘT intent trong danh sách.\n"
+                f"Danh sách hợp lệ: {hop_le}\n"
+                "Trả JSON {\"intent\": <một tên trong danh sách>, \"confidence\": <số 0..1>}.\n"
+                "Nếu câu không thuộc nghiệp vụ quán, hoặc không chắc, trả intent='OUT_OF_SCOPE'.\n"
+                "Không suy diễn thông tin không có trong câu."
+            ),
+            user=text,
+            task="text:ag_copilot_intent",
+            json_mode=True,
+            timeout_s=_LLM_TIER2_TIMEOUT_S,
+        )
+        if not res.ok:
+            return None
+        parsed = parse_json_object(res.text)
+        if not isinstance(parsed, dict):
+            return None
+        intent = str(parsed.get("intent") or "").strip()
+        conf = parsed.get("confidence")
+        if intent not in hop_le or not isinstance(conf, (int, float)):
+            return None
+        # confidence thấp vẫn trả về: hàm gọi sẽ tự rơi xuống nhánh hỏi lại
+        # (0.5 <= conf < 0.75) thay vì đoán bừa.
+        return intent, max(0.0, min(float(conf), 1.0))
+    except Exception:  # noqa: BLE001 — tier-2 hỏng không được làm sập tier-1
+        return None
+
+
 def _cau_hoi_lam_ro(intent: str, params: dict[str, Any]) -> tuple[str, str] | None:
     """`(loại_thiếu, câu_hỏi)` cho intent khi `params` còn thiếu thông tin bắt buộc."""
     if intent == PROPOSE_TIME_OFF:
@@ -972,6 +1200,17 @@ def parse_intent(message: str, context: dict[str, Any] | None = None) -> IntentP
             matched_intent = RUN_CATCHMENT_SURVEY
             matched_conf = 0.9
 
+    # GET_WEATHER: chỉ phục vụ thời tiết tại quán; câu hỏi thời tiết địa phương ngoài quán -> OUT_OF_SCOPE
+    if matched_intent == GET_WEATHER:
+        other_locations = [
+            "ở đà lạt", "o da lat", "ở hà nội", "o ha noi", "ở đà nẵng", "o da nang",
+            "ở huế", "o hue", "ở nha trang", "o nha trang", "ở cần thơ", "o can tho",
+            "ở sapa", "o sapa", "ở hải phòng", "o hai phong", "ở vũng tàu", "o vung tau",
+        ]
+        if any(loc in lower for loc in other_locations):
+            matched_intent = OUT_OF_SCOPE
+            matched_conf = 0.5
+
     # Regex linh hoạt cho lệnh đăng/viết bài lên Fanpage/Facebook
     if matched_intent == OUT_OF_SCOPE:
         if re.search(r"(?:đăng|dang|viết|viet|soạn|soan|post).*(?:bài|bai).*(?:fb|facebook|page|fanpage)", lower) or \
@@ -1000,6 +1239,16 @@ def parse_intent(message: str, context: dict[str, Any] | None = None) -> IntentP
         elif re.search(r"(?:tình hình quán|quán hôm nay thế nào|tổng kết quán)", lower):
             matched_intent = GENERATE_DAILY_BRIEF
             matched_conf = 0.90
+
+    # ── Tầng-2: SAU CÙNG mới gọi LLM ──────────────────────────────────────
+    # Đặt sau tầng từ khóa VÀ sau toàn bộ regex cứu vãn ở trên, để LLM chỉ xử lý
+    # phần đuôi thật sự không xác định được — không bao giờ cạnh tranh với một
+    # đường tất định đã chạy được. Bắt chước y hệt mẫu `ag_msg.extract` (AGENTS.md §6).
+    if matched_intent == OUT_OF_SCOPE:
+        from_tier2 = _parse_intent_llm(text)
+        if from_tier2 is not None:
+            matched_intent, matched_conf = from_tier2
+            params["rang_buoc"] = {"nguon": "llm", "can_xac_minh": True}
 
     # Multi-turn context inference:
     # CHỈ áp dụng khi câu mới mang tham số bổ sung cụ thể cho intent trước (SCHEDULE_SOLVE, SEND_MAIL).
@@ -1099,6 +1348,24 @@ def parse_intent(message: str, context: dict[str, Any] | None = None) -> IntentP
         params["cau_hoi"] = text
 
     elif matched_intent == QUERY_QUANVERSE:
+        params["cau_hoi"] = text
+
+    elif matched_intent == GET_WEATHER:
+        params["cau_hoi"] = text
+
+    elif matched_intent == GET_TODAY_OPERATIONS:
+        params["ngay"] = _active_date(context).isoformat()
+
+    elif matched_intent == GET_FAIRNESS_SUMMARY:
+        params["cau_hoi"] = text
+
+    elif matched_intent == GET_MY_CHECKLIST:
+        params["cau_hoi"] = text
+
+    elif matched_intent == SEARCH_TRENDS:
+        params["cau_hoi"] = text
+
+    elif matched_intent in (GET_RESERVATIONS, GET_OPEN_SHIFTS, GET_MEETINGS, GET_PREDICTIVE_INSIGHTS):
         params["cau_hoi"] = text
 
     elif matched_intent == PROPOSE_TIME_OFF:

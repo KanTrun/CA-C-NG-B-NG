@@ -383,7 +383,7 @@ export default function CauHinhQuanPage() {
 
   function layViTriGps() {
     if (!navigator.geolocation) {
-      setGpsMsg("Trình duyệt không cho lấy vị trí. Nhập địa chỉ bên dưới.");
+      setGpsMsg("Trình duyệt không hỗ trợ hoặc chặn quyền vị trí. Bạn có thể bấm 'Lấy toạ độ từ địa chỉ quán' thay thế.");
       return;
     }
     setGpsBusy(true);
@@ -398,19 +398,106 @@ export default function CauHinhQuanPage() {
           lon,
           toa_do_lat: String(lat),
           toa_do_lon: String(lon),
-          // Xoá nhãn tỉnh/thành cũ — thời tiết reverse-geocode từ GPS.
-          tinh: "",
-          thanh_pho: "",
         }));
-        setGpsMsg("Đã lấy vị trí GPS. Bấm Lưu thông tin quán để áp dụng cho thời tiết.");
+        setGpsMsg(`Đã lấy vị trí GPS từ thiết bị hiện tại: ${lat}, ${lon}. Bấm Lưu thông tin quán để áp dụng.`);
         setGpsBusy(false);
       },
       () => {
-        setGpsMsg("Không lấy được vị trí. Nhập địa chỉ quán bên dưới.");
+        setGpsMsg("Không lấy được vị trí thiết bị. Bạn có thể bấm 'Lấy toạ độ từ địa chỉ quán'.");
         setGpsBusy(false);
       },
       { timeout: 10000 },
     );
+  }
+
+  async function layToaDoTuDiaChiQuan() {
+    const fullAddress = [
+      profile.dia_chi_chi_tiet?.trim(),
+      profile.phuong_xa?.trim(),
+      profile.quan_huyen?.trim(),
+      profile.tinh?.trim(),
+    ].filter(Boolean).join(", ") || profile.dia_chi?.trim();
+
+    if (!fullAddress) {
+      setGpsMsg("Vui lòng nhập địa chỉ quán (hoặc chọn Tỉnh/Quận/Phường) trước khi lấy toạ độ.");
+      return;
+    }
+
+    setGpsBusy(true);
+    setGpsMsg("Đang tra cứu toạ độ từ địa chỉ quán…");
+    try {
+      // 1. Thử qua backend API /api/v1/geo/geocode
+      const queryParams = new URLSearchParams({
+        address: fullAddress,
+        phuong_xa: profile.phuong_xa?.trim() || "",
+        quan_huyen: profile.quan_huyen?.trim() || "",
+        tinh: profile.tinh?.trim() || "",
+      });
+      const res = await apiGet<{ found?: boolean; lat?: number; lon?: number; display_name?: string }>(
+        `/api/v1/geo/geocode?${queryParams.toString()}`
+      ).catch(() => null);
+
+      let lat = res?.found && res?.lat != null ? res.lat : null;
+      let lon = res?.found && res?.lon != null ? res.lon : null;
+
+      // 2. Fallback trực tiếp Open-Meteo nếu backend không tìm thấy
+      if (lat == null || lon == null) {
+        const candidates = [
+          fullAddress,
+          [profile.phuong_xa?.trim(), profile.quan_huyen?.trim(), profile.tinh?.trim()].filter(Boolean).join(", "),
+          [profile.quan_huyen?.trim(), profile.tinh?.trim()].filter(Boolean).join(", "),
+          profile.tinh?.trim(),
+        ].filter(Boolean);
+
+        for (const cand of candidates) {
+          try {
+            const resp = await fetch(
+              `https://geocoding-api.open-meteo.com/v1/search?name=${encodeURIComponent(cand)}&count=1&language=vi&format=json&countryCode=VN`
+            );
+            if (resp.ok) {
+              const data = await resp.json();
+              if (Array.isArray(data.results) && data.results.length > 0) {
+                lat = Number(data.results[0].latitude);
+                lon = Number(data.results[0].longitude);
+                break;
+              }
+            }
+          } catch {
+            // thử tiếp candidate khác
+          }
+        }
+      }
+
+      if (lat != null && lon != null) {
+        const latNum = Number(lat.toFixed(6));
+        const lonNum = Number(lon.toFixed(6));
+        setProfile((prev) => ({
+          ...prev,
+          lat: latNum,
+          lon: lonNum,
+          toa_do_lat: String(latNum),
+          toa_do_lon: String(lonNum),
+        }));
+        setGpsMsg(`Đã lấy toạ độ từ địa chỉ quán: ${latNum}, ${lonNum}. Bấm Lưu thông tin quán để áp dụng.`);
+      } else {
+        setGpsMsg("Không tìm thấy toạ độ cho địa chỉ này. Hãy kiểm tra lại Tỉnh/Thành hoặc Quận/Huyện.");
+      }
+    } catch {
+      setGpsMsg("Lỗi khi tra cứu toạ độ. Vui lòng thử lại sau.");
+    } finally {
+      setGpsBusy(false);
+    }
+  }
+
+  function xoaToaDoGps() {
+    setProfile((prev) => ({
+      ...prev,
+      lat: null,
+      lon: null,
+      toa_do_lat: "",
+      toa_do_lon: "",
+    }));
+    setGpsMsg("Đã xoá toạ độ GPS. Bấm Lưu thông tin quán để lưu thay đổi.");
   }
 
   function updatePromo(index: number, patch: Partial<Promotion>) {
@@ -624,18 +711,34 @@ export default function CauHinhQuanPage() {
 
           <div className="rounded-xl border border-[var(--nq-line)] bg-[var(--nq-surface-hi)] p-4 space-y-3">
             <div>
-              <h3 className="text-xs font-bold text-[var(--nq-fg)]">Toạ độ GPS (Dành cho AI Forecast thời tiết & Quánverse)</h3>
+              <h3 className="text-xs font-bold text-[var(--nq-fg)]">Toạ độ GPS (Dành cho AI Forecast thời tiết, Quánverse & Khảo sát giá)</h3>
               <p className="mt-1 text-xs text-[var(--nq-muted)]">
-                Lấy toạ độ GPS trực tiếp từ trình duyệt (hệ thống tự động dùng toạ độ này để dự báo thời tiết Open-Meteo chuẩn xác nhất).
+                Toạ độ GPS giúp hệ thống dự báo thời tiết chuẩn xác, hiển thị bản đồ Quánverse và tự động định vị khảo sát giá thị trường. Ưu tiên lấy toạ độ từ địa chỉ quán đã cấu hình.
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-3">
-              <Btn type="button" variant="ghost" disabled={gpsBusy} onClick={layViTriGps}>
-                {gpsBusy ? "Đang lấy vị trí…" : "Lấy vị trí GPS"}
+              <Btn type="button" variant="primary" disabled={gpsBusy} onClick={layToaDoTuDiaChiQuan}>
+                <Icon name="location" className="h-4 w-4 mr-1.5" />
+                {gpsBusy ? "Đang tra cứu toạ độ…" : "Lấy toạ độ từ địa chỉ quán"}
               </Btn>
+              <Btn type="button" variant="ghost" disabled={gpsBusy} onClick={layViTriGps}>
+                Lấy GPS thiết bị hiện tại
+              </Btn>
+              {profile.lat != null || profile.lon != null || Boolean(profile.toa_do_lat) || Boolean(profile.toa_do_lon) ? (
+                <Btn
+                  type="button"
+                  variant="ghost"
+                  disabled={gpsBusy}
+                  onClick={xoaToaDoGps}
+                  className="text-red-500 hover:text-red-600 hover:bg-red-500/10"
+                >
+                  <Icon name="trash" className="h-4 w-4 mr-1.5 text-red-500" />
+                  Xoá toạ độ
+                </Btn>
+              ) : null}
               {profile.lat != null && profile.lon != null ? (
-                <span className="text-sm font-mono text-[var(--nq-accent)]" data-testid="cau-hinh-gps-coords">
-                  GPS: {profile.lat.toFixed(4)}, {profile.lon.toFixed(4)}
+                <span className="text-sm font-mono text-[var(--nq-accent)] font-semibold" data-testid="cau-hinh-gps-coords">
+                  Toạ độ GPS: {profile.lat.toFixed(6)}, {profile.lon.toFixed(6)}
                 </span>
               ) : (
                 <span className="text-sm text-[var(--nq-muted)]">Chưa có toạ độ GPS</span>

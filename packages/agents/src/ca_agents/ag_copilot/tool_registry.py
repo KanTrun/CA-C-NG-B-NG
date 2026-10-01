@@ -1941,6 +1941,422 @@ def tool_get_constraint_candidates(
     )
 
 
+def tool_get_weather(
+    store_id: str = "quan_01",
+    user_id: str = "",
+    user_role: str = "nhan_vien",
+    **kwargs: Any,
+) -> ToolExecutionResult:
+    """GET_WEATHER: thông tin thời tiết hôm nay và khuyến nghị vận hành quán (R0_READ)."""
+    fn = _src("thoi_tiet_hom_nay")
+    data = None
+    if fn is not None:
+        try:
+            data = fn(store_id=store_id)
+        except Exception as e:
+            log.warning("Lỗi đọc thời tiết từ data source: %s", e)
+
+    if not data or not data.get("co_du_lieu"):
+        cached = _kv_get("thoi_tiet_hom_nay_cache_v2", {})
+        if isinstance(cached, dict) and cached.get("co_du_lieu"):
+            data = cached
+
+    if not data or not data.get("co_du_lieu"):
+        ly_do = (data or {}).get("ly_do") or "chưa lấy được dữ liệu thời tiết hôm nay cho quán."
+        return _read_result(
+            "GET_WEATHER", "tool_get_weather",
+            {"co_du_lieu": False, "ly_do": ly_do},
+            f"Dạ hiện tại {ly_do}",
+            "Nguồn Open-Meteo hoặc cấu hình vị trí quán.",
+        )
+
+    hien_tai = data.get("hien_tai") or {}
+    nhiet_do = hien_tai.get("nhiet_do")
+    mo_ta = hien_tai.get("mo_ta") or "Bình thường"
+    mua_mm = hien_tai.get("mua_mm")
+    impact = data.get("anh_huong_quan") or {}
+    tom_tat_impact = impact.get("tom_tat") or ""
+    yeu_to = impact.get("yeu_to") or []
+
+    parts = [f"Dạ thời tiết hôm nay tại quán: {mo_ta}"]
+    if nhiet_do is not None:
+        parts[0] += f", khoảng {nhiet_do}°C"
+    if mua_mm is not None and mua_mm > 0:
+        parts[0] += f" (lượng mưa {mua_mm}mm)"
+    parts[0] += "."
+    if tom_tat_impact:
+        parts.append(f"Khuyến nghị vận hành: {tom_tat_impact}")
+    elif yeu_to:
+        parts.append(f"Khuyến nghị: {' '.join(yeu_to)}")
+
+    answer = " ".join(parts)
+    return _read_result(
+        "GET_WEATHER", "tool_get_weather",
+        {
+            "co_du_lieu": True,
+            "hien_tai": hien_tai,
+            "anh_huong_quan": impact,
+            "vi_tri": data.get("vi_tri"),
+            "theo_gio": data.get("theo_gio", [])[:6],
+        },
+        answer,
+        "Đọc từ Open-Meteo service + quy tắc tác động vận hành quán.",
+    )
+
+
+def tool_get_today_operations(
+    store_id: str = "quan_01",
+    user_id: str = "",
+    user_role: str = "nhan_vien",
+    **kwargs: Any,
+) -> ToolExecutionResult:
+    """GET_TODAY_OPERATIONS: tổng quan vận hành, ca kíp và việc cần làm hôm nay (R0_READ)."""
+    treo = [t for t in (_kv_get("treo", []) or []) if isinstance(t, dict) and t.get("trang_thai") != "xong"]
+    inbox = [it for it in (_kv_get("inbox_rang_buoc", []) or []) if isinstance(it, dict) and it.get("trang_thai") in ("", "cho_duyet", "cho_xu_ly")]
+    ton = [x for x in (_kv_get("tieu_thu", []) or []) if isinstance(x, dict) and x.get("duoi_nguong")]
+
+    parts = [f"Dạ hôm nay quán có {len(treo)} việc treo chưa xong"]
+    if user_role in ("quan_ly", "chu_quan"):
+        parts.append(f", {len(inbox)} yêu cầu/ràng buộc ca chờ duyệt")
+    if ton:
+        parts.append(f", {len(ton)} mặt hàng chạm ngưỡng tồn kho tối thiểu")
+    parts.append(". Chi tiết xem tại bảng điều khiển /hom-nay.")
+
+    answer = "".join(parts)
+    return _read_result(
+        "GET_TODAY_OPERATIONS", "tool_get_today_operations",
+        {
+            "so_treo_mo": len(treo),
+            "so_inbox_cho": len(inbox) if user_role in ("quan_ly", "chu_quan") else 0,
+            "so_canh_bao_ton": len(ton),
+            "treo_preview": treo[:5],
+            "co_du_lieu": True,
+        },
+        answer,
+        "Tổng hợp từ KV treo + inbox_rang_buoc + tieu_thu (dashboard hôm nay).",
+    )
+
+
+def tool_get_fairness_summary(
+    store_id: str = "quan_01",
+    user_id: str = "",
+    user_role: str = "nhan_vien",
+    **kwargs: Any,
+) -> ToolExecutionResult:
+    """GET_FAIRNESS_SUMMARY: báo cáo độ lệch công bằng phân ca theo các trục (R0_READ)."""
+    phan_cong = _kv_get("phan_cong", {}) or {}
+    so_ca = len(phan_cong) if isinstance(phan_cong, dict) else 0
+
+    if user_role in ("quan_ly", "chu_quan"):
+        answer = f"Báo cáo công bằng tuần này: hệ thống đang phân công {so_ca} ca. Xem chi tiết phân bổ giờ làm và độ lệch các trục tại /cong-bang."
+    else:
+        answer = "Báo cáo công bằng cá nhân: ca làm việc của bạn được tối ưu theo lịch khả dụng. Xem chi tiết số dư giờ tại /cong-bang."
+
+    return _read_result(
+        "GET_FAIRNESS_SUMMARY", "tool_get_fairness_summary",
+        {
+            "so_ca": so_ca,
+            "pham_vi": "toan_bo" if user_role in ("quan_ly", "chu_quan") else "ca_nhan",
+            "co_du_lieu": bool(so_ca),
+        },
+        answer,
+        "Đọc phân bổ ca và đối chiếu trục công bằng solver.",
+    )
+
+
+def tool_get_my_checklist(
+    store_id: str = "quan_01",
+    user_id: str = "",
+    user_role: str = "nhan_vien",
+    **kwargs: Any,
+) -> ToolExecutionResult:
+    """GET_MY_CHECKLIST: danh sách mẫu phiếu và checklist công việc ca này (R0_READ)."""
+    load_catalog = _src("load_phieu_catalog")
+    items = []
+    if load_catalog is not None:
+        try:
+            items = list(load_catalog(store_id) or [])
+        except Exception:
+            items = []
+
+    if not items:
+        load_tpl = _src("load_template")
+        if load_tpl is not None:
+            for ma in ("mo_ca", "dong_ca", "kiem_ke_ca"):
+                try:
+                    tpl = load_tpl(ma)
+                    if tpl and isinstance(tpl, dict):
+                        items.append(tpl)
+                except Exception:
+                    pass
+
+    if not items:
+        return _read_result(
+            "GET_MY_CHECKLIST", "tool_get_my_checklist",
+            {"items": [], "co_du_lieu": False},
+            "Dạ hiện chưa có mẫu phiếu checklist nào được kích hoạt cho ca này.",
+            "Đọc catalog mẫu phiếu cấu hình quán.",
+        )
+
+    ten_phieu = [str(x.get("ten") or x.get("ma") or "") for x in items[:5]]
+    ten_phieu = [t for t in ten_phieu if t]
+    str_ten = ", ".join(ten_phieu) if ten_phieu else "các phiếu quy chuẩn ca"
+    answer = f"Checklist ca này gồm các phiếu: {str_ten}. Xem chi tiết và tích kiểm tra tại /phieu."
+    return _read_result(
+        "GET_MY_CHECKLIST", "tool_get_my_checklist",
+        {"items": items[:10], "so_mau": len(items), "co_du_lieu": True},
+        answer,
+        "Đọc từ danh mục phiếu ca đang bật của quán.",
+    )
+
+
+def tool_search_trends(
+    store_id: str = "quan_01",
+    user_id: str = "",
+    user_role: str = "nhan_vien",
+    **kwargs: Any,
+) -> ToolExecutionResult:
+    """SEARCH_TRENDS: tra cứu xu hướng món và đồ uống F&B nổi bật (R0_READ, không chặn)."""
+    fn = _src("trends_cached")
+    data = None
+    if fn is not None:
+        try:
+            data = fn(store_id=store_id)
+        except Exception:
+            data = None
+
+    if not data:
+        cached = _kv_get("fnb_trends_cache", [])
+        if isinstance(cached, list) and cached:
+            data = cached
+
+    if not data:
+        return _read_result(
+            "SEARCH_TRENDS", "tool_search_trends",
+            {"co_du_lieu": False, "items": []},
+            "Dạ radar xu hướng đang cập nhật dữ liệu từ mạng xã hội. Anh/chị xem thêm tại /khao-sat-gia nhé.",
+            "Đọc bộ nhớ đệm radar xu hướng F&B.",
+        )
+
+    top_items = data[:5] if isinstance(data, list) else []
+    names = [str(x.get("ten_mon") or x.get("name") or x.get("chu_de") or "") for x in top_items]
+    names = [n for n in names if n]
+    str_names = ", ".join(names) if names else "các món trà trái cây và cà phê biến tấu"
+    answer = f"Các món F&B đang nổi bật gần đây: {str_names}. Xem chi tiết độ thảo luận tại /khao-sat-gia."
+
+    return _read_result(
+        "SEARCH_TRENDS", "tool_search_trends",
+        {"items": top_items, "co_du_lieu": True},
+        answer,
+        "Đọc từ cache radar xu hướng F&B (Threads, TikTok, Google Trends).",
+    )
+
+
+def tool_get_reservations(
+    store_id: str = "quan_01",
+    user_id: str = "",
+    user_role: str = "nhan_vien",
+    **kwargs: Any,
+) -> ToolExecutionResult:
+    """GET_RESERVATIONS: tra cứu danh sách đặt bàn và trạng thái bàn trống của quán (R0_READ)."""
+    fn_res = _src("reservation_list")
+    fn_tables = _src("table_list")
+
+    reservations: list[dict[str, Any]] = []
+    tables: list[dict[str, Any]] = []
+    if fn_res is not None:
+        try:
+            res_val = fn_res(store_id=store_id)
+            if isinstance(res_val, list):
+                reservations = res_val
+        except Exception:
+            reservations = []
+
+    if fn_tables is not None:
+        try:
+            tab_val = fn_tables(store_id=store_id)
+            if isinstance(tab_val, list):
+                tables = tab_val
+        except Exception:
+            tables = []
+
+    so_ban = len(tables)
+    ban_trong = [t for t in tables if not t.get("dang_dung") and t.get("trang_thai_hoat_dong", 1)]
+    so_ban_trong = len(ban_trong)
+    active_res = [r for r in reservations if r.get("status") in {"confirmed", "holding", "seated"}]
+
+    if not active_res and not tables:
+        return _read_result(
+            "GET_RESERVATIONS", "tool_get_reservations",
+            {"co_du_lieu": False, "reservations": [], "tables": []},
+            "Dạ hiện quán chưa có lịch đặt bàn nào và chưa có cấu hình sơ đồ bàn.",
+            "Đọc từ cơ sở dữ liệu đặt bàn và sơ đồ bàn của quán.",
+        )
+
+    summary_parts: list[str] = []
+    if tables:
+        summary_parts.append(f"Quán có {so_ban} bàn ({so_ban_trong} bàn đang trống)")
+    if active_res:
+        summary_parts.append(f"có {len(active_res)} đơn đặt bàn đang hiệu lực")
+        res_details = []
+        for r in active_res[:3]:
+            khach = r.get("customer_name") or "Khách"
+            gio = str(r.get("booking_time") or "")
+            gio_str = gio[-8:-3] if "T" in gio else (gio[-5:] if len(gio) >= 5 else gio)
+            p_size = r.get("party_size", 1)
+            res_details.append(f"{khach} ({p_size} khách lúc {gio_str})")
+        summary_parts.append(f"gồm: {', '.join(res_details)}")
+    else:
+        summary_parts.append("hiện chưa có khách nào đặt trước")
+
+    answer = f"Tình hình bàn & đặt chỗ: {'; '.join(summary_parts)}. Chi tiết và sơ đồ bàn tại /page-quan/dat-ban."
+    return _read_result(
+        "GET_RESERVATIONS", "tool_get_reservations",
+        {
+            "co_du_lieu": True,
+            "active_reservations_count": len(active_res),
+            "tables_count": so_ban,
+            "empty_tables_count": so_ban_trong,
+        },
+        answer,
+        "Đọc từ cơ sở dữ liệu bàn và đơn đặt chỗ của quán.",
+    )
+
+
+def tool_get_open_shifts(
+    store_id: str = "quan_01",
+    user_id: str = "",
+    user_role: str = "nhan_vien",
+    **kwargs: Any,
+) -> ToolExecutionResult:
+    """GET_OPEN_SHIFTS: tra cứu chợ ca và các ca mở đang cần người làm (R0_READ)."""
+    fn_open = _src("open_shift_list")
+    items: list[dict[str, Any]] = []
+    if fn_open is not None:
+        try:
+            res_val = fn_open(store_id=store_id)
+            if isinstance(res_val, list):
+                items = res_val
+        except Exception:
+            items = []
+
+    available = [s for s in items if s.get("status") in {"open", "chua_nhan", None}] if isinstance(items, list) else []
+
+    if not available:
+        return _read_result(
+            "GET_OPEN_SHIFTS", "tool_get_open_shifts",
+            {"items": [], "co_du_lieu": False},
+            "Dạ hiện chợ ca không có ca nào đang trống. Tất cả các ca đã có người phụ trách!",
+            "Đọc từ danh sách ca mở (open shifts) của quán.",
+        )
+
+    ca_names = [f"Ca {s.get('ca_id', '')} ({s.get('tuan_iso', '')})" for s in available[:4]]
+    ca_str = ", ".join(ca_names)
+    answer = f"Chợ ca hiện có {len(available)} ca đang cần người nhận: {ca_str}. Anh/chị có thể đăng ký nhận ca trực tiếp tại chợ ca nhé!"
+    return _read_result(
+        "GET_OPEN_SHIFTS", "tool_get_open_shifts",
+        {"items": available[:10], "so_ca": len(available), "co_du_lieu": True},
+        answer,
+        "Đọc từ hệ thống chợ ca mở của quán.",
+    )
+
+
+def tool_get_meetings(
+    store_id: str = "quan_01",
+    user_id: str = "",
+    user_role: str = "nhan_vien",
+    **kwargs: Any,
+) -> ToolExecutionResult:
+    """GET_MEETINGS: tra cứu biên bản họp giao ban và các quyết định ca gần nhất (R0_READ)."""
+    fn_meet = _src("meetings_list")
+    items = fn_meet() if fn_meet is not None else _kv_get("meetings", [])
+
+    if not items or not isinstance(items, list):
+        return _read_result(
+            "GET_MEETINGS", "tool_get_meetings",
+            {"items": [], "co_du_lieu": False},
+            "Dạ hiện chưa có biên bản cuộc họp nào được ghi nhận trong hệ thống.",
+            "Đọc từ kho lưu trữ cuộc họp (Meeting OS) của quán.",
+        )
+
+    latest = items[-1] if items else {}
+    title = str(latest.get("tieu_de") or latest.get("title") or "Cuộc họp giao ban gần nhất")
+    date_str = str(latest.get("ngay") or latest.get("date") or latest.get("created_at") or "")[:10]
+    summary = str(latest.get("tom_tat") or latest.get("summary") or "Đã ghi nhận các nội dung thảo luận và phân công ca.")
+    actions = latest.get("action_items") or latest.get("hanh_dong") or []
+    so_action = len(actions) if isinstance(actions, list) else 0
+
+    answer = f"Biên bản gần nhất: '{title}' ({date_str}). Tóm tắt: {summary}."
+    if so_action > 0:
+        answer += f" Có {so_action} đầu việc/quyết định được giao. Xem chi tiết tại /cuoc-hop."
+    else:
+        answer += " Xem chi tiết tại /cuoc-hop."
+
+    return _read_result(
+        "GET_MEETINGS", "tool_get_meetings",
+        {"latest_meeting": latest, "so_cuoc_hop": len(items), "co_du_lieu": True},
+        answer,
+        "Đọc từ AI Meeting OS của quán.",
+    )
+
+
+def tool_get_predictive_insights(
+    store_id: str = "quan_01",
+    user_id: str = "",
+    user_role: str = "nhan_vien",
+    **kwargs: Any,
+) -> ToolExecutionResult:
+    """GET_PREDICTIVE_INSIGHTS: tra cứu gợi ý luật tích cực & tối ưu vận hành từ Digital Twin (R0_READ, quản lý/chủ quán)."""
+    fn_pred = _src("predict_suggestions")
+    data: dict[str, Any] = {}
+    if fn_pred is not None:
+        try:
+            val = fn_pred()
+            if isinstance(val, dict):
+                data = val
+        except Exception:
+            data = {}
+
+    if not data:
+        rules = _kv_get("ops_predict_rules", [])
+        patterns = _kv_get("ops_predict_patterns", [])
+        scenarios = _kv_get("ops_twin_scenarios", [])
+        data = {"suggestions": rules, "patterns": patterns, "twin_scenarios": scenarios}
+
+    suggestions = data.get("suggestions", [])
+    patterns = data.get("patterns", [])
+    scenarios = data.get("twin_scenarios", [])
+
+    if not suggestions and not patterns and not scenarios:
+        return _read_result(
+            "GET_PREDICTIVE_INSIGHTS", "tool_get_predictive_insights",
+            {"co_du_lieu": False},
+            "Dạ Digital Twin chưa phát hiện mẫu mới hoặc đề xuất tối ưu nào. Hệ thống tiếp tục quan sát chu kỳ bán và ca làm của quán.",
+            "Đọc từ Predictive Playbook & Digital Twin của quán.",
+        )
+
+    parts: list[str] = []
+    if suggestions:
+        ten_luat = [str(s.get("ten_luat") or s.get("mo_ta") or s.get("rule_name") or "") for s in suggestions[:2]]
+        ten_luat = [t for t in ten_luat if t]
+        if ten_luat:
+            parts.append(f"Gợi ý luật tích cực: {'; '.join(ten_luat)}")
+        else:
+            parts.append(f"Có {len(suggestions)} đề xuất luật tích cực")
+    if scenarios:
+        parts.append(f"{len(scenarios)} kịch bản mô phỏng Digital Twin")
+    if patterns:
+        parts.append(f"{len(patterns)} mẫu vận hành thành công")
+
+    answer = f"Dự báo & Đề xuất vận hành: {'. '.join(parts)}. Quản lý có thể xem chi tiết và duyệt tại /de-xuat-thong-minh."
+    return _read_result(
+        "GET_PREDICTIVE_INSIGHTS", "tool_get_predictive_insights",
+        {"co_du_lieu": True, "suggestions_count": len(suggestions), "patterns_count": len(patterns)},
+        answer,
+        "Đọc từ Predictive Playbook & Digital Twin của quán.",
+    )
+
+
 _READ_TOOLS: dict[str, Callable[..., ToolExecutionResult]] = {
     "GET_MY_PROFILE": tool_get_my_profile,
     "LIST_STAFF": tool_list_staff,
@@ -1957,6 +2373,16 @@ _READ_TOOLS: dict[str, Callable[..., ToolExecutionResult]] = {
     "QUERY_AUDIT": tool_query_audit,
     # Trải nghiệm AI (Living Map / War Room / Cứu ca / Hồn quán) — R0_READ mọi role
     "QUERY_QUANVERSE": tool_query_quanverse,
+    # Mở rộng năng lực vận hành
+    "GET_WEATHER": tool_get_weather,
+    "GET_TODAY_OPERATIONS": tool_get_today_operations,
+    "GET_FAIRNESS_SUMMARY": tool_get_fairness_summary,
+    "GET_MY_CHECKLIST": tool_get_my_checklist,
+    "SEARCH_TRENDS": tool_search_trends,
+    "GET_RESERVATIONS": tool_get_reservations,
+    "GET_OPEN_SHIFTS": tool_get_open_shifts,
+    "GET_MEETINGS": tool_get_meetings,
+    "GET_PREDICTIVE_INSIGHTS": tool_get_predictive_insights,
 }
 
 _TOOLS.update(_READ_TOOLS)

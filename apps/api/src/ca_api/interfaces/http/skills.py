@@ -28,7 +28,7 @@ class DistillSopRequest(BaseModel):
 
 @router.get("", summary="Lấy danh mục các Kỹ năng đã kiểm định")
 def list_skills() -> list[dict[str, Any]]:
-    """Trả về danh sách 13 kỹ năng cùng trạng thái kiểm định và mã SHA256."""
+    """Trả về danh sách kỹ năng cùng trạng thái kiểm định và mã SHA256."""
     return loader.list_skills()
 
 
