@@ -33,6 +33,7 @@ from ca_playbook import (
     duyet,
     enrich_luat_ui,
     go_luat,
+    is_demo_luat,
     kiem_chung,
     list_luat,
     list_sua,
@@ -436,6 +437,7 @@ class HandoverBody(BaseModel):
 class SopBody(BaseModel):
     question: str = Field(min_length=1, max_length=2000)
     ngu_canh: dict[str, str] | None = None
+    chi_luat_that: bool = False
 
 
 class SwapBody(BaseModel):
@@ -1719,17 +1721,28 @@ def handover(
 
 
 @router.get("/api/v1/cam-nang")
-def cam_nang_get(authorization: Annotated[str | None, Header()] = None) -> dict[str, Any]:
+def cam_nang_get(
+    authorization: Annotated[str | None, Header()] = None,
+    nguon: Annotated[str | None, Query(description="Loc nguon luat: that|mau|all (mac dinh all)")] = None,
+) -> dict[str, Any]:
     _require_role(authorization)
-    items = [enrich_luat_ui(x) for x in list_luat()]
+    tat_ca = [enrich_luat_ui(x) for x in list_luat()]
+    che_do = (nguon or "all").strip().lower()
+    if che_do == "that":
+        items = [x for x in tat_ca if not is_demo_luat(x) and not _la_ban_ghi_mau(x)]
+    elif che_do == "mau":
+        items = [x for x in tat_ca if is_demo_luat(x) or _la_ban_ghi_mau(x)]
+    else:
+        items = tat_ca
     snap = pipeline_snapshot()
     return {
         "items": items,
         "mau": tim_mau(list_sua(include_synthetic=False)),
         "pipeline": snap,
         "nguon": "dung_lai_8_tuan",
+        "nguon_loc": che_do if che_do in {"that", "mau", "all"} else "all",
         "so_luat_that_quan": snap["so_luat_that_quan"],
-        "co_du_lieu_mau": _co_du_lieu_mau(items),
+        "co_du_lieu_mau": _co_du_lieu_mau(tat_ca),
     }
 
 
@@ -1870,10 +1883,13 @@ def sop(
 ) -> dict[str, Any]:
     _require_role(authorization)
     ctx = ops_context_from_dict(body.ngu_canh) or default_ops_context()
+    luat = list_luat()
+    if body.chi_luat_that:
+        luat = [x for x in luat if not is_demo_luat(x) and not _la_ban_ghi_mau(x)]
     r = sop_answer(
         body.question,
         buoc=load_all_buoc(),
-        luat=list_luat(),
+        luat=luat,
         ops_context=ctx,
     )
     return r.__dict__
