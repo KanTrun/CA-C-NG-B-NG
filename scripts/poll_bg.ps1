@@ -66,11 +66,12 @@ while ($null -eq $code -and $null -ne $deadline -and (Get-Date) -lt $deadline) {
   $code = Get-JobExitCode
   if ($null -ne $deadline -and ((Get-Date) - $lastBeat).TotalSeconds -ge $HeartbeatSeconds) {
     $lastBeat = Get-Date
+    # Chỉ báo thời gian + kích thước log. KHÔNG nhét nội dung log vào định
+    # dạng: dòng của pytest là hàng chục dấu chấm, vừa không phải thông tin
+    # tiến triển vừa làm `-f` vỡ. Muốn đọc log thì dùng -Tail.
     $el = Get-ElapsedSeconds
-    $tail = if (Test-Path -LiteralPath $log) {
-      (Get-Content -LiteralPath $log -Tail 1 -ErrorAction SilentlyContinue)
-    } else { '' }
-    Write-Output ("--- con chay {0}s | {1}" -f $el, $tail)
+    $bytes = if (Test-Path -LiteralPath $log) { (Get-Item -LiteralPath $log).Length } else { 0 }
+    Write-Output "--- con chay ${el}s | log $bytes bytes"
   }
 }
 
