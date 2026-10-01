@@ -26,6 +26,8 @@ type FbItem = {
   id: number;
   source: string;
   external_psid: string;
+  external_thread_id?: string | null;
+  post_id?: string | null;
   external_user_name?: string | null;
   message_text: string;
   detected_intent: string;
@@ -64,6 +66,7 @@ type Policy = {
 };
 
 type StatusFilter = "pending" | "approved" | "rejected" | "all";
+type SourceFilter = "all" | "comment" | "messenger";
 
 const INTENT_LABEL: Record<string, string> = {
   chao_hoi: "Chào hỏi",
@@ -102,6 +105,32 @@ function slaLeft(expiresAt?: string | null): { label: string; overdue: boolean }
   return { label: `${m}:${s.toString().padStart(2, "0")}`, overdue: false };
 }
 
+function formatCreated(iso?: string | null): string {
+  if (!iso) return "";
+  const hasTimezone = /(?:Z|[+-]\d{2}:?\d{2})$/i.test(iso);
+  const t = new Date(hasTimezone ? iso : `${iso}Z`);
+  if (!Number.isFinite(t.getTime())) return "";
+  const hh = t.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  const dd = t.toLocaleDateString([], { day: "2-digit", month: "2-digit" });
+  return `${hh} · ${dd}`;
+}
+
+function commentActionLabel(a: string): string {
+  if (a === "reply_public") return "Trả lời công khai";
+  if (a === "hide_and_dm") return "Ẩn + nhắn tin riêng";
+  if (a === "hide_silent") return "Ẩn im lặng";
+  if (a === "escalate_owner") return "Báo chủ quán";
+  return a;
+}
+
+function attachmentLabel(t: string): string {
+  if (t === "image") return "Ảnh";
+  if (t === "audio") return "Âm thanh";
+  if (t === "video") return "Video";
+  if (t === "file") return "Tệp";
+  return t;
+}
+
 export default function FbInboxPage() {
   const [token, setToken] = useState("");
   const [manager, setManager] = useState(false);
@@ -114,6 +143,11 @@ export default function FbInboxPage() {
   const [editing, setEditing] = useState<number | null>(null);
   const [draft, setDraft] = useState("");
   const [statusFilter, setStatusFilter] = useState<StatusFilter>("pending");
+  const [sourceFilter, setSourceFilter] = useState<SourceFilter>("all");
+  const [query, setQuery] = useState("");
+  const [overdueOnly, setOverdueOnly] = useState(false);
+  const [webhookReady, setWebhookReady] = useState<boolean | null>(null);
+  const [webhookDetail, setWebhookDetail] = useState("");
   const [policy, setPolicy] = useState<Policy | null>(null);
   const [policyBusy, setPolicyBusy] = useState(false);
   const { toasts, push, dismiss } = useToasts();
@@ -137,6 +171,12 @@ export default function FbInboxPage() {
       .catch(() => {});
     apiGet<Policy>("/api/v1/page/fb-policy")
       .then((p) => setPolicy(p))
+      .catch(() => {});
+    apiGet<{ webhook_ready?: boolean; webhook_detail?: string }>("/api/v1/page/status")
+      .then((s) => {
+        if (typeof s.webhook_ready === "boolean") setWebhookReady(s.webhook_ready);
+        if (s.webhook_detail) setWebhookDetail(s.webhook_detail);
+      })
       .catch(() => {});
   }, [statusFilter]);
 
@@ -225,7 +265,7 @@ export default function FbInboxPage() {
         <PageHeader
           kicker="AG-FBPAGE · Kiểm duyệt chỉn chu"
           title="Hộp thư Fanpage chờ duyệt"
-          meta="Agent tự trả lời chào hỏi, menu, địa chỉ và giờ mở cửa đã niêm yết. Quản lý chỉ duyệt khiếu nại, đặt bàn, đổi giờ đặc biệt và việc nhạy cảm."
+          meta="Bình luận trên bài viết/ảnh Page và tin nhắn Messenger chờ duyệt tập trung ở đây. Agent tự trả lời chào hỏi, menu, địa chỉ và giờ mở cửa đã niêm yết. Quản lý chỉ duyệt khiếu nại, đặt bàn, đổi giờ đặc biệt và việc nhạy cảm."
         />
         <a
           href="/page-quan/dat-ban"
@@ -322,6 +362,20 @@ export default function FbInboxPage() {
       {error ? <Alert>{error}</Alert> : null}
       {loading ? <Loading skeleton="list">Đang tải hộp thư…</Loading> : null}
 
+      {webhookReady === false ? (
+        <Alert kind="err">
+          Webhook Facebook chưa sẵn sàng ({webhookDetail || "thiếu cấu hình"}) — bình luận trên bài
+          viết/ảnh Page không vào được hộp thư này. Cần điền NHIPQUAN_FB_APP_SECRET +
+          NHIPQUAN_FB_WEBHOOK_VERIFY rồi subscribe field feed trên Meta App.
+        </Alert>
+      ) : null}
+      {webhookReady !== false ? (
+        <Notice>
+          Bình luận đã tự trả lời (intent an toàn) không nằm ở “Chờ duyệt” — chuyển lọc Trạng thái sang “Tất
+          cả” để thấy toàn bộ.
+        </Notice>
+      ) : null}
+
       {stats ? (
         <div className="mb-8 grid grid-cols-2 sm:grid-cols-4 gap-4">
           <StatCell label="Chờ duyệt" value={String(stats.by_status.pending ?? 0)} />
@@ -331,7 +385,7 @@ export default function FbInboxPage() {
         </div>
       ) : null}
 
-      <label className="block max-w-xs mb-6">
+      <label className="block max-w-xs mb-4">
         <span className="block text-sm font-bold uppercase tracking-widest text-[var(--nq-dim)] mb-2">
           Trạng thái
         </span>
@@ -349,30 +403,99 @@ export default function FbInboxPage() {
         </Select>
       </label>
 
-      {items.length === 0 && !loading ? (
-        <Empty>Không có tin nhắn ở trạng thái đã chọn.</Empty>
-      ) : null}
+      {/* Lọc nguồn + tìm kiếm (lọc phía client, không đổi API nên không vỡ e2e) */}
+      <div className="mb-6 flex flex-wrap items-center gap-2">
+        {(
+          [
+            { id: "all", label: `Tất cả (${items.length})` },
+            { id: "comment", label: `Bình luận (${items.filter((i) => i.source === "comment").length})` },
+            { id: "messenger", label: `Messenger (${items.filter((i) => i.source !== "comment").length})` },
+          ] as const
+        ).map((f) => (
+          <button
+            key={f.id}
+            type="button"
+            onClick={() => setSourceFilter(f.id)}
+            aria-pressed={sourceFilter === f.id}
+            className={`rounded-full border px-3 py-1.5 text-xs font-bold transition cursor-pointer ${
+              sourceFilter === f.id
+                ? "border-[var(--nq-accent)] bg-[var(--nq-accent)] text-[var(--nq-accent-ink)]"
+                : "border-[var(--nq-dim)] text-[var(--nq-muted)] hover:border-[var(--nq-accent)] hover:text-[var(--nq-accent)]"
+            }`}
+          >
+            {f.label}
+          </button>
+        ))}
+        <input
+          type="search"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Tìm tên khách / nội dung / bản nháp…"
+          aria-label="Tìm trong hộp thư"
+          className="min-w-[220px] flex-1 rounded-full border border-[var(--nq-dim)] bg-[var(--nq-surface)] px-3 py-1.5 text-xs text-[var(--nq-primary)] placeholder:text-[var(--nq-muted)] focus:border-[var(--nq-accent)] focus:outline-none sm:max-w-xs sm:flex-none"
+        />
+        <label className="inline-flex cursor-pointer items-center gap-1.5 text-xs text-[var(--nq-muted)]">
+          <input
+            type="checkbox"
+            checked={overdueOnly}
+            onChange={(e) => setOverdueOnly(e.target.checked)}
+            className="accent-[var(--nq-red)]"
+          />
+          Chỉ quá hạn SLA
+        </label>
+      </div>
 
-      <div className="space-y-6">
-        {items.map((it) => {
+      {(() => {
+        const q = query.trim().toLowerCase();
+        const visible = items.filter((it) => {
+          if (sourceFilter === "comment" && it.source !== "comment") return false;
+          if (sourceFilter === "messenger" && it.source === "comment") return false;
+          if (overdueOnly && !slaLeft(it.expires_at)?.overdue) return false;
+          if (q) {
+            const hay = `${it.external_user_name ?? ""} ${it.message_text} ${it.proposed_response ?? ""}`.toLowerCase();
+            if (!hay.includes(q)) return false;
+          }
+          return true;
+        });
+        // Quá hạn SLA lên trước, còn lại giữ thứ tự mới nhất của API.
+        const ordered = [...visible].sort((a, b) => {
+          const ao = slaLeft(a.expires_at)?.overdue ? 0 : 1;
+          const bo = slaLeft(b.expires_at)?.overdue ? 0 : 1;
+          return ao - bo;
+        });
+        return (
+          <>
+            {ordered.length === 0 && !loading ? (
+              <Empty>
+                {sourceFilter === "comment"
+                  ? "Chưa có bình luận nào ở trạng thái này. Bình luận trên bài viết/ảnh Page sẽ hiện ở đây sau khi webhook feed (field feed + item comment) được bật."
+                  : "Không có tin nhắn ở trạng thái đã chọn."}
+              </Empty>
+            ) : null}
+
+      <div className="space-y-4">
+        {ordered.map((it) => {
           const ownerOnly = it.assigned_role === "chu_quan" && !chuQuan;
           const sla = slaLeft(it.expires_at);
           const canAct = it.status === "pending" && !ownerOnly;
           return (
             <article
               key={it.id}
-              className={`nq-surface-block bg-[var(--nq-surface)] p-6 ${
+              className={`nq-surface-block bg-[var(--nq-surface)] p-5 ${
                 sla?.overdue ? "border-[var(--nq-red)]" : ""
               }`}
             >
-              <div className="flex flex-wrap items-center gap-3 mb-4">
+              {/* Dòng 1: nguồn + mức độ + SLA — quét 1 giây biết phải làm gì */}
+              <div className="mb-2 flex flex-wrap items-center gap-2">
+                {it.source === "comment" ? (
+                  <StatusChip tone="default">Bình luận</StatusChip>
+                ) : (
+                  <StatusChip>Messenger</StatusChip>
+                )}
                 {it.status !== "pending" ? <StatusChip>{safeText(it.status)}</StatusChip> : null}
                 <StatusChip tone={actionTone(it.policy_action)}>
                   {ACTION_LABEL[it.policy_action] ?? safeText(it.policy_action)}
                 </StatusChip>
-                <StatusChip>{INTENT_LABEL[it.detected_intent] ?? safeText(it.detected_intent)}</StatusChip>
-                <Confidence value={it.confidence} />
-                {it.source === "comment" ? <StatusChip>Comment</StatusChip> : null}
                 {sla ? (
                   <span className={`font-mono text-xs ${sla.overdue ? "text-[var(--nq-red)] font-bold" : "text-[var(--nq-dim)]"}`}>
                     SLA {sla.label}
@@ -381,90 +504,93 @@ export default function FbInboxPage() {
                 {ownerOnly ? <span className="text-xs text-[var(--nq-red)] uppercase tracking-widest">Chỉ chủ quán duyệt</span> : null}
               </div>
 
-              <p className="text-[var(--nq-fg)] text-lg font-bold mb-2">
-                {safeText(it.external_user_name, "Khách hàng")}
+              {/* Dòng 2: ai nói + khi nào + ở đâu */}
+              <div className="mb-0.5 flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+                <p className="text-[var(--nq-fg)] text-base font-bold">
+                  {safeText(it.external_user_name, "Khách hàng")}
+                </p>
+                <span className="font-mono text-[11px] text-[var(--nq-dim)]">{formatCreated(it.created_at)}</span>
+                {it.source === "comment" && it.post_id ? (
+                  <a
+                    href={`https://facebook.com/${it.post_id}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-[11px] font-bold text-[var(--nq-accent)] underline decoration-dotted underline-offset-2"
+                    title={`Bài gốc: ${it.post_id} · bình luận: ${it.external_thread_id ?? ""}`}
+                  >
+                    Xem bài gốc ↗
+                  </a>
+                ) : null}
+              </div>
+              <p className="mb-2 text-[11px] text-[var(--nq-dim)]">
+                {INTENT_LABEL[it.detected_intent] ?? safeText(it.detected_intent)}
+                {it.source === "comment" ? " · bình luận trên bài viết/ảnh Page" : " · tin nhắn Messenger"}
               </p>
-              <p className="text-[var(--nq-fg)] mb-4 whitespace-pre-wrap break-words">
+              <div className="mb-2">
+                <Confidence value={it.confidence} />
+              </div>
+
+              <p className="text-[var(--nq-fg)] mb-3 whitespace-pre-wrap break-words text-[15px] leading-relaxed">
                 {safeText(it.message_text)}
               </p>
 
               {it.proposed_response ? (
-                <div className="mb-4 border-l-4 border-[var(--nq-accent)] pl-4">
+                <div className="mb-3 rounded-r border-l-4 border-[var(--nq-accent)] bg-[var(--nq-bg)] px-3 py-2">
                   <p className="text-xs font-mono uppercase tracking-widest text-[var(--nq-dim)] mb-1">
                     Bản nháp của agent
                   </p>
-                  <p className="text-[var(--nq-dim)] whitespace-pre-wrap break-words">
+                  <p className="text-[var(--nq-fg)] text-sm whitespace-pre-wrap break-words">
                     {safeText(it.proposed_response)}
                   </p>
                 </div>
               ) : null}
 
               {Array.isArray(it.flagged_reasons) && it.flagged_reasons.length > 0 ? (
-                <Notice>Cờ kiểm duyệt: {it.flagged_reasons.join(", ")}</Notice>
+                <p className="mb-2 text-xs text-[var(--nq-st-warn-ink)]">
+                  Cờ kiểm duyệt: {it.flagged_reasons.join(", ")}
+                </p>
               ) : null}
 
-              {/* Comment sentiment & action */}
+              {/* Cảm xúc + hướng xử lý comment — gộp 1 dòng, không chiếm cả hộp */}
               {it.source === "comment" && (it.sentiment || it.comment_action) ? (
-                <div className="mb-4 p-3 bg-[var(--nq-bg)] border border-[var(--nq-dim)] rounded">
-                  <div className="flex flex-wrap items-center gap-3 text-sm">
-                    {it.sentiment ? (
-                      <>
-                        <span className="font-mono uppercase tracking-widest text-[var(--nq-dim)]">Sentiment:</span>
-                        <StatusChip tone={
-                          it.sentiment.sentiment === "positive" ? "default" :
-                          it.sentiment.sentiment === "negative" ? "danger" : "warn"
-                        }>
-                          {it.sentiment.sentiment === "positive" ? "Tích cực" :
-                           it.sentiment.sentiment === "negative" ? "Tiêu cực" : "Trung tính"}
-                          ({it.sentiment.score > 0 ? "+" : ""}{it.sentiment.score})
-                        </StatusChip>
-                        {Array.isArray(it.sentiment.keywords_found) && it.sentiment.keywords_found.length > 0 && (
-                          <span className="text-xs text-[var(--nq-dim)]">
-                            Từ khóa: {it.sentiment.keywords_found.slice(0, 5).join(", ")}
-                            {it.sentiment.keywords_found.length > 5 ? "..." : ""}
-                          </span>
-                        )}
-                      </>
-                    ) : null}
-                    {it.comment_action ? (
-                      <StatusChip tone={
-                        it.comment_action === "escalate_owner" ? "danger" :
-                        it.comment_action === "hide_silent" ? "warn" :
-                        it.comment_action === "hide_and_dm" ? "warn" : "default"
-                      }>
-                        {it.comment_action === "reply_public" ? "Trả lời công khai" :
-                         it.comment_action === "hide_and_dm" ? "Ẩn + nhắn tin riêng" :
-                         it.comment_action === "hide_silent" ? "Ẩn im lặng" :
-                         it.comment_action === "escalate_owner" ? "Báo chủ quán" : it.comment_action}
-                      </StatusChip>
-                    ) : null}
-                  </div>
-                </div>
+                <p className="mb-2 text-xs text-[var(--nq-dim)]">
+                  {it.sentiment ? (
+                    <>
+                      Cảm xúc:{" "}
+                      <strong>
+                        {it.sentiment.sentiment === "positive" ? "Tích cực" :
+                         it.sentiment.sentiment === "negative" ? "Tiêu cực" : "Trung tính"}
+                      </strong>
+                      {Array.isArray(it.sentiment.keywords_found) && it.sentiment.keywords_found.length > 0 ? (
+                        <> · từ khóa: {it.sentiment.keywords_found.slice(0, 5).join(", ")}</>
+                      ) : null}
+                      {it.comment_action ? " · " : null}
+                    </>
+                  ) : null}
+                  {it.comment_action ? (
+                    <>Xử lý: <strong>{commentActionLabel(it.comment_action)}</strong></>
+                  ) : null}
+                </p>
               ) : null}
 
-              {/* Attachment info */}
+              {/* Đính kèm — gộp 1 dòng */}
               {it.attachment_type && it.attachment_type !== "unknown" ? (
-                <div className="mb-4 p-3 bg-[var(--nq-bg)] border border-[var(--nq-dim)] rounded">
-                  <div className="flex flex-wrap items-center gap-3 text-sm">
-                    <span className="font-mono uppercase tracking-widest text-[var(--nq-dim)]">Đính kèm:</span>
-                    <StatusChip tone="default">
-                      {it.attachment_type === "image" ? "Ảnh" :
-                       it.attachment_type === "audio" ? "Âm thanh" :
-                       it.attachment_type === "video" ? "Video" :
-                       it.attachment_type === "file" ? "Tệp" : it.attachment_type}
-                    </StatusChip>
-                    {it.attachment_url ? (
+                <p className="mb-2 text-xs text-[var(--nq-dim)]">
+                  Đính kèm: <strong>{attachmentLabel(it.attachment_type)}</strong>
+                  {it.attachment_url ? (
+                    <>
+                      {" · "}
                       <a
                         href={it.attachment_url}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="text-xs text-[var(--nq-accent)] underline hover:text-[var(--nq-accent)]"
+                        className="text-[var(--nq-accent)] underline"
                       >
                         Xem đính kèm
                       </a>
-                    ) : null}
-                  </div>
-                </div>
+                    </>
+                  ) : null}
+                </p>
               ) : null}
 
               {editing === it.id ? (
@@ -514,11 +640,24 @@ export default function FbInboxPage() {
                 >
                   Từ chối
                 </Btn>
+                {it.assigned_role !== "chu_quan" ? (
+                  <Btn
+                    variant="ghost"
+                    disabled={!canAct}
+                    onClick={() => decide(it, "chuyen_cap", undefined, "Chuyển chủ quán duyệt")}
+                    title="Chuyển mục này lên chủ quán duyệt"
+                  >
+                    Chuyển chủ quán
+                  </Btn>
+                ) : null}
               </div>
             </article>
           );
         })}
       </div>
+          </>
+        );
+      })()}
     </div>
   );
 }

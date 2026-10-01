@@ -273,31 +273,34 @@ def _policy_runtime() -> dict[str, Any]:
 
 
 def fb_auto_send_enabled() -> bool:
-    """Feature flag — kế hoạch §5.5. Mặc định OFF; Chủ quán bật qua env/API.
+    """Feature flag — kế hoạch §5.5. Mặc định BẬT; Chủ quán tắt qua nút/env.
 
-    KV (Chủ quán bật trên hộp thư) thắng env, để không mất sau restart Docker
-    khi compose vẫn để NHIPQUAN_FB_AUTO_SEND=0. Khi OFF, nhánh auto_send được
-    ghi 'pending' — không bao giờ ghi 'auto_sent' khi chưa gửi thật.
+    KV (Chủ quán bật/tắt trên hộp thư) thắng env, để không mất sau restart
+    Docker khi compose vẫn để NHIPQUAN_FB_AUTO_SEND cũ. Khi OFF, nhánh
+    auto_send được ghi 'pending' — không bao giờ ghi 'auto_sent' khi chưa
+    gửi thật. Tắt tường minh bằng NHIPQUAN_FB_AUTO_SEND=0 hoặc nút Chủ quán.
     """
     stored = _policy_runtime()
     if "auto_send_enabled" in stored:
         return bool(stored["auto_send_enabled"])
-    env = os.environ.get("NHIPQUAN_FB_AUTO_SEND", "0").strip().lower()
-    return env in {"1", "true", "yes", "on"}
+    env = os.environ.get("NHIPQUAN_FB_AUTO_SEND", "1").strip().lower()
+    return env not in {"0", "false", "no", "off", ""}
 
 
 def fb_jev_enabled() -> bool:
     """Kill-switch runtime cho Jev (kế hoạch §5 / review mục còn lại).
 
     KV (`jev_enabled`) thắng env — Chủ quán tắt nhanh qua API/hộp thư mà KHÔNG
-    cần deploy, khi phát hiện Jev hoạt động sai / lộ dữ liệu. Mặc định đọc env
-    `JEV_ENABLED`. Khi tắt → JevSensor không được tạo → fail-closed an toàn.
+    cần deploy, khi phát hiện Jev hoạt động sai / lộ dữ liệu. Mặc định BẬT
+    (thiếu env = bật); tắt tường minh bằng JEV_ENABLED=0. Khi tắt → JevSensor
+    không được tạo → fail-closed an toàn. Bật nhưng thiếu JEV_API_KEY thì
+    JevSensor tự fail-closed (không gọi mạng) — xem JevSensor.
     """
     stored = _policy_runtime()
     if "jev_enabled" in stored:
         return bool(stored["jev_enabled"])
-    return os.environ.get("JEV_ENABLED", "").strip().lower() in (
-        "1", "true", "yes", "on",
+    return os.environ.get("JEV_ENABLED", "1").strip().lower() not in (
+        "0", "false", "no", "off", "",
     )
 
 

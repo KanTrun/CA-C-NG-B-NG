@@ -66,7 +66,8 @@ https://<domain>/api/v1/channels/facebook/webhook
   chào hỏi, giờ/địa chỉ, menu/giá, khuyến mãi, đặt bàn.
 - Comment không an toàn (khiếu nại, nhạy cảm, đòi người thật...) → **vẫn queue cho
   Quản lý duyệt tay** (ADR-008).
-- Bật auto-send bằng `NHIPQUAN_FB_AUTO_SEND=1` trong `.env` (cùng flag với Messenger).
+- Tự trả lời FAQ và cảm biến Jev **mặc định BẬT** (thiếu env = bật). Tắt tường minh
+  bằng `NHIPQUAN_FB_AUTO_SEND=0` / `JEV_ENABLED=0` hoặc nút của Chủ quán trên hộp thư.
 
 Mỗi lần đổi URL ngrok phải cấu hình webhook lại trên Meta.
 
