@@ -6,9 +6,9 @@ import { Alert, AuthGate, Btn, Loading, Summary } from "../../ui/kit";
 import { canEdit, clearSession, getNvId, getRole, getToken, isManager, lifeLabel } from "../../lib/session";
 import { ApiError, apiGet, apiSend } from "../../lib/api";
 import { matchSearch } from "../../lib/list-filters";
-import { viError } from "../../lib/present";
-import type { KhungGio } from "../../lib/roster";
-import { shiftRowLabel } from "../../lib/roster";
+import { viError, khungLabel } from "../../lib/present";
+import type { KhungGio, RosterShift } from "../../lib/roster";
+import { shiftRowLabel, shiftRowParts } from "../../lib/roster";
 import { FilteredEmpty, ListToolbar } from "../../ui/list-filters";
 import { KhungConfigPanel } from "./KhungConfigPanel";
 import { RosterGrid } from "./RosterGrid";
@@ -616,6 +616,9 @@ export default function RosterPage() {
 
   const shiftsEarly = data?.ca ?? [];
   const nhanVienEarly = data?.nhan_vien ?? [];
+  // `matchCell` (dùng cho ô tìm kiếm) khai báo TRƯỚC `khungGio` bên dưới, nên cần
+  // bản "early" giống `nhanVienEarly` để dựng nhãn ca + giờ khi tìm kiếm.
+  const khungGioEarly = data?.khung_gio ?? DEFAULT_KHUNG_GIO;
 
   const viTriOptions = useMemo(() => {
     const set = new Set<string>();
@@ -629,19 +632,25 @@ export default function RosterPage() {
   }, [shiftsEarly]);
 
   const matchCell = useCallback(
-    (assigned: string[], shift: { khung?: string; vi_tri?: string; thu?: string }) => {
+    (assigned: string[], shift: RosterShift) => {
       if (filterKhung !== "all" && shift.khung !== filterKhung) return false;
       if (filterViTri !== "all" && (shift.vi_tri ?? "") !== filterViTri) return false;
       if (!search.trim()) return true;
-      const hay = [
+      // QA 2026-10-01 LỖI 10: trước đây đối chiếu `shift.khung` — đó là MÃ ca
+      // ("sang"/"chieu"/"toi"), không phải chữ người dùng đọc trên ô lưới. Gõ
+      // "ca sáng" (đúng chữ đang hiển thị) làm MỜ cả 21 ô kể cả ô Ca sáng.
+      // Nay đối chiếu cả nhãn hiển thị và giờ, nên gõ đúng những gì thấy là khớp.
+      const khoa = [
         ...assigned.map((id) => nhanVienEarly.find((x) => x.id === id)?.ten ?? id),
         viTriLabel(shift.vi_tri),
-        shift.khung,
-        shift.thu,
+        khungLabel(shift.khung) || shift.khung || "",
+        shiftRowParts(shift, shift.khung ?? "", khungGioEarly).title,
+        shiftRowParts(shift, shift.khung ?? "", khungGioEarly).time,
+        shift.thu ?? "",
       ].join(" ");
-      return matchSearch(hay, search);
+      return matchSearch(khoa, search);
     },
-    [filterKhung, filterViTri, search, nhanVienEarly],
+    [filterKhung, filterViTri, search, nhanVienEarly, khungGioEarly],
   );
 
   /**

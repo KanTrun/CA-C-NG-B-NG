@@ -16,6 +16,7 @@ import { Avatar2D } from "./Avatar2D";
 import type { Role } from "../../lib/session";
 
 const POS_KEY = "ag_copilot_pane_pos_v2";
+const ROOT_REF = "nq-copilot-root";
 
 interface PaneState {
   /** 0 = collapsed (chỉ chip), 1 = small, 2 = large */
@@ -102,6 +103,35 @@ export function CopilotPane({ open, onClose }: Props = {}) {
     }
   }, [isControlled, onClose]);
 
+  /**
+   * QA 2026-10-01 LỖI 11: pane nổi là `position: fixed` 430×640 ở góc phải dưới
+   * và MỞ SẴN trên mọi trang desktop (`DEFAULT_STATE.size = 1`). Nó đè lên nội
+   * dung trang, nên 20 control trên 14 trang không bấm được — kể cả nút lưu cấu
+   * hình quán và nút thêm món. Người dùng bấm mãi không có phản hồi, không hề
+   * biết vì sao.
+   *
+   * Cách sửa: người dùng chạm vào PHẦN TRANG (ngoài pane) là tín hiệu rõ ràng
+   * "tôi muốn làm việc với trang" ⇒ tự thu nhỏ về Tinh Linh để không chắn tay.
+   * Bấm vào avatar là mở lại. Không cần dành chỗ trống cố định trong layout vì
+   * pane vốn đã ở vị trí phủ và có thể kéo.
+   */
+  useEffect(() => {
+    if (state.size === 0) return;
+    function onPointerDown(e: PointerEvent) {
+      const target = e.target as HTMLElement | null;
+      if (!target) return;
+      // Bấm trong pane thì không đụng tới.
+      if (target.closest(`#${ROOT_REF}`)) return;
+      // Lớp phủ toàn màn hình của hộp thoại/lệnh (CommandPalette, Tour, modal):
+      // để các lớp đó quyết định, không tự thu nhỏ theo.
+      if (target.closest("[role='dialog'][aria-modal='true']")) return;
+      setState((s) => (s.size === 0 ? s : { ...s, size: 0 }));
+    }
+    // `true` để bắt cả pointerdown ngoài pane mà không chặn propagation.
+    window.addEventListener("pointerdown", onPointerDown, true);
+    return () => window.removeEventListener("pointerdown", onPointerDown, true);
+  }, [state.size]);
+
   // Phím tắt Ctrl/Cmd+K mở nhanh pane hoặc chuyển đổi giữa Tinh Linh và cửa sổ
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -166,6 +196,7 @@ export function CopilotPane({ open, onClose }: Props = {}) {
   if (state.size === 0) {
     return (
       <div
+        id={ROOT_REF}
         style={{
           right: isMobile ? 16 : 24,
           bottom: isMobile ? 16 : 24,
@@ -223,7 +254,10 @@ export function CopilotPane({ open, onClose }: Props = {}) {
 
   return (
     <div
+      id={ROOT_REF}
       style={style}
+      role="complementary"
+      aria-label="Trợ lý Tinh Linh"
       className={`flex flex-col overflow-hidden bg-slate-950/95 border border-amber-500/40 shadow-[0_25px_60px_rgba(0,0,0,0.7)] transition-all duration-300 ease-out backdrop-blur-xl ${
         isMobile ? "rounded-t-3xl border-b-0" : "rounded-3xl"
       }`}

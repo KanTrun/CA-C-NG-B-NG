@@ -15,6 +15,7 @@ Hai bài ở đây khoá đúng hai điều đó.
 
 from __future__ import annotations
 
+import os
 import time
 
 from ca_api.interfaces.http.main import app
@@ -167,19 +168,70 @@ def test_stream_tra_byte_dau_nhanh_hon_phan_con_lai() -> None:
     assert moc[0] < 5.0, f"phản hồi đầu tiên quá chậm: {moc[0]:.2f}s"
 
 
-def test_stream_khong_co_token_van_tra_loi_duoc() -> None:
-    """Endpoint ĐỌC cho phép khách (guest) — thiết kế có sẵn, không phải lỗ hổng mới.
+def test_stream_khong_co_token_bi_tu_choi() -> None:
+    """Endpoint Copilot phải từ chối khách chưa đăng nhập — kể cả bản stream.
 
-    `_get_verified_user` chủ đích fallback về user `guest` cho endpoint đọc, vì
-    webhook Telegram/Zalo có thể không mang token người dùng. Endpoint GHI
-    (`/execute-action`, `/action/*/amend`) mới dùng `_require_user` và trả 401.
-    Bài này chốt RÕ ranh giới đó để lần sau không ai "sửa" nhầm thành lỗi.
+    Bài này TRƯỚC đây assert ngược lại (200 cho khách) và ghi rõ đó là "thiết kế
+    có sẵn, không phải lỗ hổng mới" — tức là test đang khoá luôn hành vi không an
+    toàn. QA 2026-10-01 (LỖI 1) đã đo trên production:
+
+        POST /api/v1/copilot/message        (không Authorization) → 200
+        POST /api/v1/copilot/message/stream (không Authorization) → 200
+        GET  /api/v1/copilot/audit          → không ghi dòng nào cho "guest"
+
+    Ba hậu quả cụ thể:
+      1. `agent_mode: "live"` ⇒ mỗi lượt gọi LLM thật, mất tiền của quán.
+      2. Mọi khách vãng lai cùng dùng `user_id = "nv_guest"` ⇒ một người gọi 30
+         lượt/phút là CHẶN luôn phiên của nhân viên thật (rate limit theo user_id).
+      3. Không ai ghi audit ⇒ không truy vết được ai đã hỏi.
+
+    Webhook Telegram đi đường riêng: xác thực bằng `X-Telegram-Bot-Api-Secret-Token`
+    so với `TELEGRAM_WEBHOOK_SECRET`, fail-closed (thiếu secret cũng chặn) — xem
+    `test_telegram_webhook_fail_closed_khong_secret`.
     """
     r = client.post("/api/v1/copilot/message/stream", json={"message": "xin chào"})
-    assert r.status_code == 200
-    events = _doc_sse(r.text)
-    assert events[0][0] == "status"
+    assert r.status_code == 401
 
-    # Đối chiếu: một endpoint GHI phải từ chối khách.
+    # Bản không stream cũng phải chặn — cùng lý do.
+    m = client.post("/api/v1/copilot/message", json={"message": "xin chào"})
+    assert m.status_code == 401
+
+    # Endpoint GHI vẫn chặn như trước.
     w = client.post("/api/v1/copilot/execute-action", json={"action_id": "a_x", "decision": "approve"})
     assert w.status_code == 401
+
+
+def test_upload_khong_co_token_bi_tu_choi() -> None:
+    """`/copilot/upload` ghi tệp xuống đĩa nên phải có phiên thật.
+
+    QA 2026-10-01 phát hiện endpoint này cũng dùng `_get_verified_user` ⇒ khách
+    chưa đăng nhập đẩy được tệp lên ổ đĩa production.
+    """
+    r = client.post("/api/v1/copilot/upload", files={"file": ("a.txt", b"hello", "text/plain")})
+    assert r.status_code == 401
+
+
+def test_telegram_webhook_fail_closed_khong_secret() -> None:
+    """Khai `channel="telegram"` mà không có secret phải bị chặn.
+
+    Trước đây điều kiện là `if expected_secret and x_telegram_secret != ...` —
+    khi `TELEGRAM_WEBHOOK_SECRET` CHƯA set thì cả lần kiểm tra bị bỏ qua, ai cũng
+    tự nhận mình là webhook Telegram để đi vòng xác thực. Nay fail-closed.
+    """
+    prev = os.environ.pop("TELEGRAM_WEBHOOK_SECRET", None)
+    try:
+        r = client.post("/api/v1/copilot/message", json={"message": "hi", "channel": "telegram"})
+        assert r.status_code == 401, "webhook không có secret phải bị từ chối"
+
+        # Có secret trong env nhưng header sai → vẫn chặn.
+        os.environ["TELEGRAM_WEBHOOK_SECRET"] = "s3cret-that-must-match"
+        bad = client.post(
+            "/api/v1/copilot/message",
+            json={"message": "hi", "channel": "telegram"},
+            headers={"X-Telegram-Bot-Api-Secret-Token": "sai"},
+        )
+        assert bad.status_code == 401
+    finally:
+        os.environ.pop("TELEGRAM_WEBHOOK_SECRET", None)
+        if prev is not None:
+            os.environ["TELEGRAM_WEBHOOK_SECRET"] = prev
