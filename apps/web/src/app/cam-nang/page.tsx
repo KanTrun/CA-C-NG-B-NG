@@ -75,7 +75,7 @@ export default function CamNangPage() {
   const [expanded, setExpanded] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [statusF, setStatusF] = useState("all");
-  const [nguonF, setNguonF] = useState("that");
+  const [nguonF, setNguonF] = useState("all");
   const [page, setPage] = useState(1);
   const [msg, setMsg] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);

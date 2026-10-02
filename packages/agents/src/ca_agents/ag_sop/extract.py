@@ -158,8 +158,15 @@ def _format_law_answer(law: dict[str, Any], ctx: SopOpsContext) -> tuple[str, st
     cau = str(law.get("cau") or "")
     cond = law.get("tham_so_loi") or law.get("dieu_kien") or {}
     extra = ""
-    if isinstance(cond, dict) and (cond.get("thu") or cond.get("khung")):
-        extra = f" (áp dụng {ctx.thu} ca {ctx.khung})"
+    if isinstance(cond, dict):
+        thu_c = str(cond.get("thu") or "")
+        khung_c = str(cond.get("khung") or "")
+        if thu_c and khung_c:
+            extra = f" (áp dụng {thu_c} ca {khung_c})"
+        elif thu_c:
+            extra = f" (áp dụng {thu_c})"
+        elif khung_c:
+            extra = f" (áp dụng ca {khung_c})"
     tom_tat = f"Tóm tắt: {cau}{extra}."
     viec = "Việc làm: tuân thủ luật trên trong ca hiện tại; nếu không chắc, hỏi quản lý."
     return f"{tom_tat}\n{viec}", viec
@@ -384,7 +391,7 @@ def answer(
     mode: str | None = None,
 ) -> SopAnswer:
     ctx = ops_context or default_ops_context()
-    scoped_luat = filter_luat_for_sop(luat, ctx)
+    scoped_luat = filter_luat_for_sop(luat, ctx, question=question)
     resolved = (mode or agent_mode() or "replay").strip().lower()
     if resolved == "live":
         live = _answer_live(question, buoc=buoc, luat=scoped_luat, ctx=ctx)

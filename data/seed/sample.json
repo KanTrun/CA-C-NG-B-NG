@@ -9199,17 +9199,43 @@
         "5",
         "6"
       ],
-      "buoc": 3,
-      "trang_thai": "de_xuat",
+      "buoc": 6,
+      "trang_thai": "cho_chu_quan",
       "vf_rule": "dat",
-      "tap_su": [],
-      "tap_su_dung": 0,
+      "tap_su": [
+        {
+          "he_thong": "gia_tri_de_xuat",
+          "nguoi": "gia_tri_de_xuat",
+          "dung": true
+        },
+        {
+          "he_thong": "gia_tri_de_xuat",
+          "nguoi": "gia_tri_de_xuat",
+          "dung": true
+        },
+        {
+          "he_thong": "gia_tri_de_xuat",
+          "nguoi": "gia_tri_de_xuat",
+          "dung": true
+        },
+        {
+          "he_thong": "gia_tri_de_xuat",
+          "nguoi": "gia_tri_de_xuat",
+          "dung": true
+        },
+        {
+          "he_thong": "gia_tri_de_xuat",
+          "nguoi": "gia_tri_de_xuat",
+          "dung": true
+        }
+      ],
+      "tap_su_dung": 5,
       "tap_su_tong": 5,
-      "da_ap_dung": 0,
-      "bi_ghi_de": 0,
-      "ap_dung": 0,
-      "ghi_de": 0,
-      "ti_le_dung": 1.0,
+      "da_ap_dung": 6,
+      "bi_ghi_de": 1,
+      "ap_dung": 7,
+      "ghi_de": 1,
+      "ti_le_dung": 0.857,
       "nguon": "mo_phong_fixture",
       "synthetic": true
     },

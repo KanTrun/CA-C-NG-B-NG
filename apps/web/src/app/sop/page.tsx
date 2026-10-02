@@ -65,7 +65,7 @@ export default function SopPage() {
   const [luat, setLuat] = useState<Luat[]>([]);
   const [history, setHistory] = useState<string[]>([]);
   const [ctxHint, setCtxHint] = useState("");
-  const [nguonF, setNguonF] = useState("that");
+  const [nguonF, setNguonF] = useState("all");
   const resultRef = useRef<HTMLDivElement | null>(null);
   const daTuDongHoi = useRef(false);
   const [copilotOpen, setCopilotOpen] = useState(false);
@@ -347,12 +347,12 @@ export default function SopPage() {
           <button
             type="button"
             className="nq-sop-copilot__suggest-chip"
-            aria-pressed={nguonF === "mau"}
+            aria-pressed={nguonF === "all"}
             disabled={busy}
-            onClick={() => setNguonF("mau")}
-            title="Đối chiếu demo: cho phép dùng dữ liệu mẫu"
+            onClick={() => setNguonF("all")}
+            title="Trả lời từ mọi luật trong cẩm nang, gồm luật mẫu minh họa"
           >
-            Dữ liệu mẫu
+            Tất cả nguồn
           </button>
         </div>
       </div>
@@ -360,7 +360,7 @@ export default function SopPage() {
       <footer className="nq-sop-copilot__foot">
         <span>
           {luat.length > 0
-            ? `${luat.length} luật đang hiệu lực${nguonF === "that" ? " (nguồn Thật)" : " (mẫu demo)"}`
+            ? `${luat.length} luật đang hiệu lực${nguonF === "that" ? " (nguồn Thật)" : ""}`
             : "Chưa có luật hiệu lực"}
         </span>
         <Link href="/cam-nang">Mở cẩm nang</Link>

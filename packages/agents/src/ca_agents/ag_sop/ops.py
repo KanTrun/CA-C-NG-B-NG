@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
@@ -64,18 +65,88 @@ def law_matches_ops(law: dict[str, Any], ctx: SopOpsContext) -> bool:
     return True
 
 
-def filter_luat_for_sop(luat: list[dict[str, Any]], ctx: SopOpsContext) -> list[dict[str, Any]]:
-    """Luật không điều kiện thời gian + luật khớp ca/ngày hiện tại."""
+def filter_luat_for_sop(
+    luat: list[dict[str, Any]],
+    ctx: SopOpsContext,
+    *,
+    question: str = "",
+) -> list[dict[str, Any]]:
+    """Luật không điều kiện thời gian + luật khớp ca/ngày hiện tại.
+
+    ``question``: nếu câu hỏi tự nêu đích danh thứ/khung giờ (vd "Thứ Bảy ca
+    chiều…") mà luật khớp phần nêu đó thì vẫn trả lời, dù ngữ cảnh ca hiện tại
+    khác — người hỏi đang hỏi về thời điểm khác, không phải ca đang chạy.
+    """
+    hint_thu, hint_khung = question_time_hint(question) if question else (None, None)
     out: list[dict[str, Any]] = []
     for law in luat:
         if law.get("trang_thai") != "hieu_luc":
             continue
-        if law_has_temporal_cond(law):
-            if law_matches_ops(law, ctx):
-                out.append(law)
-        else:
+        if not law_has_temporal_cond(law) or law_matches_ops(law, ctx):
+            out.append(law)
+        elif question and law_matches_hint(law, hint_thu, hint_khung):
             out.append(law)
     return out
+
+
+_THU_HINTS: tuple[tuple[str, str], ...] = (
+    ("chủ nhật", "CN"),
+    ("chu nhat", "CN"),
+    ("thứ bảy", "T7"),
+    ("thu bay", "T7"),
+    ("thứ 7", "T7"),
+    ("thứ sáu", "T6"),
+    ("thu sau", "T6"),
+    ("thứ 6", "T6"),
+    ("thứ năm", "T5"),
+    ("thu nam", "T5"),
+    ("thứ 5", "T5"),
+    ("thứ tư", "T4"),
+    ("thu tu", "T4"),
+    ("thứ 4", "T4"),
+    ("thứ ba", "T3"),
+    ("thu ba", "T3"),
+    ("thứ 3", "T3"),
+    ("thứ hai", "T2"),
+    ("thu hai", "T2"),
+    ("thứ 2", "T2"),
+)
+
+_KHUNG_HINTS: tuple[tuple[str, str], ...] = (
+    ("ca sáng", "sang"),
+    ("buổi sáng", "sang"),
+    ("sáng nay", "sang"),
+    ("ca chiều", "chieu"),
+    ("buổi chiều", "chieu"),
+    ("chiều nay", "chieu"),
+    ("ca tối", "toi"),
+    ("buổi tối", "toi"),
+    ("tối nay", "toi"),
+)
+
+
+def question_time_hint(question: str) -> tuple[str | None, str | None]:
+    """Đọc thứ + khung giờ mà câu hỏi nêu đích danh, nếu có."""
+    q = question.lower()
+    thu = next((m for p, m in _THU_HINTS if p in q), None)
+    if thu is None:
+        m = re.search(r"\bt[\- ]?([2-7])\b", q)
+        if m:
+            thu = f"T{m.group(1)}"
+        elif re.search(r"\bcn\b", q):
+            thu = "CN"
+    khung = next((k for p, k in _KHUNG_HINTS if p in q), None)
+    return thu, khung
+
+
+def law_matches_hint(law: dict[str, Any], thu: str | None, khung: str | None) -> bool:
+    """Luật khớp phần thời gian câu hỏi nêu — cond nào nêu thì phải đúng."""
+    cond = _law_cond(law)
+    if cond.get("thu") and str(cond["thu"]) != (thu or ""):
+        return False
+    if cond.get("khung") and str(cond["khung"]) != (khung or ""):
+        return False
+    return True
 
 
 def topic_blocked(question: str, blob: str) -> bool:

@@ -48,7 +48,8 @@ def test_may_lanh_question_returns_chua_co() -> None:
     assert "máy lạnh" in res.cau_tra_loi.lower() or "điều hòa" in res.cau_tra_loi.lower()
 
 
-def test_conditional_law_only_when_context_matches() -> None:
+def test_conditional_law_theo_context_hoac_hint_cau_hoi() -> None:
+    """Luật có điều kiện thời gian: khớp ca hiện tại, HOẶC câu hỏi nêu đích danh."""
     luat = [
         {
             "id": "luat_pin",
@@ -58,9 +59,27 @@ def test_conditional_law_only_when_context_matches() -> None:
         }
     ]
     wrong = SopOpsContext(ngay="2026-08-31", thu="T2", khung="sang")
-    res_wrong = answer("Thứ Bảy ca chiều cần mấy người pha chế?", buoc=[], luat=luat, ops_context=wrong)
-    assert res_wrong.chua_co is True
 
+    # Câu hỏi nêu đích danh "Thứ Bảy ca chiều" → trả lời, dù ca hiện tại T2 sáng.
+    res_hint = answer(
+        "Thứ Bảy ca chiều cần mấy người pha chế?",
+        buoc=[],
+        luat=luat,
+        ops_context=wrong,
+    )
+    assert not res_hint.chua_co
+    assert "luat:luat_pin" in res_hint.trich_dan
+
+    # Câu hỏi không nêu thứ → không đoán, vẫn theo ngữ cảnh ca hiện tại.
+    res_thieu = answer(
+        "Ca chiều cần mấy người pha chế?",
+        buoc=[],
+        luat=luat,
+        ops_context=wrong,
+    )
+    assert res_thieu.chua_co is True
+
+    # Ngữ cảnh đúng → trả lời như cũ.
     right = SopOpsContext(ngay="2026-08-30", thu="T7", khung="chieu")
     res_right = answer(
         "Thứ Bảy ca chiều cần mấy người pha chế?",
