@@ -61,7 +61,7 @@ services:
       NHIPQUAN_PAGE_MODE: ${NHIPQUAN_PAGE_MODE:-replay}
       NHIPQUAN_FB_AUTO_SEND: ${NHIPQUAN_FB_AUTO_SEND:-0}
       NHIPQUAN_FB_WEBHOOK_VERIFY: ${NHIPQUAN_FB_WEBHOOK_VERIFY:-}
-      NHIPQUAN_SEED_DEMO: ${NHIPQUAN_SEED_DEMO:-true}
+      NHIPQUAN_SEED_DEMO: ${NHIPQUAN_SEED_DEMO:-false}
     command: ["sh", "-c", "cd /app/apps/api && alembic -c alembic/alembic.ini upgrade head && uvicorn ca_api.interfaces.http.main:app --host 0.0.0.0 --port 8000"]
     ports:
       - "8000:8000"
@@ -115,7 +115,7 @@ services:
       NHIPQUAN_PAGE_MODE: ${NHIPQUAN_PAGE_MODE:-replay}
       NHIPQUAN_FB_AUTO_SEND: ${NHIPQUAN_FB_AUTO_SEND:-0}
       NHIPQUAN_FB_WEBHOOK_VERIFY: ${NHIPQUAN_FB_WEBHOOK_VERIFY:-}
-      NHIPQUAN_SEED_DEMO: ${NHIPQUAN_SEED_DEMO:-true}
+      NHIPQUAN_SEED_DEMO: ${NHIPQUAN_SEED_DEMO:-false}
     volumes:
       - nhipquan_var:/app/var
     depends_on:

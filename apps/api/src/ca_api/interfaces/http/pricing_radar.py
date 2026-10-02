@@ -34,6 +34,7 @@ from ca_agents.sources.gmaps_menu_source import get_source_block_stats
 from ca_contracts.catchment_survey_v2 import (
     SUPPORTED_SCHEMA_MAJORS,
     CatchmentSurveyRequest,
+    CatchmentSurveyResponse,
     SurveyErrorCode,
     SurveyJobStatus,
     SurveyReviewSubmission,
@@ -42,6 +43,7 @@ from ca_contracts.catchment_survey_v2 import (
 from fastapi import APIRouter, BackgroundTasks, Body, Header, HTTPException, Request
 from pydantic import ValidationError
 
+from ca_api.persist import kv_get, kv_set
 from ca_api.persist import session as auth_session
 
 router = APIRouter(prefix="/api/v1/market", tags=["market"])
@@ -217,6 +219,70 @@ def _parse_request(payload: Any) -> CatchmentSurveyRequest:
         raise HTTPException(status_code=422, detail=exc.errors()) from exc
 
 
+# ── Serialization & KV Persistence (đa worker) ───────────────────────────────
+
+
+def _serialize_survey_job(job: SurveyJob) -> dict[str, Any]:
+    return {
+        "job_id": job.job_id,
+        "request": job.request.model_dump(mode="json"),
+        "status": job.status.value,
+        "created_at": job.created_at,
+        "updated_at": job.updated_at,
+        "response": job.response.model_dump(mode="json") if job.response else None,
+        "error_code": job.error_code.value if job.error_code else None,
+        "error_message": job.error_message,
+        "stores_flagged_for_review": list(job.stores_flagged_for_review),
+        "pending_review": list(job.meta.get("pending_review", [])),
+        "reviewed_by": job.meta.get("reviewed_by"),
+        "meta": {
+            k: v
+            for k, v in job.meta.items()
+            if isinstance(v, (str, int, float, bool, list, dict)) or v is None
+        },
+    }
+
+
+def _deserialize_survey_job(d: dict[str, Any]) -> SurveyJob:
+    req = CatchmentSurveyRequest.model_validate(d["request"])
+    resp = CatchmentSurveyResponse.model_validate(d["response"]) if d.get("response") else None
+    err_code = SurveyErrorCode(d["error_code"]) if d.get("error_code") else None
+    meta = dict(d.get("meta") or {})
+    if "pending_review" in d and "pending_review" not in meta:
+        meta["pending_review"] = d["pending_review"]
+    if "reviewed_by" in d and "reviewed_by" not in meta:
+        meta["reviewed_by"] = d["reviewed_by"]
+    return SurveyJob(
+        job_id=d["job_id"],
+        request=req,
+        status=SurveyJobStatus(d["status"]),
+        created_at=d.get("created_at") or time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        updated_at=d.get("updated_at") or time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        response=resp,
+        error_code=err_code,
+        error_message=d.get("error_message"),
+        stores_flagged_for_review=list(d.get("stores_flagged_for_review") or []),
+        meta=meta,
+    )
+
+
+def _save_survey_job_kv(job: SurveyJob) -> None:
+    try:
+        kv_set(f"survey_job:{job.job_id}", _serialize_survey_job(job))
+    except Exception:
+        pass
+
+
+def _load_survey_job_kv(job_id: str) -> SurveyJob | None:
+    try:
+        raw = kv_get(f"survey_job:{job_id}", None)
+        if isinstance(raw, dict):
+            return _deserialize_survey_job(raw)
+    except Exception:
+        pass
+    return None
+
+
 # ── Orchestrator singleton ───────────────────────────────────────────────────
 
 _ORCHESTRATOR: SurveyOrchestrator | None = None
@@ -224,16 +290,11 @@ _ORCHESTRATOR_LOCK = threading.Lock()
 
 
 def _orchestrator() -> SurveyOrchestrator:
-    """Orchestrator luôn gắn với JobStore toàn cục HIỆN HÀNH.
-
-    Phải re-bind theo `get_job_store()` thay vì cache cứng: nếu store bị thay
-    (reset khi test, hoặc swap backend Redis/Postgres ở production) mà orchestrator
-    vẫn giữ tham chiếu cũ thì job được ghi vào store này còn endpoint đọc từ store
-    khác → 404 giả.
-    """
+    """Orchestrator luôn gắn với JobStore toàn cục HIỆN HÀNH."""
     global _ORCHESTRATOR  # noqa: PLW0603 — singleton có khóa
     with _ORCHESTRATOR_LOCK:
         store = get_job_store()
+        store.set_hooks(on_save=_save_survey_job_kv, on_load=_load_survey_job_kv)
         if _ORCHESTRATOR is None or _ORCHESTRATOR.job_store is not store:
             _ORCHESTRATOR = SurveyOrchestrator(job_store=store)
         return _ORCHESTRATOR
@@ -241,6 +302,10 @@ def _orchestrator() -> SurveyOrchestrator:
 
 def _get_job_or_404(job_id: str) -> SurveyJob:
     job = get_job_store().get_job(job_id)
+    if job is None:
+        job = _load_survey_job_kv(job_id)
+        if job is not None:
+            get_job_store().update_job(job)
     if job is None:
         raise HTTPException(status_code=404, detail="job_khong_ton_tai")
     return job
@@ -298,6 +363,10 @@ def _run_job_safely(job_id: str) -> None:
         _orchestrator().execute_job(job_id)
     except Exception:  # noqa: BLE001 — background task không được ném ra Starlette
         pass
+    finally:
+        job = get_job_store().get_job(job_id)
+        if job is not None:
+            _save_survey_job_kv(job)
 
 
 # ── 5.1 Endpoints ────────────────────────────────────────────────────────────
@@ -335,8 +404,18 @@ async def create_catchment_survey(
 
     with _RATE_LIMIT_LOCK:
         existing_job_id = _IDEMPOTENCY_INDEX.get(idem_scope)
+    if not existing_job_id:
+        try:
+            existing_job_id = kv_get(idem_scope, None)
+        except Exception:
+            existing_job_id = None
+
     if existing_job_id:
-        existing = get_job_store().get_job(existing_job_id)
+        existing: SurveyJob | None = None
+        try:
+            existing = _get_job_or_404(existing_job_id)
+        except Exception:
+            existing = None
         if existing is not None:
             # Cùng key → trả đúng job cũ: KHÔNG tạo job mới, KHÔNG tính rate limit.
             return {
@@ -354,6 +433,11 @@ async def create_catchment_survey(
     job.meta["store_id"] = str(user.get("store_id") or "quan_01")
     with _RATE_LIMIT_LOCK:
         _IDEMPOTENCY_INDEX[idem_scope] = job.job_id
+    try:
+        kv_set(idem_scope, job.job_id)
+    except Exception:
+        pass
+    _save_survey_job_kv(job)
 
     background_tasks.add_task(_run_job_safely, job.job_id)
 

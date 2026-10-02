@@ -84,15 +84,25 @@ class SurveyJob:
 
 
 class JobStore:
-    """In-memory store cho các job khảo sát.
+    """In-memory store cho các job khảo sát, có hỗ trợ hook persistence cho đa worker.
 
     Thread-safe: dùng lock để tránh race condition khi nhiều worker cùng truy cập.
-    Production: thay bằng Redis/Postgres-backed store.
     """
 
     def __init__(self) -> None:
         self._jobs: dict[str, SurveyJob] = {}
         self._lock = threading.RLock()
+        self._on_save_hook: Any = None
+        self._on_load_hook: Any = None
+
+    def set_hooks(
+        self,
+        on_save: Any = None,
+        on_load: Any = None,
+    ) -> None:
+        """Cấu hình hook lưu/đọc xuống storage (KV/DB) để chia sẻ giữa các worker."""
+        self._on_save_hook = on_save
+        self._on_load_hook = on_load
 
     def create_job(self, request: CatchmentSurveyRequest) -> SurveyJob:
         """Tạo job mới với job_id duy nhất."""
@@ -100,17 +110,36 @@ class JobStore:
         job = SurveyJob(job_id=job_id, request=request)
         with self._lock:
             self._jobs[job_id] = job
+        if self._on_save_hook:
+            try:
+                self._on_save_hook(job)
+            except Exception:
+                pass
         return job
 
     def get_job(self, job_id: str) -> SurveyJob | None:
         """Lấy job theo ID, trả None nếu không tìm thấy."""
         with self._lock:
-            return self._jobs.get(job_id)
+            job = self._jobs.get(job_id)
+        if job is None and self._on_load_hook:
+            try:
+                job = self._on_load_hook(job_id)
+                if job is not None:
+                    with self._lock:
+                        self._jobs[job_id] = job
+            except Exception:
+                pass
+        return job
 
     def update_job(self, job: SurveyJob) -> None:
         """Cập nhật job (sau khi transition hoặc set response)."""
         with self._lock:
             self._jobs[job.job_id] = job
+        if self._on_save_hook:
+            try:
+                self._on_save_hook(job)
+            except Exception:
+                pass
 
     def list_jobs(
         self,

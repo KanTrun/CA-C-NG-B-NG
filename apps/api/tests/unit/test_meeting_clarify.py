@@ -4,6 +4,7 @@
 import concurrent.futures
 import io
 import unicodedata
+import uuid
 
 import pytest
 from ca_agents.ag_meeting.clarify import (
@@ -288,6 +289,103 @@ def test_tc31_accent_insensitive_mobile_matching() -> None:
     assert resolve_staff_id("Trà My", staff_list) == "nv_02"
     # Unknown name returns None
     assert resolve_staff_id("nguoi_la", staff_list) is None
+
+
+def test_display_name_with_role_suffix_still_resolves() -> None:
+    """display_name thật của users hay kèm chức danh 'Minh Phạm — Trưởng pha chế (PT)'.
+
+    Bug gặp thật 2026-10-01: AG-MEETING trích tên 'Minh Phạm' từ biên bản nhưng
+    resolve_staff_id so nguyên chuỗi hiển thị nên không khớp, mọi việc giao ca
+    đều mất nhan_vien_id và banner vẫn báo 'đầy đủ thông tin nhân sự'.
+    """
+    staff_list = [
+        {"id": "nv_01", "ten": "Lan Nguyễn — Cửa hàng trưởng (SM)"},
+        {"id": "nv_02", "ten": "Minh Phạm — Trưởng pha chế (PT)"},
+        {"id": "nv_03", "ten": "Mỹ Tạ — Nhân viên ca sáng"},
+    ]
+    # Tên cốt lõi trước dấu gạch ngang — đủ cả tên đầy đủ và tên gọi
+    assert resolve_staff_id("Minh Phạm", staff_list) == "nv_02"
+    assert resolve_staff_id("Minh", staff_list) == "nv_02"
+    assert resolve_staff_id("Mỹ Tạ", staff_list) == "nv_03"
+    assert resolve_staff_id("Lan Nguyễn", staff_list) == "nv_01"
+    # Không dấu vẫn khớp
+    assert resolve_staff_id("my ta", staff_list) == "nv_03"
+    # Không nhầm phần chức danh thành tên người
+    assert resolve_staff_id("cửa hàng trưởng", staff_list) is None
+
+
+def test_clarify_flags_unresolvable_assignee_name() -> None:
+    """Tên người nhận cụ thể nhưng không khớp nhân viên nào phải bật can_lam_ro.
+
+    Trước đây nhánh Case C yêu cầu nv_id thật nên tên lạ làm cờ bị tua qua:
+    banner xanh 'đầy đủ thông tin' trong khi việc treo sẽ không gắn được người.
+    """
+    action = {
+        "id": "act_x",
+        "tieu_de": "Vệ sinh dàn nóng máy ép lạnh",
+        "ten_nguoi_nhan": "Minh Phạm",
+        "noi_dung_chi_tiet": "",
+    }
+    # Danh sách nhân sự KHÔNG có ai khớp "Minh Phạm"
+    res = clarify_single_action(
+        action,
+        staff_list=[{"id": "nv_01", "ten": "Lan Nguyễn"}],
+        phan_cong={},
+        ca_list=[],
+    )
+    assert res["can_lam_ro"] is True
+    assert "minh phạm" in res["van_de_ngu_canh"].lower()
+    assert res["nhan_vien_id"] is None
+
+
+def test_apply_skips_unassigned_action_item_does_not_create_empty_treo() -> None:
+    """Khi duyệt, action item chưa có người nhận (hoặc 'Chưa rõ') không được tạo việc treo rỗng.
+
+    Bug gặp thật 2026-10-01: duyệt việc tạo treo_item với nv_id rỗng hoặc không có
+    người nhận.
+    """
+    ql = headers(client, "lan")
+    payload = {
+        "id": f"meet_unassigned_{uuid.uuid4().hex[:6]}",
+        "tieu_de": "Họp thử nghiệm việc rỗng",
+        "loai_hop": "giao_ca",
+        "tom_tat": "Tóm tắt cuộc họp",
+        "action_items": [
+            {
+                "id": "act_empty_1",
+                "tieu_de": "Việc chưa giao cho ai",
+                "ten_nguoi_nhan": "Chưa rõ",
+                "da_chon": True,
+            },
+            {
+                "id": "act_empty_2",
+                "tieu_de": "Việc để trống người nhận hoàn toàn",
+                "ten_nguoi_nhan": "",
+                "da_chon": True,
+            },
+            {
+                "id": "act_valid_3",
+                "tieu_de": "Việc giao cho Lan",
+                "ten_nguoi_nhan": "Lan",
+                "da_chon": True,
+            },
+        ],
+    }
+    res = client.post("/api/v1/meeting/apply", json=payload, headers=ql)
+    assert res.status_code == 200, res.text
+    body = res.json()
+    # Chỉ act_valid_3 được tạo
+    assert body["tasks_created"] == 1
+
+    treo = kv_get("treo", [])
+    # Việc rỗng không có trong treo
+    assert not any("Việc chưa giao cho ai" in t.get("noi_dung", "") for t in treo)
+    assert not any("Việc để trống người nhận" in t.get("noi_dung", "") for t in treo)
+    # Việc giao cho Lan có trong treo và có nv_id hợp lệ
+    lan_task = next((t for t in treo if "Việc giao cho Lan" in t.get("noi_dung", "")), None)
+    assert lan_task is not None
+    assert lan_task["nv_id"] is not None
+    assert lan_task["nv_id"] != ""
 
 
 def test_tc33_corrupted_audio_file_returns_400_not_500() -> None:

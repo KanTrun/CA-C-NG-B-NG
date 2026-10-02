@@ -114,3 +114,22 @@ def test_store_profile_chan_email_va_hotline_sai(client: TestClient) -> None:
     # Hotline phụ chứa chữ
     r2 = client.put("/api/v1/store/profile", json={"hotline_phu": "so_dien_thoai_chu"}, headers=ql)
     assert r2.status_code == 422
+
+
+def test_geocode_address_api(client: TestClient) -> None:
+    """Kiểm tra tra cứu toạ độ từ địa chỉ quán qua /api/v1/geo/geocode."""
+    assert client.get("/api/v1/geo/geocode?address=Hồ+Chí+Minh").status_code == 401
+
+    ql = headers(client, "lan")
+    r = client.get("/api/v1/geo/geocode?address=Hồ+Chí+Minh", headers=ql)
+    assert r.status_code == 200, r.text
+    data = r.json()
+    assert data["found"] is True
+    assert data["lat"] is not None
+    assert data["lon"] is not None
+
+    # Địa chỉ rỗng không tìm thấy
+    r_empty = client.get("/api/v1/geo/geocode?address=dia_chi_khong_ton_tai_xyz123456789", headers=ql)
+    assert r_empty.status_code == 200
+    assert r_empty.json()["found"] is False
+

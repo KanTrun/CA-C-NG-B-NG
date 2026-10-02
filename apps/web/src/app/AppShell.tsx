@@ -69,7 +69,7 @@ const GROUPS: NavGroup[] = [
       { href: "/copilot", label: "Trợ lý điều hành" },
       { href: "/sop", label: "Hỏi quy trình" },
       { href: "/cam-nang", label: "Cẩm nang quán" },
-      { href: "/skills", label: "Bộ kỹ năng AI" },
+      { href: "/skills", label: "Năng lực Trợ lý AI" },
       { href: "/ai-learning", label: "Học từ phản hồi" },
       { href: "/de-xuat-thong-minh", label: "Đề xuất thông minh" },
       { href: "/giai-thich", label: "Hệ thống tự giải thích" },

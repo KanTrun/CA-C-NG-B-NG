@@ -273,12 +273,15 @@ jobs:
   docker:
     name: "09 docker build"
     runs-on: ubuntu-latest
+    env:
+      NHIPQUAN_SEED_DEMO: "true"
     steps:
       - uses: actions/checkout@v4
       - name: Prepare env
         run: |
           cp .env.example .env || touch .env
           sed -i 's/^NHIPQUAN_SEED_DEMO=.*/NHIPQUAN_SEED_DEMO=true/' .env
+          cp .env infra/docker/.env
       - run: docker compose -f infra/docker/compose.yml build
       - name: Stack lên và smoke toàn tuyến
         run: |

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from ca_agents.ag_shift_rescue.eligibility import (
     BLOCK_REASONS,
     StaffProfile,
@@ -20,7 +22,7 @@ REQUIRED = "pha_che"
 
 
 def _staff(**over: object) -> StaffProfile:
-    base: dict[str, object] = {
+    base: dict[str, Any] = {
         "nv_id": "nv_1",
         "ten": "NV 1",
         "ky_nang": {"pha_che", "phuc_vu"},

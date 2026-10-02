@@ -21,6 +21,7 @@
  */
 
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
 import { ApiError, apiGet, apiSend, apiSendHeaders } from "../../lib/api";
 import {
   danhMucLabel,
@@ -59,6 +60,28 @@ import {
 import { GiaGauge, PhanViBars, type HangPhanVi } from "../../ui/khao-sat-gia/bieu-do-gia";
 
 /* ── Kiểu dữ liệu khớp `ca_contracts.catchment_survey_v2` ── */
+
+type StoreProfile = {
+  ten_quan?: string;
+  dia_chi?: string;
+  dia_chi_chi_tiet?: string;
+  phuong_xa?: string;
+  quan_huyen?: string;
+  tinh?: string;
+  thanh_pho?: string;
+  toa_do_lat?: string;
+  toa_do_lon?: string;
+  lat?: number | null;
+  lon?: number | null;
+};
+
+type StoreLocationInfo = {
+  tenQuan: string;
+  diaChi: string;
+  latitude: string;
+  longitude: string;
+  nguon: "gps" | "dia_chi";
+};
 
 type Progress = { step: number; total: number; label: string };
 
@@ -246,6 +269,9 @@ export default function KhaoSatGiaPage() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
+  const [storeLocation, setStoreLocation] = useState<StoreLocationInfo | null>(null);
+  const [loadingLocation, setLoadingLocation] = useState(false);
+  const [tuyChinhToaDo, setTuyChinhToaDo] = useState(false);
 
   /**
    * Khoá idempotency cho MỘT ý định khảo sát. Sinh khi bấm "Khảo sát", giữ nguyên
@@ -256,6 +282,110 @@ export default function KhaoSatGiaPage() {
   useEffect(() => setToken(getToken()), []);
 
   const manager = useMemo(() => isManager(), [token]);
+
+  /**
+   * Tự động lấy địa chỉ và toạ độ quán đã cấu hình sẵn (/cau-hinh-quan).
+   * Ưu tiên toạ độ GPS nếu quán đã lưu; nếu chỉ có địa chỉ chữ thì lấy toạ độ giải mã;
+   * nếu hoàn toàn chưa cấu hình thì hiển thị cảnh báo và cho phép nhập thủ công / lấy GPS.
+   */
+  useEffect(() => {
+    if (!token || !manager) return;
+    let active = true;
+    setLoadingLocation(true);
+
+    async function docViTriQuan() {
+      try {
+        const profile = await apiGet<StoreProfile>("/api/v1/store/profile").catch(() => null);
+        if (!active) return;
+
+        const tenQuan = profile?.ten_quan?.trim() || "";
+        const diaChi =
+          profile?.dia_chi?.trim() ||
+          [profile?.dia_chi_chi_tiet, profile?.phuong_xa, profile?.quan_huyen, profile?.tinh]
+            .filter(Boolean)
+            .map((s) => String(s).trim())
+            .join(", ");
+
+        const latGps = profile?.lat != null ? profile.lat : (profile?.toa_do_lat ? Number(profile.toa_do_lat) : null);
+        const lonGps = profile?.lon != null ? profile.lon : (profile?.toa_do_lon ? Number(profile.toa_do_lon) : null);
+
+        // 1. Quán đã có toạ độ GPS hợp lệ trong cấu hình
+        if (latGps != null && lonGps != null && !isNaN(latGps) && !isNaN(lonGps) && latGps !== 0) {
+          const latStr = latGps.toFixed(6);
+          const lonStr = lonGps.toFixed(6);
+          const loc: StoreLocationInfo = {
+            tenQuan,
+            diaChi: diaChi || "Vị trí GPS đã lưu",
+            latitude: latStr,
+            longitude: lonStr,
+            nguon: "gps",
+          };
+          setStoreLocation(loc);
+          setForm((f) => ({ ...f, latitude: latStr, longitude: lonStr }));
+          setLoadingLocation(false);
+          return;
+        }
+
+        // 2. Quán có địa chỉ nhưng chưa lấy GPS -> giải mã toạ độ qua API địa lý / thời tiết
+        if (diaChi) {
+          const geoRes = await apiGet<{ found?: boolean; lat?: number; lon?: number }>(
+            `/api/v1/geo/geocode?address=${encodeURIComponent(diaChi)}`
+          ).catch(() => null);
+
+          let latVal = geoRes?.found && geoRes?.lat != null ? geoRes.lat : null;
+          let lonVal = geoRes?.found && geoRes?.lon != null ? geoRes.lon : null;
+
+          if (latVal == null || lonVal == null) {
+            const thoiTiet = await apiGet<{
+              vi_tri?: { lat?: number; lon?: number; thanh_pho?: string; tinh?: string };
+            }>("/api/v1/thoi-tiet/hom-nay").catch(() => null);
+            if (thoiTiet?.vi_tri?.lat != null && thoiTiet?.vi_tri?.lon != null) {
+              latVal = thoiTiet.vi_tri.lat;
+              lonVal = thoiTiet.vi_tri.lon;
+            }
+          }
+
+          if (active && latVal != null && lonVal != null) {
+            const latStr = Number(latVal).toFixed(6);
+            const lonStr = Number(lonVal).toFixed(6);
+            const loc: StoreLocationInfo = {
+              tenQuan,
+              diaChi,
+              latitude: latStr,
+              longitude: lonStr,
+              nguon: "dia_chi",
+            };
+            setStoreLocation(loc);
+            setForm((f) => ({ ...f, latitude: latStr, longitude: lonStr }));
+            setLoadingLocation(false);
+            return;
+          }
+        }
+
+        // 3. Quán chưa cấu hình địa chỉ / toạ độ
+        setStoreLocation(null);
+        setTuyChinhToaDo(true);
+      } catch {
+        setStoreLocation(null);
+        setTuyChinhToaDo(true);
+      } finally {
+        if (active) setLoadingLocation(false);
+      }
+    }
+
+    void docViTriQuan();
+    return () => {
+      active = false;
+    };
+  }, [token, manager]);
+
+  function khoiPhucViTriQuan() {
+    if (storeLocation) {
+      set("latitude", storeLocation.latitude);
+      set("longitude", storeLocation.longitude);
+      setMsg("Đã khôi phục toạ độ theo địa chỉ quán đã cấu hình.");
+    }
+  }
 
   /**
    * Sửa form = ý định mới, nên huỷ khoá idempotency cũ. Giữ khoá cũ thì máy chủ
@@ -315,9 +445,31 @@ export default function KhaoSatGiaPage() {
 
   /* ── Poll khi job đang chạy ── */
 
+  const [pollRetryTrigger, setPollRetryTrigger] = useState(0);
+
   useEffect(() => {
     if (!token || manHinh !== "chay" || !jobId) return;
     let huy = false;
+    let consecutiveErrors = 0;
+
+    void docTrangThai(jobId)
+      .then((job) => {
+        if (huy || !job) return;
+        consecutiveErrors = 0;
+        setError(null);
+        if (!DANG_CHAY.has(job.status)) {
+          void dongBoManHinh(jobId, job);
+        } else {
+          setStatus(job);
+        }
+      })
+      .catch((e) => {
+        if (huy) return;
+        consecutiveErrors++;
+        if (consecutiveErrors >= 3) {
+          setError(loiKhaoSat(e, "theo dõi được khảo sát"));
+        }
+      });
 
     const timer = setInterval(() => {
       // Tab ẩn thì dừng gọi: job vẫn chạy ở máy chủ, không cần đốt request.
@@ -325,6 +477,8 @@ export default function KhaoSatGiaPage() {
       void docTrangThai(jobId)
         .then((job) => {
           if (huy || !job) return;
+          consecutiveErrors = 0;
+          setError(null);
           if (!DANG_CHAY.has(job.status)) {
             clearInterval(timer);
             void dongBoManHinh(jobId, job);
@@ -334,8 +488,11 @@ export default function KhaoSatGiaPage() {
         })
         .catch((e) => {
           if (huy) return;
-          clearInterval(timer);
-          setError(loiKhaoSat(e, "theo dõi được khảo sát"));
+          consecutiveErrors++;
+          if (consecutiveErrors >= 3) {
+            clearInterval(timer);
+            setError(loiKhaoSat(e, "theo dõi được khảo sát"));
+          }
         });
     }, POLL_MS);
 
@@ -343,7 +500,7 @@ export default function KhaoSatGiaPage() {
       huy = true;
       clearInterval(timer);
     };
-  }, [token, manHinh, jobId, docTrangThai, dongBoManHinh]);
+  }, [token, manHinh, jobId, docTrangThai, dongBoManHinh, pollRetryTrigger]);
 
   /* ── Màn 1: nhập liệu ── */
 
@@ -543,6 +700,11 @@ export default function KhaoSatGiaPage() {
           onSubmit={batDauKhaoSat}
           onLayViTri={layViTriHienTai}
           onPreset={apPreset}
+          storeLocation={storeLocation}
+          loadingLocation={loadingLocation}
+          tuyChinhToaDo={tuyChinhToaDo}
+          setTuyChinhToaDo={setTuyChinhToaDo}
+          onKhoiPhucViTriQuan={khoiPhucViTriQuan}
         />
       ) : null}
 
@@ -556,6 +718,14 @@ export default function KhaoSatGiaPage() {
           </p>
           <div className="mt-6">
             <Loading skeleton="rows" rows={4}>Đang lấy dữ liệu thị trường…</Loading>
+          </div>
+          <div className="mt-6 flex flex-wrap gap-3 pt-4 border-t border-[var(--nq-line)]">
+            <Btn variant="ghost" onClick={() => setPollRetryTrigger((n) => n + 1)}>
+              Thử kết nối lại
+            </Btn>
+            <Btn variant="ghost" onClick={khaoSatMoi}>
+              Quay lại thiết lập khảo sát
+            </Btn>
           </div>
         </OpsCard>
       ) : null}
@@ -695,6 +865,11 @@ function MangNhap({
   onSubmit,
   onLayViTri,
   onPreset,
+  storeLocation,
+  loadingLocation,
+  tuyChinhToaDo,
+  setTuyChinhToaDo,
+  onKhoiPhucViTriQuan,
 }: {
   form: FormState;
   set: <K extends keyof FormState>(key: K, value: FormState[K]) => void;
@@ -702,35 +877,130 @@ function MangNhap({
   onSubmit: (e: FormEvent) => void;
   onLayViTri: () => void;
   onPreset: (preset: (typeof RADIUS_PRESETS)[number]) => void;
+  storeLocation: StoreLocationInfo | null;
+  loadingLocation: boolean;
+  tuyChinhToaDo: boolean;
+  setTuyChinhToaDo: (val: boolean) => void;
+  onKhoiPhucViTriQuan: () => void;
 }) {
   return (
     <form onSubmit={onSubmit}>
       <OpsCard eyebrow="Bước 1" title="Quán của bạn ở đâu">
-        <div className="grid gap-4 sm:grid-cols-2">
-          <Field label="Vĩ độ" hint="Số thập phân, vd 10.7769.">
-            <Input
-              type="number"
-              step="0.000001"
-              min={-90}
-              max={90}
-              value={form.latitude}
-              onChange={(e) => set("latitude", e.target.value)}
-            />
-          </Field>
-          <Field label="Kinh độ" hint="Số thập phân, vd 106.7009.">
-            <Input
-              type="number"
-              step="0.000001"
-              min={-180}
-              max={180}
-              value={form.longitude}
-              onChange={(e) => set("longitude", e.target.value)}
-            />
-          </Field>
-        </div>
-        <Btn variant="ghost" type="button" onClick={onLayViTri}>
-          Lấy vị trí hiện tại
-        </Btn>
+        {loadingLocation ? (
+          <p className="nq-muted text-sm py-2">Đang tải vị trí quán đã cấu hình…</p>
+        ) : storeLocation ? (
+          <div className="space-y-4">
+            <div className="rounded-xl border border-[var(--nq-line)] bg-[var(--nq-surface-hi)] p-4 space-y-3">
+              <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2">
+                    <span className="font-bold text-[var(--nq-fg)]">
+                      {storeLocation.tenQuan || "Địa chỉ quán của bạn"}
+                    </span>
+                    <span className="rounded px-2 py-0.5 text-xs font-semibold bg-[var(--nq-accent-subtle)] text-[var(--nq-accent)]">
+                      {storeLocation.nguon === "gps" ? "Toạ độ GPS quán" : "Địa chỉ cấu hình"}
+                    </span>
+                  </div>
+                  <p className="text-sm text-[var(--nq-dim)]">
+                    {storeLocation.diaChi}
+                  </p>
+                  <p className="font-mono text-xs text-[var(--nq-muted)]">
+                    Toạ độ đang dùng: {form.latitude}, {form.longitude}
+                  </p>
+                </div>
+                <div className="flex flex-wrap items-center gap-2 shrink-0">
+                  <Btn
+                    variant="ghost"
+                    type="button"
+                    onClick={() => setTuyChinhToaDo(!tuyChinhToaDo)}
+                  >
+                    {tuyChinhToaDo ? "Ẩn tuỳ chỉnh toạ độ" : "Đổi toạ độ khác"}
+                  </Btn>
+                  {tuyChinhToaDo &&
+                  (form.latitude !== storeLocation.latitude || form.longitude !== storeLocation.longitude) ? (
+                    <Btn
+                      variant="ghost"
+                      type="button"
+                      onClick={onKhoiPhucViTriQuan}
+                    >
+                      Khôi phục toạ độ quán
+                    </Btn>
+                  ) : null}
+                </div>
+              </div>
+            </div>
+
+            {tuyChinhToaDo ? (
+              <div className="rounded-xl border border-dashed border-[var(--nq-line)] p-4 space-y-4">
+                <p className="text-xs text-[var(--nq-muted)]">
+                  Chỉ chỉnh sửa nếu bạn muốn khảo sát thị trường quanh một toạ độ khác ngoài quán của bạn:
+                </p>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <Field label="Vĩ độ" hint="Số thập phân, vd 10.7769.">
+                    <Input
+                      type="number"
+                      step="0.000001"
+                      min={-90}
+                      max={90}
+                      value={form.latitude}
+                      onChange={(e) => set("latitude", e.target.value)}
+                    />
+                  </Field>
+                  <Field label="Kinh độ" hint="Số thập phân, vd 106.7009.">
+                    <Input
+                      type="number"
+                      step="0.000001"
+                      min={-180}
+                      max={180}
+                      value={form.longitude}
+                      onChange={(e) => set("longitude", e.target.value)}
+                    />
+                  </Field>
+                </div>
+                <Btn variant="ghost" type="button" onClick={onLayViTri}>
+                  Lấy vị trí GPS hiện tại
+                </Btn>
+              </div>
+            ) : null}
+          </div>
+        ) : (
+          <div className="space-y-4">
+            <Alert kind="info">
+              Quán chưa được thiết lập địa chỉ hoặc toạ độ. Vui lòng nhập toạ độ quán bên dưới, bấm lấy vị trí hiện tại của trình duyệt, hoặc{" "}
+              <Link href="/cau-hinh-quan" className="underline font-bold text-[var(--nq-accent)]">
+                vào Cấu hình quán
+              </Link>{" "}
+              để thiết lập địa chỉ dùng chung cho toàn hệ thống.
+            </Alert>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Field label="Vĩ độ" hint="Số thập phân, vd 10.7769.">
+                <Input
+                  type="number"
+                  step="0.000001"
+                  min={-90}
+                  max={90}
+                  value={form.latitude}
+                  onChange={(e) => set("latitude", e.target.value)}
+                  placeholder="10.7769"
+                />
+              </Field>
+              <Field label="Kinh độ" hint="Số thập phân, vd 106.7009.">
+                <Input
+                  type="number"
+                  step="0.000001"
+                  min={-180}
+                  max={180}
+                  value={form.longitude}
+                  onChange={(e) => set("longitude", e.target.value)}
+                  placeholder="106.7009"
+                />
+              </Field>
+            </div>
+            <Btn variant="ghost" type="button" onClick={onLayViTri}>
+              Lấy vị trí hiện tại
+            </Btn>
+          </div>
+        )}
       </OpsCard>
 
       <OpsCard eyebrow="Bước 2" title="Bán kính khảo sát" tourId="khao-sat-gia-ban-kinh">

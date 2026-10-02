@@ -12,12 +12,13 @@ from ca_agents.ag_rule_learning.discover import (
     discover_rule_candidates,
     to_vf_condition,
 )
+from ca_contracts import RuleCandidate
 from ca_playbook.vong_doi import de_xuat, kiem_chung
 
 SNAP = "snap_bridge_20260918"
 
 
-def _candidate():
+def _candidate() -> RuleCandidate:
     sigs = [
         DecisionSignal(signal_id="e1", decision="them_nguoi_gio_cao", outcome="ok", day_part="toi", station="bar", skill="pha_che", demand_band="cao"),
         DecisionSignal(signal_id="e2", decision="them_nguoi_gio_cao", outcome="ok", day_part="toi", station="bar", skill="pha_che", demand_band="cao"),

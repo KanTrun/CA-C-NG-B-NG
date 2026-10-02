@@ -103,7 +103,7 @@ Sau đó gọi API kèm header `Authorization: Bearer <token>`.
 | A5 | `/them` | "Tất cả lối vào" | 19 tile liên kết (đếm từ `LINKS`), bấm 1 tile đi đúng trang | ✅ PASS — HTTP 200 |
 | A6 | `/contracts` | Xem danh sách hợp đồng dữ liệu | Tên **rút gọn** dạng `Lan N.` + cờ `la_du_lieu_mo_phong` | ✅ PASS — `la_du_lieu_mo_phong` có trong response; tên rút gọn (bug #8 giữ nguyên fix) |
 | A7 | `/vet` | "Vết hệ thống" → lọc theo "Người thực hiện" + thanh tìm | Bảng hiện `countLabel="vết"`; lọc giảm số dòng | ✅ PASS — `/api/v1/audit` 200, 200 dòng |
-| A8 | `/skills` | "Bộ kỹ năng AI" | Danh sách kỹ năng; API `/api/v1/skills` → **200** (không 404) | ✅ PASS — 200, **13 skill** |
+| A8 | `/skills` | "Bộ kỹ năng AI" | Danh sách kỹ năng; API `/api/v1/skills` → **200** (không 404) | ✅ PASS — 200, **14 skill** |
 
 ---
 

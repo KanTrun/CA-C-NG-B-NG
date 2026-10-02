@@ -21,10 +21,10 @@ from pydantic import ValidationError
 
 def test_enum_values_are_stable_strings() -> None:
     """Mã enum là giao kèo với API/UI — đổi là breaking, phải cố ý."""
-    assert LossLevel.DAT == "dat"
-    assert LossLevel.THIEU_DU_LIEU == "thieu_du_lieu"
-    assert LossBasis.KE_HOACH_KIEM_KE == "ke_hoach_kiem_ke"
-    assert LossCauseSource.NGUYEN_NHAN_GHI == "nguyen_nhan_ghi"
+    assert LossLevel.DAT.value == "dat"
+    assert LossLevel.THIEU_DU_LIEU.value == "thieu_du_lieu"
+    assert LossBasis.KE_HOACH_KIEM_KE.value == "ke_hoach_kiem_ke"
+    assert LossCauseSource.NGUYEN_NHAN_GHI.value == "nguyen_nhan_ghi"
 
 
 def test_level_has_missing_data_branch() -> None:

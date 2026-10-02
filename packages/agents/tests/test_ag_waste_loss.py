@@ -11,6 +11,8 @@ Trọng tâm khẳng định:
 
 from __future__ import annotations
 
+from typing import Any
+
 from ca_agents.ag_waste import (
     chuan_hoa_mat_hang,
     doc_ban_theo_mon,
@@ -68,7 +70,7 @@ def test_gom_theo_mat_hang_cong_don_nhieu_dong() -> None:
 
 def test_gom_theo_mat_hang_bo_qua_so_khong_doc_duoc() -> None:
     """Số rác không được kéo cả phép tính xuống."""
-    rows = [
+    rows: list[dict[str, Any]] = [
         {"mat_hang": "sua_tuoi", "so_luong": 2},
         {"mat_hang": "sua_tuoi", "so_luong": "khong-phai-so"},
         {"mat_hang": "sua_tuoi", "so_luong": None},
@@ -386,7 +388,7 @@ def test_tong_hop_giu_co_du_lieu_mau() -> None:
 
 def test_doc_ban_theo_mon_chi_tinh_don_da_xong() -> None:
     """Đơn đang pha hoặc đã hủy thì nguyên liệu chưa ra khỏi kho."""
-    don = [
+    don: list[dict[str, Any]] = [
         {"trang_thai": "xong", "dong": [{"mon_id": "latte", "so_luong": 2}]},
         {"trang_thai": "dang_pha", "dong": [{"mon_id": "latte", "so_luong": 5}]},
         {"trang_thai": "huy", "dong": [{"mon_id": "latte", "so_luong": 9}]},
@@ -411,7 +413,7 @@ def test_doc_ban_theo_mon_bo_dong_hong() -> None:
 
 
 def test_doc_bom_theo_mon_giu_nguyen_dinh_muc() -> None:
-    menu = [{"id": "latte", "bom": {"cafe_g": 18}}, {"id": "hong"}]
+    menu: list[dict[str, Any]] = [{"id": "latte", "bom": {"cafe_g": 18}}, {"id": "hong"}]
     assert doc_bom_theo_mon(menu) == {"latte": {"cafe_g": 18}}
 
 
@@ -439,7 +441,7 @@ def test_so_hao_hut_chay_khong_can_fixture_db() -> None:
 # ── Ghép bốn nguồn (điểm vào dùng chung cho API và agent mẹ) ────────────────────
 
 
-def _phieu_kiem_ke(ngay: str, muc: list[dict]) -> dict:
+def _phieu_kiem_ke(ngay: str, muc: list[dict[str, Any]]) -> dict[str, Any]:
     return {"ngay": ngay, "muc": muc}
 
 

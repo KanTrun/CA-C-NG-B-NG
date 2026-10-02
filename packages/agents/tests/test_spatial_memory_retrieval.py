@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from ca_agents.ag_spatial_memory.retrieval import (
     MemoryRepository,
@@ -19,7 +20,7 @@ from ca_contracts.grand_experience import ExperienceRole
 
 
 def _mem(memory_id: str, **over: object) -> ExperienceMemory:
-    base = {
+    base: dict[str, Any] = {
         "memory_id": memory_id,
         "anchor_id": "bar",
         "owner_scope": "khach_1",

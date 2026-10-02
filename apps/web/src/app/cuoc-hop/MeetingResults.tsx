@@ -510,17 +510,33 @@ export function MeetingResults({
         >
           <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
             <div className="text-xs">
-              {meeting.action_items.filter((a) => a.da_chon && a.can_lam_ro).length > 0 ? (
-                <span className="text-[var(--nq-st-warn-ink)] font-medium flex items-center gap-1.5">
-                  <Icon name="warn" size={14} /> Có{" "}
-                  <strong>{meeting.action_items.filter((a) => a.da_chon && a.can_lam_ro).length}</strong> việc cần
-                  làm rõ ngữ cảnh hoặc lịch ca trước khi giao
-                </span>
-              ) : (
-                <span className="text-[var(--nq-st-ok-ink)] font-medium flex items-center gap-1.5">
-                  <span>✓</span> Toàn bộ công việc đã đầy đủ thông tin nhân sự và ca làm việc
-                </span>
-              )}
+              {(() => {
+                // Banner phải trung thực: việc chọn mà chưa gắn được mã nhân viên
+                // (nhan_vien_id rỗng) không được báo "đầy đủ thông tin" — đã gặp
+                // thật 2026-10-01, duyệt xong việc treo không có người nhận.
+                const daChon = meeting.action_items.filter((a) => a.da_chon);
+                const soViecCanXuLy = daChon.filter(
+                  (a) =>
+                    a.can_lam_ro ||
+                    !a.nhan_vien_id ||
+                    !a.ten_nguoi_nhan ||
+                    a.ten_nguoi_nhan.trim() === "" ||
+                    a.ten_nguoi_nhan.trim().toLowerCase() === "chưa rõ",
+                ).length;
+                if (soViecCanXuLy > 0) {
+                  return (
+                    <span className="text-[var(--nq-st-warn-ink)] font-medium flex items-center gap-1.5">
+                      <Icon name="warn" size={14} /> Có <strong>{soViecCanXuLy}</strong> việc cần
+                      làm rõ ngữ cảnh hoặc bổ sung nhân sự trước khi giao
+                    </span>
+                  );
+                }
+                return (
+                  <span className="text-[var(--nq-st-ok-ink)] font-medium flex items-center gap-1.5">
+                    <span>✓</span> Toàn bộ công việc đã đầy đủ thông tin nhân sự và ca làm việc
+                  </span>
+                );
+              })()}
             </div>
             <div className="flex items-center gap-2 flex-wrap">
               {onClarifyActions && (
@@ -661,8 +677,9 @@ export function MeetingResults({
                           Giao cho:
                           <input
                             type="text"
+                            placeholder="Tên nhân viên"
                             className={`${inputClassName} nq-input--compact w-28`}
-                            value={it.ten_nguoi_nhan}
+                            value={it.ten_nguoi_nhan || ""}
                             onChange={(e) => onUpdateAssignee(it.id, e.target.value)}
                           />
                         </label>
@@ -910,11 +927,25 @@ export function MeetingResults({
               <p className="nq-meeting-footer__note m-0">
                 Sau khi duyệt, việc được chọn sẽ đẩy vào OpsEngine (việc treo ca); đề xuất cẩm nang ghi vào Playbook; điều chỉnh lịch ca được nạp thẳng vào Solver.
               </p>
-              {meeting.action_items.filter((a) => a.da_chon && a.can_lam_ro).length > 0 && (
-                <p className="text-xs text-[var(--nq-st-warn-ink)] font-medium m-0">
-                  <Icon name="warn" size={14} /> Còn {meeting.action_items.filter((a) => a.da_chon && a.can_lam_ro).length} việc chưa hoàn tất làm rõ ngữ cảnh. Bạn có thể chọn nhanh gợi ý của AI ở trên hoặc duyệt nếu đã nắm rõ.
-                </p>
-              )}
+              {(() => {
+                const daChon = meeting.action_items.filter((a) => a.da_chon);
+                const soViecChuaChuan = daChon.filter(
+                  (a) =>
+                    a.can_lam_ro ||
+                    !a.nhan_vien_id ||
+                    !a.ten_nguoi_nhan ||
+                    a.ten_nguoi_nhan.trim() === "" ||
+                    a.ten_nguoi_nhan.trim().toLowerCase() === "chưa rõ",
+                ).length;
+                if (soViecChuaChuan > 0) {
+                  return (
+                    <p className="text-xs text-[var(--nq-st-warn-ink)] font-medium m-0 flex items-center gap-1.5">
+                      <Icon name="warn" size={14} /> Còn {soViecChuaChuan} việc chưa hoàn tất chỉ định nhân sự hoặc làm rõ ngữ cảnh. Cần điền người nhận trước khi duyệt vào ca.
+                    </p>
+                  );
+                }
+                return null;
+              })()}
             </div>
           )}
         </div>

@@ -7,6 +7,7 @@ Test privacy invariants: consent revoked không retrieve, pending (draft) không
 from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
+from typing import Any
 
 import pytest
 from ca_contracts import (
@@ -27,7 +28,7 @@ from pydantic import ValidationError
 
 
 def _memory(**over: object) -> ExperienceMemory:
-    base: dict[str, object] = {
+    base: dict[str, Any] = {
         "memory_id": "m1",
         "anchor_id": "bar",
         "owner_scope": "khach_psid_1",
@@ -46,7 +47,7 @@ def test_pending_is_draft_not_separate_enum() -> None:
     assert m.status.value == "draft"
     # Không tồn tại giá trị "pending"
     with pytest.raises(ValidationError):
-        _memory(status="pending")  # type: ignore[arg-type]
+        _memory(status="pending")
 
 
 def test_revoked_consent_not_retrievable() -> None:

@@ -53,7 +53,7 @@
 | `/cau-hinh-quan` | Form hồ sơ quán/AI, live preview, lưu | `GET /store/profile|promotions` | 200; KHÔNG PUT (tránh đổi hồ sơ thật) |
 | `/vet` | Bảng 200 vết, lọc người/thời gian, tìm kiếm, panel AI | `GET /audit?limit=500` | hung/lan 200; minh 403 |
 | `/contracts` | Explorer hợp đồng ADR-012 | `GET /contracts` | 200, tên rút gọn + cờ mô phỏng |
-| `/skills` | Danh mục 13 skill, tìm kiếm, xem SHA, verify smoke | `GET /skills`, `POST /skills/{id}/verify` | 200; verify `barista-waste-audit` VERIFIED |
+| `/skills` | Danh mục 14 skill, tìm kiếm, xem SHA, verify smoke | `GET /skills`, `POST /skills/{id}/verify` | 200; verify `barista-waste-audit` VERIFIED |
 
 ---
 

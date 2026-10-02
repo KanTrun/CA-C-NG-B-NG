@@ -13,6 +13,7 @@ import io
 import json
 import urllib.error
 import urllib.request
+from typing import Any
 
 import pytest
 from ca_agents import image_gen
@@ -543,7 +544,7 @@ def test_edit_image_pollinations_used_first(monkeypatch: pytest.MonkeyPatch) -> 
 def test_edit_image_sends_multipart_with_photo(monkeypatch: pytest.MonkeyPatch) -> None:
     """Body PHẢI chứa ảnh nhị phân — thiếu nó là text-to-image, mất ý nghĩa i2i."""
     monkeypatch.setenv("POLLINATIONS_API_KEY", "sk_test")
-    sent: list[object] = []
+    sent: list[Any] = []
 
     def fake_urlopen(req, timeout=None):  # noqa: ANN001
         sent.append(req)
@@ -722,7 +723,7 @@ def test_edit_image_cloudflare_sends_photo_in_multipart(
 ) -> None:
     """Ảnh gốc PHẢI đi trong body — thiếu nó là text-to-image, mất ý nghĩa i2i."""
     _cf_configure(monkeypatch)
-    sent: list[object] = []
+    sent: list[Any] = []
 
     def fake_urlopen(req, timeout=None):  # noqa: ANN001
         sent.append(req)

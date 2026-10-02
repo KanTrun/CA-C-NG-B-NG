@@ -29,6 +29,7 @@ npm-debug.log*
 # OS / IDE
 .DS_Store
 Thumbs.db
+*.exe
 .idea/
 .vscode/
 
@@ -49,9 +50,10 @@ apps/.._tsc_web.txt
 apply_*.py
 build_clean_transitions.py
 
-# AgentKit / Kiro — công cụ trợ lý cục bộ, không phải mã sản phẩm.
+# AgentKit / Kiro / OpenCode — công cụ trợ lý cục bộ, không phải mã sản phẩm.
 # .kiro/agentkit chứa bản export portable (1491 tệp) nên tuyệt đối không commit.
 .kiro/
+.opencode/
 
 # Docker
 *.log

@@ -4,10 +4,15 @@ from __future__ import annotations
 
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Header
+from fastapi import APIRouter, Header, Query
 
 from ca_api.interfaces.http.sprint3 import _require_role
-from ca_api.services.dia_chi_service import get_districts, get_provinces, get_wards
+from ca_api.services.dia_chi_service import (
+    geocode_address,
+    get_districts,
+    get_provinces,
+    get_wards,
+)
 
 router = APIRouter(tags=["dia_chi"])
 
@@ -39,3 +44,20 @@ def api_get_wards(
     """Danh sách phường/xã theo mã quận/huyện."""
     _require_role(authorization)
     return get_wards(district_code)
+
+
+@router.get("/api/v1/geo/geocode")
+def api_geocode_address(
+    address: Annotated[str, Query(description="Địa chỉ cần tra cứu toạ độ")] = "",
+    phuong_xa: Annotated[str, Query(description="Phường/Xã")] = "",
+    quan_huyen: Annotated[str, Query(description="Quận/Huyện")] = "",
+    tinh: Annotated[str, Query(description="Tỉnh/Thành phố")] = "",
+    authorization: Annotated[str | None, Header()] = None,
+) -> dict[str, Any]:
+    """Tra cứu toạ độ GPS (lat/lon) từ địa chỉ quán."""
+    _require_role(authorization)
+    result = geocode_address(address, phuong_xa=phuong_xa, quan_huyen=quan_huyen, tinh=tinh)
+    if not result:
+        return {"found": False, "lat": None, "lon": None}
+    return {"found": True, **result}
+

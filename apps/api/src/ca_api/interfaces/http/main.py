@@ -43,6 +43,7 @@ from ca_contracts import (
     PhieuMau,
     RangBuocTrichXuat,
 )
+from ca_ops import load_phieu_catalog
 from ca_ops.engine import load_template as _load_template
 from ca_playbook import record_sua
 from ca_playbook.sua import list_sua as _list_sua
@@ -83,6 +84,7 @@ from ca_api.interfaces.http.origins import (
 )
 from ca_api.interfaces.http.pos import router as pos_router
 from ca_api.interfaces.http.quanverse import router as quanverse_router
+from ca_api.services.thoi_tiet import get_thoi_tiet_hom_nay
 
 try:
     from ca_api.interfaces.http.pricing_radar import (
@@ -122,7 +124,10 @@ from ca_api.persist import (
     kv_set,
     list_users,
     menu_list,
+    open_shift_list,
+    reservation_list,
     schedule_run_latest,
+    table_list,
 )
 from ca_api.persist import login as persist_login
 from ca_api.persist import logout as persist_logout
@@ -551,6 +556,18 @@ configure_data_sources(
     get_circuit_breaker_state=lambda: _get_circuit_breaker().state,
     get_store_survey_count_today=lambda sid: _get_job_store().count_today(sid),
     get_latest_survey=lambda sid="": _get_job_store().get_latest_completed_job(sid),
+    # Mở rộng năng lực vận hành: thời tiết Open-Meteo, mẫu phiếu ca, đặt bàn, chợ ca, họp & gợi ý vận hành
+    thoi_tiet_hom_nay=get_thoi_tiet_hom_nay,
+    load_phieu_catalog=load_phieu_catalog,
+    reservation_list=lambda store_id="quan_01": reservation_list(store_id=store_id),
+    table_list=lambda store_id="quan_01": table_list(store_id=store_id),
+    open_shift_list=lambda store_id="quan_01": open_shift_list(store_id=store_id),
+    meetings_list=lambda: kv_get("meetings", []),
+    predict_suggestions=lambda: {
+        "suggestions": kv_get("ops_predict_rules", []),
+        "patterns": kv_get("ops_predict_patterns", []),
+        "twin_scenarios": kv_get("ops_twin_scenarios", []),
+    },
 )
 
 

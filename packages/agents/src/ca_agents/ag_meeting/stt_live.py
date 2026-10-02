@@ -145,6 +145,28 @@ def _decode_to_pcm16_16khz(audio_bytes: bytes, mime_type: str) -> bytes | None:
     return None
 
 
+def _merge_interim_transcripts(transcripts: list[str]) -> str:
+    """Gộp chuỗi transcript streaming thành văn bản hoàn chỉnh.
+
+    interimInputTranscription là tiền tố mở dần ("Good" → "Good morning" →
+    "Good morning, team.") — nối nguyên chuỗi thì bản bóc băng lặp từng cụm
+    từ (gặp thật 2026-10-01 với file TTS). Đoạn mới mở rộng đoạn trước thì
+    THAY thế; đoạn trùng lặp thì bỏ; đoạn mới (lượt nói khác) thì nối tiếp.
+    """
+    merged: list[str] = []
+    for t in transcripts:
+        t = t.strip()
+        if not t:
+            continue
+        if merged and t.startswith(merged[-1]):
+            merged[-1] = t
+        elif merged and merged[-1].startswith(t):
+            continue
+        else:
+            merged.append(t)
+    return " ".join(merged).strip()
+
+
 async def _transcribe_live_ws(audio_pcm: bytes, api_key: str) -> TranscribeResult:
     """Mở WebSocket Gemini Live, gửi audio, nhận transcript.
 
@@ -253,17 +275,7 @@ async def _transcribe_live_ws(audio_pcm: bytes, api_key: str) -> TranscribeResul
         recv_task = asyncio.create_task(_recv_transcript())
         await asyncio.gather(send_task, recv_task)
 
-    # Dedupe: interimInputTranscription lặp lại nhiều lần (mỗi lần thêm phần mới).
-    # Chỉ giữ phần mới nhất của mỗi đoạn, loại bỏ trùng lặp.
-    deduped: list[str] = []
-    for t in transcripts:
-        t = t.strip()
-        if not t:
-            continue
-        if deduped and t in deduped[-1]:
-            continue
-        deduped.append(t)
-    raw_text = " ".join(deduped).strip()
+    raw_text = _merge_interim_transcripts(transcripts)
     if not raw_text:
         return TranscribeResult(
             ok=False, raw_text="", segments=[], provider="gemini_live", reason="empty_transcript"

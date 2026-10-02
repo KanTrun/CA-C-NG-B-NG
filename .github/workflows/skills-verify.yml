@@ -34,6 +34,6 @@ jobs:
           python -m pip install -e ./packages/contracts -e ./packages/solver \
             -e ./packages/gates -e ./packages/playbook -e ./packages/agents \
             -e ./apps/api pyyaml ortools
-      - name: Verify 13 Skills SHA-256 and Smoke Tests
+      - name: Verify Skills SHA-256 and Smoke Tests
         run: |
           python scripts/distill_project_skills.py --verify-only

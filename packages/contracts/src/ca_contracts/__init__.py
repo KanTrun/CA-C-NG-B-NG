@@ -396,6 +396,16 @@ class CopilotIntent(StrEnum):
     QUERY_AUDIT = "QUERY_AUDIT"
     # Hỏi về 4 mặt Trải nghiệm AI: Living Map, War Room, Cứu ca, Hồn quán (R0_READ)
     QUERY_QUANVERSE = "QUERY_QUANVERSE"
+    # Mở rộng năng lực vận hành (R0_READ)
+    GET_WEATHER = "GET_WEATHER"
+    GET_TODAY_OPERATIONS = "GET_TODAY_OPERATIONS"
+    GET_FAIRNESS_SUMMARY = "GET_FAIRNESS_SUMMARY"
+    GET_MY_CHECKLIST = "GET_MY_CHECKLIST"
+    SEARCH_TRENDS = "SEARCH_TRENDS"
+    GET_RESERVATIONS = "GET_RESERVATIONS"
+    GET_OPEN_SHIFTS = "GET_OPEN_SHIFTS"
+    GET_MEETINGS = "GET_MEETINGS"
+    GET_PREDICTIVE_INSIGHTS = "GET_PREDICTIVE_INSIGHTS"
     OUT_OF_SCOPE = "OUT_OF_SCOPE"
 
 
@@ -422,6 +432,15 @@ _READ_INTENTS = frozenset(
         "GET_SURVEY_RESULT",
         # Trải nghiệm AI (Living Map / War Room / Cứu ca / Hồn quán) — R0_READ mọi role
         "QUERY_QUANVERSE",
+        # Mở rộng năng lực vận hành — R0_READ mọi role
+        "GET_WEATHER",
+        "GET_TODAY_OPERATIONS",
+        "GET_FAIRNESS_SUMMARY",
+        "GET_MY_CHECKLIST",
+        "SEARCH_TRENDS",
+        "GET_RESERVATIONS",
+        "GET_OPEN_SHIFTS",
+        "GET_MEETINGS",
     }
 )
 _QUAN_LY_INTENTS: frozenset[str] = frozenset(
@@ -457,6 +476,8 @@ _QUAN_LY_INTENTS: frozenset[str] = frozenset(
         "RUN_CATCHMENT_SURVEY",
         # Audit / vết hệ thống — R0_READ nhưng chỉ quản lý & chủ quán (tenant-scoped)
         "QUERY_AUDIT",
+        # Gợi ý tối ưu vận hành / Playbook — R0_READ chỉ quản lý & chủ quán
+        "GET_PREDICTIVE_INSIGHTS",
     }
 )
 COPILOT_ROLE_INTENT_MATRIX: dict[str, frozenset[str]] = {
@@ -606,6 +627,7 @@ CAPABILITY_REGISTRY: tuple[CapabilityDefinition, ...] = (
     _cap("PROPOSE_SCHEDULE_TRANSITION", "Công bố/đóng lịch", "schedule", "R3_DUAL_APPROVAL"),
     _cap("EXPORT_SCHEDULE", "Xuất lịch ICS", "schedule", "R0_READ", "/roster"),
     # ── Hôm nay / công bằng ──
+    _cap("GET_WEATHER", "Thời tiết & Khuyến nghị vận hành", "today", "R0_READ", "/hom-nay"),
     _cap("GET_TODAY_OPERATIONS", "Dashboard hôm nay", "today", "R0_READ", "/hom-nay"),
     _cap("GENERATE_DAILY_BRIEF", "Bản tin sáng", "today", "R0_READ"),
     _cap("GET_FAIRNESS_SUMMARY", "Báo cáo công bằng", "today", "R0_READ", "/cong-bang"),
@@ -649,6 +671,7 @@ CAPABILITY_REGISTRY: tuple[CapabilityDefinition, ...] = (
     _cap("PROPOSE_MENU_IMAGE", "Cập nhật ảnh món", "menu", "R2_CONFIRM", "/menu"),
     # ── Quầy / POS ──
     _cap("GET_COUNTER_STATUS", "Trạng thái quầy", "pos", "R0_READ", "/quay"),
+    _cap("GET_RESERVATIONS", "Tra cứu đặt bàn & sơ đồ bàn", "pos", "R0_READ", "/page-quan/dat-ban"),
     _cap("DRAFT_COUNTER_ORDER", "Soạn đơn quầy nháp", "pos", "R1_DRAFT"),
     _cap("PROPOSE_ORDER_TRANSITION", "Đổi trạng thái đơn", "pos", "R2_CONFIRM", "/quay"),
     _cap("PAYMENT", "Thanh toán đơn", "pos", "R4_MANUAL_ONLY", "/quay", "Thanh toán cần policy riêng — giữ manual"),
@@ -673,10 +696,12 @@ CAPABILITY_REGISTRY: tuple[CapabilityDefinition, ...] = (
     # ── SOP / cẩm nang ──
     _cap("QUERY_SOP", "Hỏi quy trình", "sop", "R0_READ", "/sop"),
     _cap("GET_PLAYBOOK", "Xem cẩm nang", "sop", "R0_READ", "/cam-nang"),
+    _cap("GET_PREDICTIVE_INSIGHTS", "Gợi ý tối ưu vận hành & Playbook", "sop", "R0_READ", "/de-xuat-thong-minh"),
     _cap("CREATE_RULE_PROPOSAL", "Đề xuất luật mới", "sop", "R2_CONFIRM"),
     _cap("RUN_RULE_PIPELINE", "Chạy pipeline 8 bước", "sop", "R1_DRAFT", "/cam-nang"),
     _cap("ACTIVATE_PAUSE_ROLLBACK_RULE", "Kích hoạt/tạm dừng luật", "sop", "R3_DUAL_APPROVAL", "/cam-nang"),
     # ── Cuộc họp ──
+    _cap("GET_MEETINGS", "Xem biên bản họp & quyết định", "meeting", "R0_READ", "/cuoc-hop"),
     _cap("TRANSCRIBE_MEETING", "Phiên âm cuộc họp", "meeting", "R1_DRAFT", "/cuoc-hop"),
     _cap("DRAFT_MEETING_MINUTES", "Soạn biên bản nháp", "meeting", "R1_DRAFT", "/cuoc-hop"),
     _cap("APPLY_MEETING_ACTIONS", "Áp dụng action họp", "meeting", "R2_CONFIRM", "/cuoc-hop"),

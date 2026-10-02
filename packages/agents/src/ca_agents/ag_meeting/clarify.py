@@ -201,6 +201,17 @@ def clarify_single_action(
         goi_y = [f"Giao cho {name}" for name in top_staff] if top_staff else ["Giao cho quản lý ca"]
         goi_y.append("Chuyển thành việc chung cả ca")
 
+    # Case C2: Assignee is a concrete name but resolves to NO staff member —
+    # trước đây nv_id None làm nhánh này bị tua qua, clarify vẫn báo "đầy đủ
+    # thông tin" trong khi việc treo được tạo không gắn được người nhận.
+    elif nv_id is None and len(shifts) == 0:
+        can_lam_ro = True
+        van_de = f"Tên '{assignee}' không khớp nhân viên nào trong danh sách quán."
+        cau_hoi = f"Không tìm thấy '{assignee}' trong danh sách nhân sự. Bạn muốn giao việc này cho ai?"
+        top_staff = [str(nv.get("ten")) for nv in (staff_list or [])[:3] if nv.get("ten")]
+        goi_y = [f"Giao cho {name}" for name in top_staff] if top_staff else ["Giao cho quản lý ca"]
+        goi_y.append("Chuyển thành việc chung của quán")
+
     # Case C: Assignee exists but has NO scheduled shifts this week
     elif nv_id and len(shifts) == 0:
         can_lam_ro = True
