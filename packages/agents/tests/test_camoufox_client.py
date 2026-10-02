@@ -38,7 +38,7 @@ def _stub_sync_api(fake_camoufox: MagicMock) -> ModuleType:
     return stub
 
 
-def _install_camoufox(monkeypatch: pytest.MonkeyPatch, fake_camoufox: MagicMock) -> None:
+def _install_camoufox(monkeypatch: pytest.MonkeyPatch, fake_camoufox: Any) -> None:
     """Cài fake module camoufox.sync_api vào sys.modules."""
     monkeypatch.setitem(sys.modules, "camoufox.sync_api", _stub_sync_api(fake_camoufox))
 
@@ -344,3 +344,42 @@ def test_semaphore_blocks_beyond_max_concurrent(monkeypatch: pytest.MonkeyPatch)
         t.join(timeout=10)
 
     assert peak == 2  # không bao giờ quá 2 browser song song
+
+
+def test_scrape_page_calls_setup_page_before_goto(monkeypatch: pytest.MonkeyPatch) -> None:
+    """setup_page phải được gọi sau khi page tạo và trước khi goto."""
+    events: list[str] = []
+
+    class _FakePage:
+        def goto(self, url: str, **kwargs: Any) -> None:
+            events.append(f"goto:{url}")
+
+    class _FakeBrowser:
+        def new_page(self) -> _FakePage:
+            events.append("new_page")
+            return _FakePage()
+
+    class _FakeCamoufox:
+        def __init__(self, **kwargs: Any) -> None:
+            pass
+
+        def __enter__(self) -> _FakeBrowser:
+            events.append("enter")
+            return _FakeBrowser()
+
+        def __exit__(self, *args: Any) -> None:
+            events.append("exit")
+
+    monkeypatch.setattr(camoufox_client, "_preflight", lambda: None)
+    _install_camoufox(monkeypatch, _FakeCamoufox)
+
+    def my_setup(page: Any) -> None:
+        events.append("setup_page")
+
+    def my_extractor(page: Any) -> str:
+        events.append("extractor")
+        return "done"
+
+    res = scrape_page("https://example.com/test", my_extractor, setup_page=my_setup)
+    assert res == "done"
+    assert events == ["enter", "new_page", "setup_page", "goto:https://example.com/test", "extractor", "exit"]

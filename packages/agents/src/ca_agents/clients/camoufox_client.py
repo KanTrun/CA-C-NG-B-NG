@@ -208,6 +208,7 @@ def _attempt_once(
     extractor: Callable[[Any], Any],
     timeout_ms: int,
     user_data_dir: str | None = None,
+    setup_page: Callable[[Any], None] | None = None,
 ) -> Any:
     """1 lần launch → goto → extract → close.
 
@@ -241,6 +242,8 @@ def _attempt_once(
 
     try:
         page = browser.new_page() if hasattr(browser, "new_page") else browser
+        if setup_page is not None:
+            setup_page(page)
         try:
             page.goto(url, timeout=timeout_ms)
         except Exception as e:  # noqa: BLE001
@@ -258,6 +261,7 @@ def scrape_page(
     extractor: Callable[[Any], Any],
     timeout_s: int | None = None,
     user_data_dir: str | None = None,
+    setup_page: Callable[[Any], None] | None = None,
 ) -> Any:
     """
     Launch Camoufox → goto url → chạy extractor(page) → đóng browser.
@@ -277,6 +281,7 @@ def scrape_page(
         extractor:     hàm nhận Playwright page, trả dữ liệu đã extract.
         timeout_s:     timeout goto + extract (default env CA_CAMOUFOX_TIMEOUT_S=45).
         user_data_dir: đường dẫn profile lưu session đăng nhập (optional).
+        setup_page:    callback khởi tạo page (gắn listener, set geolocation) trước goto.
 
     Raises:
         CamoufoxUnavailable: chưa cài / chưa fetch / thiếu system deps / bị tắt qua env.
@@ -310,6 +315,7 @@ def scrape_page(
                     extractor,
                     effective_timeout * 1000,
                     user_data_dir=effective_profile,
+                    setup_page=setup_page,
                 )
             except _GotoError as goto_err:
                 last_goto_error = goto_err

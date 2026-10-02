@@ -332,11 +332,19 @@ def _refresh_job(job_id: str) -> SurveyJob:
     stored = _load_survey_job_kv(job_id)
     if cached is None:
         chosen = stored
-    elif stored is None or stored.updated_at <= cached.updated_at:
+    elif stored is None:
         chosen = cached
-    else:
+    elif (
+        stored.status in (SurveyJobStatus.COMPLETED, SurveyJobStatus.FAILED, SurveyJobStatus.NEEDS_REVIEW)
+        and cached.status not in (SurveyJobStatus.COMPLETED, SurveyJobStatus.FAILED, SurveyJobStatus.NEEDS_REVIEW)
+    ):
         chosen = stored
         get_job_store().update_job(chosen)
+    elif stored.updated_at > cached.updated_at:
+        chosen = stored
+        get_job_store().update_job(chosen)
+    else:
+        chosen = cached
     if chosen is None:
         raise HTTPException(status_code=404, detail="job_khong_ton_tai")
     return chosen
@@ -522,9 +530,9 @@ async def run_catchment_survey(
     """
     user = _require_auth(authorization)
     _require_manager(user)
-    job = _get_job_or_404(job_id)
+    job = _refresh_job(job_id)
 
-    if job.status in _DANG_CHAY or job.status == SurveyJobStatus.NEEDS_REVIEW:
+    if job.status == SurveyJobStatus.QUEUED:
         orch = _orchestrator()
         try:
             await asyncio.to_thread(orch.execute_job, job_id)
