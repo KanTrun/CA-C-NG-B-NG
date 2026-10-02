@@ -27,7 +27,7 @@ type ActionItem = {
   tinh_chat?: "bat_buoc" | "tuy_chon" | "khuyen_khich";
   ten_nguoi_giao?: string;
   nhan_vien_id?: string | null;
-  ten_nguoi_nhan: string;
+  ten_nguoi_nhan: string | null;
   pham_vi?: "ca_nhan" | "nhom";
   thoi_gian_bat_dau?: string;
   han_chot?: string;
@@ -49,7 +49,7 @@ type ActionItem = {
 type CuocHop = {
   id?: string;
   tieu_de: string;
-  nguon_am_thanh?: string;
+  nguon_am_thanh?: string | null;
   transcript_thoai?: { nguoi_noi: string; noi_dung: string }[];
   tom_tat: string;
   phien_ban?: number;
@@ -87,10 +87,14 @@ type CuocHop = {
   audit_sop?: {
     diem_tuan_thu: number;
     xep_hang: string;
-    tieu_chi: { ten_tieu_chi: string; dat: boolean; chi_tiet?: string }[];
-    canh_bao_do?: string[];
-    nhan_xet_chung?: string;
-  };
+    // Backend gán thẳng giá trị LLM trả về (`extract.py` → `norm_audit`) nên
+    // `tieu_chi` có thể là None dù kiểu khai là bắt buộc. Khai nullable để
+    // TS buộc phải guard — trước đây `meeting.audit_sop.tieu_chi?.length`
+    // vẫn ném TypeError khi gặp null và làm trắng cả pane kết quả.
+    tieu_chi?: { ten_tieu_chi: string; dat: boolean; chi_tiet?: string }[] | null;
+    canh_bao_do?: string[] | null;
+    nhan_xet_chung?: string | null;
+  } | null;
   ban_tin_ca?: {
     ban_vip?: string[];
     luu_y_di_ung_khach?: string[];
@@ -229,7 +233,7 @@ export function MeetingResults({
             </div>
             <div className="flex items-center gap-3 text-xs font-mono text-[var(--nq-ink-muted)]">
               <span>Nguồn: {meeting.nguon_am_thanh ?? "không rõ"}</span>
-              <span>Độ tin cậy: {Math.round((meeting.do_tin_cay_tong_the || 0.9) * 100)}%</span>
+              <span>Độ tin cậy: {Math.round((meeting.do_tin_cay_tong_the ?? 0.9) * 100)}%</span>
             </div>
           </div>
 
@@ -284,9 +288,6 @@ export function MeetingResults({
             </article>
           </div>
 
-          <p className="text-xs font-mono uppercase tracking-widest text-[var(--nq-ink-muted)]">
-            Nguồn âm thanh: {meeting.nguon_am_thanh ?? "không rõ"}
-          </p>
         </div>
       ) : null}
 
@@ -332,7 +333,7 @@ export function MeetingResults({
                 </div>
               ) : null}
 
-              {meeting.audit_sop.tieu_chi?.length ? (
+              {meeting.audit_sop.tieu_chi && meeting.audit_sop.tieu_chi.length > 0 ? (
                 <div className="nq-meeting-checklist">
                   {meeting.audit_sop.tieu_chi.map((tc, idx) => (
                     <div key={idx} className={`nq-meeting-check ${tc.dat ? "nq-meeting-check--ok" : ""}`}>
@@ -505,7 +506,7 @@ export function MeetingResults({
       {tab === "viec" ? (
         <MeetingSection
           title="Công việc được giao"
-          hint={`Độ tin cậy AI: ${Math.round((meeting.do_tin_cay_tong_the || 0.9) * 100)}%`}
+          hint={`Độ tin cậy AI: ${Math.round((meeting.do_tin_cay_tong_the ?? 0.9) * 100)}%`}
           count={meeting.action_items.length}
         >
           <div className="flex flex-wrap items-center justify-between gap-2 mb-3">

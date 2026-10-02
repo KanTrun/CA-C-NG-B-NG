@@ -27,7 +27,7 @@ interface ActionItem {
   tinh_chat?: "bat_buoc" | "tuy_chon" | "khuyen_khich";
   ten_nguoi_giao?: string;
   nhan_vien_id?: string | null;
-  ten_nguoi_nhan: string;
+  ten_nguoi_nhan: string | null;
   pham_vi?: "ca_nhan" | "nhom";
   thoi_gian_bat_dau?: string;
   han_chot?: string;
@@ -110,9 +110,11 @@ interface TieuChiAudit {
 interface AuditTuanThuSop {
   diem_tuan_thu: number;
   xep_hang: "A" | "B" | "C" | "D";
-  tieu_chi: TieuChiAudit[];
-  canh_bao_do?: string[];
-  nhan_xet_chung?: string;
+  // Backend gán thẳng giá trị LLM trả về nên các field này có thể là None;
+  // khai nullable để nơi dùng buộc phải guard thay vì crash lúc render.
+  tieu_chi?: TieuChiAudit[] | null;
+  canh_bao_do?: string[] | null;
+  nhan_xet_chung?: string | null;
 }
 
 interface BanTinCaKhan {
@@ -137,7 +139,7 @@ interface CuocHop {
   tieu_de: string;
   loai_hop: "giao_ca" | "hop_tuan" | "dao_tao" | "khac";
   thoi_gian?: string;
-  nguon_am_thanh?: "google_meet_tab" | "microphone" | "file_upload" | "ghi_chep_tay";
+  nguon_am_thanh?: "google_meet_tab" | "microphone" | "file_upload" | "ghi_chep_tay" | null;
   transcript_thoai?: DoanThoai[];
   khong_lien_quan?: boolean;
   tom_tat: string;
@@ -146,7 +148,7 @@ interface CuocHop {
   de_xuat_phe_duyet?: DeXuatPheDuyet[];
   action_items: ActionItem[];
   gop_y_luu_y?: GopYLuuY[];
-  audit_sop?: AuditTuanThuSop;
+  audit_sop?: AuditTuanThuSop | null;
   ban_tin_ca?: BanTinCaKhan;
   huan_luyen_quan_ly?: HuanLuyenQuanLy;
   de_xuat_sop?: DeXuatSop[];

@@ -227,6 +227,105 @@ def _split_compound_line(line: str, staff_list: list[dict[str, Any]] | None) -> 
     return [line]
 
 
+def _strip_speaker_prefix(line: str) -> str:
+    """Bỏ tiền tố người nói khỏi nội dung câu.
+
+    Mỗi dòng thoại có dạng "Tuấn: em lau bàn nhé". Tên người nói đã được tách
+    riêng ở `nguoi_noi`, nhưng tiêu đề việc treo lại dùng nguyên `line` nên
+    thành "Tuấn: em lau bàn nhé" — tên bị lặp vào nội dung việc, và cũng làm
+    bộ chống trùng ở `apply_meeting_decisions` so sai chuỗi.
+
+    Phải neo theo MỘT cụm từ đầu dòng (`^từ:`) và loại trừ tiền tố là số.
+    Bản cũ dùng `^[^:]{1,40}:` nên khớp cả "Tuấn: 14" trong
+    "Tuấn: 14:00 dọn bàn nhé" và ăn mất giờ — mốc thời gian quan trọng nhất
+    của câu bị xoá trước khi tới `_resolve_relative_deadline`.
+    """
+    m = re.match(r"^([^\s:][^:]{0,30}?)\s*:\s*(\S.*)$", line)
+    if m and m.group(1).strip() and not m.group(1).strip()[0].isdigit():
+        return m.group(2).strip()
+    return line
+
+
+# Lượt nói thể hiện nhận việc, không phải giao việc mới.
+_ACK_LEADING = (
+    "dạ", "vâng", "dạ", "vang", "ok", "oke", "uh", "ừ", "uk", "được", "duoc",
+    "em sẽ", "em se", "em làm", "em lam", "để em", "de em", "con sẽ", "con se",
+    "tôi sẽ", "toi se", "nhất trí", "nhat tri",
+)
+
+# Dấu hiệu lượt nói mang THÔNG TIN MỚI dù mở đầu bằng "dạ/vâng".
+# "Dạ em xin nghỉ thứ 4" và "Dạ em đồng ý làm ca sáng thứ 2" đều bắt đầu bằng
+# "Dạ em" nhưng chúng là đơn xin nghỉ / nhận ca — bỏ qua là mất luôn điều
+# chỉnh lịch. Chỉ được coi là lời nhận việc khi KHÔNG chứa các dấu hiệu này.
+#
+# So khớp theo RANH GIỚI TỪ (xem `_has_word`), không dùng `in` trần: "nghi"
+# không dấu là substring của "nghiêm"/"nghiên" nên bản dùng `in` đã bỏ oan
+# những câu nhận việc thật như "Dạ em sẽ nghiêm túc dọn bàn ca sau".
+_ACK_NEW_INFO_CUES = (
+    "xin nghỉ", "xin nghi", "xin phép", "xin phep", "nghỉ", "nghi",
+    "đổi ca", "doi ca", "ghim", "trực", "truc", "làm ca", "lam ca",
+    "ca sáng", "ca sang", "ca chiều", "ca chieu", "ca tối", "ca toi",
+    "thứ 2", "thứ 3", "thứ 4", "thứ 5", "thứ 6", "thứ 7", "chủ nhật",
+    "t2", "t3", "t4", "t5", "t6", "t7", "cn",
+    "tuần sau", "tuan sau", "nghỉ phép", "nghi phep",
+)
+
+
+def _has_word(haystack: str, needle: str) -> bool:
+    """Khớp `needle` theo ranh giới từ.
+
+    Tránh false positive kiểu "nghi" khớp trong "nghiêm"/"nghiên".
+    `\\b` hoạt động đúng với ký tự tiếng Việt trong Python `re` (unicode).
+    """
+    return re.search(rf"(?<!\w){re.escape(needle)}(?!\w)", haystack) is not None
+
+
+def _is_acknowledgement(low: str) -> bool:
+    """True nếu lượt nói là lời NHẬN việc, không phải một việc mới.
+
+    Gọi SAU khi đã bỏ tiền tố người nói — nếu kiểm tra trên `line` gốc thì
+    "Tuấn: Dạ em sẽ lau bàn" không khớp vì câu bắt đầu bằng tên.
+    """
+    body = _strip_speaker_prefix(low).strip()
+    if not body:
+        return False
+    if not any(_has_word(body, lead) or body.startswith(lead) for lead in _ACK_LEADING):
+        return False
+    # Có thông tin mới (nghỉ/đổi ca/ghim ca) thì đây là lượt nghiệp vụ thật,
+    # không phải lời nhận việc suông.
+    return not any(_has_word(body, cue) for cue in _ACK_NEW_INFO_CUES)
+
+
+# Mốc ca tương đối → nhãn ca hiển thị được ở việc treo.
+# CỐ Ý không có "sáng mai"/"chiều mai": `_resolve_relative_deadline` đã xử lý
+# các mốc đó thành NGÀY CỤ THỂ neo theo lúc ghi âm (TC-36). Ghi đè ở đây sẽ
+# làm mất mốc ngày (đã gây hồi quy test TC-36).
+_SHIFT_REFERENCE_CUES: tuple[tuple[tuple[str, ...], str], ...] = (
+    (("ca sau", "ca tới", "ca kế", "ca tiếp", "ca sau nữa"), "Ca kế tiếp"),
+    (("ca này", "ca hiện tại", "ca đang"), "Ca hiện tại"),
+    (("tối nay", "tối hôm nay"), "Ca Tối (hôm nay)"),
+    (("chiều nay", "chiều hôm nay"), "Ca Chiều (hôm nay)"),
+)
+
+
+def _detect_shift_reference(low: str, resolved_due: str) -> str | None:
+    """Nhãn ca khi câu nói chỉ định ca tương đối ("ca sau", "chiều nay").
+
+    Trước đây các mốc này rơi hết về "Trong ca": người giao nói rõ "ca sau"
+    mà việc treo lại ghi "Trong ca", và `ca_thuc_hien` bỏ trống nên tầng làm
+    rõ còn tưởng nhân viên không có ca nào và hỏi sai câu.
+
+    Chỉ trả nhãn khi `_resolve_relative_deadline` KHÔNG ra mốc cụ thể — nếu
+    đã có ngày/giờ chính xác thì đó là thông tin tốt hơn, không được ghi đè.
+    """
+    if resolved_due and resolved_due != "Trong ca":
+        return None
+    for cues, label in _SHIFT_REFERENCE_CUES:
+        if any(cue in low for cue in cues):
+            return label
+    return None
+
+
 def _is_grounded_in_transcript(title: str, transcript: str) -> bool:
     """Guardrail: Verify action item is grounded in transcript to prevent hallucination (TC-40)."""
     if not title or not transcript:
@@ -467,6 +566,14 @@ def _extract_rule_or_fixture(
     for line in lines:
         low = line.lower()
 
+        # Câu xác nhận của nhân viên ("Dạ em sẽ lau bàn ca sau ạ") không phải
+        # một việc mới — nó là lời nhận việc cho câu giao ngay trước đó. Nếu
+        # vẫn tạo item thì mỗi lượt giao việc sinh 2 việc treo trùng nội dung,
+        # và bộ chống trùng ở `apply_meeting_decisions` không bắt được vì
+        # `noi_dung` khác nhau (nó so theo chuỗi). Bỏ qua lượt xác nhận.
+        if _is_acknowledgement(low):
+            continue
+
         # Check spoken self-correction (TC-39): "Tuấn dọn bàn... à thôi để Lan dọn"
         retraction_cues = ["à thôi", "thôi để", "nhầm", "thay vì", "đổi lại", "thôi giao cho", "thôi nhờ"]
         has_retraction = any(rc in low for rc in retraction_cues)
@@ -652,14 +759,23 @@ def _extract_rule_or_fixture(
         )
         if has_action_cue and not has_leave_cue:
             due = _resolve_relative_deadline(line, base_dt)
+            # Tiêu đề việc KHÔNG kèm tên người nói: tên đã ở `ten_nguoi_nhan`
+            # và `nguoi_noi`, giữ lại chỉ làm nội dung việc treo rối.
+            task_title = _strip_speaker_prefix(line)
+            # "ca sau" / "ca tới" là mốc thời gian thật, không được rơi về
+            # "Trong ca" — người giao nói rõ ca nào thì việc treo phải ghi ca đó.
+            ca_moc = _detect_shift_reference(low, due)
+            if ca_moc:
+                due = ca_moc
             grounded = _is_grounded_in_transcript(line, raw)
             action_items.append(
                 {
                     "id": f"act_{idx}",
-                    "tieu_de": line,
+                    "tieu_de": task_title,
                     "ten_nguoi_nhan": assignee,
                     "nhan_vien_id": matched_id or resolve_staff_id(assignee, staff_list, allow_fuzzy_stt=True),
                     "han_chot": due,
+                    "ca_thuc_hien": ca_moc or "",
                     "muc_do_uu_tien": "trung_binh",
                     "do_tin_cay": 0.80 if is_stt_near else (0.85 if assignee != "Chưa rõ" else 0.65),
                     "da_chon": True,
@@ -724,6 +840,16 @@ def _extract_rule_or_fixture(
         "de_xuat_phe_duyet": de_xuat_phe_duyet,
         "dieu_chinh_lich": dieu_chinh_lich,
         "de_xuat_sop": [],
+        # Luôn kèm `audit_sop` dạng dict: UI dùng truthy-check `self.audit_sop ?`
+        # nên key thiếu/None làm hiển thị và guard lệch nhau. Hội thoại không
+        # liên quan vận hành thì không chấm điểm tuân thủ (0 điểm, hạng D).
+        "audit_sop": {
+            "diem_tuan_thu": 0 if is_irrelevant else 100,
+            "xep_hang": "D" if is_irrelevant else "A",
+            "tieu_chi": [],
+            "canh_bao_do": [],
+            "nhan_xet_chung": "",
+        },
         "do_tin_cay_tong_the": 0.88,
         "trang_thai": "cho_duyet",
         "phien_ban": 1,
@@ -962,9 +1088,19 @@ def _normalize_output(
             }
         )
 
-    # Audit SOP Compliance
-    raw_audit = None if khong_lien_quan else data.get("audit_sop")
-    norm_audit = None
+    # Audit SOP Compliance.
+    # `norm_audit` PHẢI luôn là dict: lớp precedence `self.audit_sop ?` ở UI là
+    # truthy-check nên `None` sẽ lọt qua và làm crash khi đọc `tieu_chi`
+    # (gặp thật trên /cuoc-hop). Contract `AuditTuanThuSop` cũng yêu cầu dict,
+    # nên khi thiếu dữ liệu thì trả bản mặc định thay vì None.
+    raw_audit = data.get("audit_sop")
+    norm_audit: dict[str, Any] = {
+        "diem_tuan_thu": 100,
+        "xep_hang": "A",
+        "tieu_chi": [],
+        "canh_bao_do": [],
+        "nhan_xet_chung": "",
+    }
     if isinstance(raw_audit, dict):
         raw_tc = raw_audit.get("tieu_chi") or []
         norm_tc = []
@@ -991,6 +1127,15 @@ def _normalize_output(
             "tieu_chi": norm_tc,
             "canh_bao_do": [str(x) for x in (raw_audit.get("canh_bao_do") or []) if str(x).strip()],
             "nhan_xet_chung": str(raw_audit.get("nhan_xet_chung") or ""),
+        }
+    elif khong_lien_quan:
+        # Hội thoại không liên quan vận hành: không chấm điểm tuân thủ.
+        norm_audit = {
+            "diem_tuan_thu": 0,
+            "xep_hang": "D",
+            "tieu_chi": [],
+            "canh_bao_do": [],
+            "nhan_xet_chung": "",
         }
 
     # Ban tin ca khan
