@@ -115,6 +115,39 @@ def _classify_launch_error(e: Exception) -> str:
     return f"launch lỗi khác: {type(e).__name__}: {e}"
 
 
+def _install_dir() -> Any:
+    """Thư mục cài thật của camoufox, hoặc None nếu không đọc được."""
+    try:
+        from camoufox.pkgman import INSTALL_DIR
+
+        return INSTALL_DIR
+    except Exception:  # noqa: BLE001 — chẩn đoán không được làm hỏng luồng chính
+        return None
+
+
+def _preflight() -> None:
+    """Kiểm tra binary CÓ SẴN trước khi launch — chặn đường tự tải lại 300MB.
+
+    `camoufox` không báo lỗi khi thiếu binary: `camoufox_path()` tự `install()`
+    vài trăm MB vào container đang chạy. Trên VM production 20GB (đã từng chạm
+    `no space left on device`) đó là đường hỏng, và nó biến một lỗi cấu hình
+    thành một sự cố đĩa. Ở đây ta từ chối sớm, kèm đúng đường dẫn đang tìm.
+
+    `CAMOUFOX_INSTALL_DIR` vừa ghim chỗ cài, vừa là công tắc: khi nó được đặt,
+    camoufox bỏ qua hoàn toàn nhánh tự tải — nên chỉ cần kiểm tra tồn tại.
+    """
+    install_dir = _install_dir()
+    if install_dir is None:
+        return
+    if os.path.isdir(install_dir) and os.listdir(install_dir):
+        return
+    raise CamoufoxUnavailable(
+        f"thiếu binary Camoufox tại {install_dir} — "
+        "dựng lại image với `CAMOUFOX_INSTALL_DIR=/opt/camoufox` + `python -m camoufox fetch` "
+        "(xem infra/docker/Dockerfile.api và docs/runbooks/camoufox-scraping.md)"
+    )
+
+
 def _try_launch() -> None:
     """Import camoufox + thử launch/close rỗng. Raise CamoufoxUnavailable nếu fail."""
     try:
@@ -123,6 +156,8 @@ def _try_launch() -> None:
         raise CamoufoxUnavailable(
             "chưa cài package `camoufox` — cài: pip install -U 'camoufox[geoip]'"
         ) from e
+
+    _preflight()
 
     # Camoufox là optional dep không có type stub — cast để mypy strict khỏi
     # bac `no-untyped-call`; runtime không đổi.
