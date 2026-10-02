@@ -10820,6 +10820,47 @@ a.nq-bento-surface:active {
   }
 }
 
+@keyframes nq-fairy-float {
+  0%, 100% { transform: translate3d(0, 0, 0) rotate(0deg); }
+  25% { transform: translate3d(1px, -3.5px, 0) rotate(0.4deg); }
+  50% { transform: translate3d(0, -6px, 0) rotate(-0.3deg); }
+  75% { transform: translate3d(-1px, -2.5px, 0) rotate(0.2deg); }
+}
+@keyframes nq-fairy-shadow {
+  0%, 100% { transform: translateX(-50%) scale(1); opacity: 0.45; }
+  50% { transform: translateX(-50%) scale(0.72); opacity: 0.18; }
+}
+@keyframes nq-fairy-spin-cw { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+@keyframes nq-fairy-spin-ccw { from { transform: rotate(360deg); } to { transform: rotate(0deg); } }
+@keyframes nq-fairy-glow {
+  0%, 100% { opacity: 0.45; transform: scale(0.96); }
+  50% { opacity: 0.85; transform: scale(1.06); }
+}
+@keyframes nq-fairy-ripple {
+  0% { transform: scale(0.88); opacity: 0.8; }
+  100% { transform: scale(1.45); opacity: 0; }
+}
+@keyframes nq-fairy-mana-1 {
+  0%, 100% { transform: translate3d(0, 0, 0) scale(0.85); opacity: 0.35; }
+  50% { transform: translate3d(3px, -5px, 0) scale(1.2); opacity: 0.95; }
+}
+@keyframes nq-fairy-mana-2 {
+  0%, 100% { transform: translate3d(0, 0, 0) scale(1.1); opacity: 0.9; }
+  50% { transform: translate3d(-3px, -4px, 0) scale(0.65); opacity: 0.25; }
+}
+@keyframes nq-fairy-mana-3 {
+  0%, 100% { transform: translate3d(0, 0, 0) scale(0.9); opacity: 0.4; }
+  50% { transform: translate3d(2px, -6px, 0) scale(1.25); opacity: 1; }
+}
+/* Single source cho Avatar2D — thay <style jsx> cũ (mỗi instance 1 thẻ style). */
+.nq-fairy-container { animation: nq-fairy-float 3.4s ease-in-out infinite; will-change: transform; }
+.nq-fairy-shadow { animation: nq-fairy-shadow 3.4s ease-in-out infinite; }
+.nq-fairy-halo { animation: nq-fairy-glow 2.8s ease-in-out infinite; }
+.nq-fairy-ripple { animation: nq-fairy-ripple 1.8s cubic-bezier(0, 0.2, 0.8, 1) infinite; }
+.nq-fairy-mana-1 { animation: nq-fairy-mana-1 3.2s ease-in-out infinite; }
+.nq-fairy-mana-2 { animation: nq-fairy-mana-2 2.7s ease-in-out infinite 0.4s; }
+.nq-fairy-mana-3 { animation: nq-fairy-mana-3 3.6s ease-in-out infinite 0.8s; }
+
 /* ══════════════════════════════════════════════════════════════════════════
    prefers-reduced-motion — PHẢI là khối cuối file.
    Đặt cuối để không quy tắc animation nào phía sau ghi đè lên nó. Mọi hiệu ứng

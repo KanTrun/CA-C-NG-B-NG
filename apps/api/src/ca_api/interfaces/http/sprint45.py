@@ -45,7 +45,7 @@ from ca_playbook import (
     tim_mau,
 )
 from ca_solver.fairness import AXES, update_debt_from_assignment, zero_debt
-from fastapi import APIRouter, Header, HTTPException, Query, Response
+from fastapi import APIRouter, BackgroundTasks, Header, HTTPException, Query, Response
 from pydantic import BaseModel, Field
 
 from ca_api.context_providers import ngay_hom_nay_vn
@@ -982,8 +982,25 @@ def _get_swap_candidates_for_item(it: dict[str, Any]) -> list[dict[str, Any]]:
     return [c.to_dict() for c in cands]
 
 
+def _chay_autopilot_nen(store_id: str) -> None:
+    """Chạy `auto_process` ở background task; lỗi thì nuốt, không làm hỏng GET.
+
+    Tách riêng (thay vì lambda) để background task có stack trace đọc được khi
+    cần debug, và để test patch được bằng tên hàm.
+    """
+    try:
+        from ca_api.services.inbox_autopilot import auto_process
+
+        auto_process(store_id=store_id)
+    except Exception:
+        pass
+
+
 @router.get("/api/v1/inbox/rang-buoc")
-def inbox_list(authorization: Annotated[str | None, Header()] = None) -> dict[str, Any]:
+def inbox_list(
+    background_tasks: BackgroundTasks,
+    authorization: Annotated[str | None, Header()] = None,
+) -> dict[str, Any]:
     _require_manager(authorization)
     existing = kv_get("inbox_rang_buoc", [])
     has_real_channel = any(
@@ -997,14 +1014,15 @@ def inbox_list(authorization: Annotated[str | None, Header()] = None) -> dict[st
     # ghi vào hộp thư (xem `_enqueue_inbox` ở channels.py). Quét lại đây là
     # lưới an toàn cho các luồng ghi không gọi autopilot trực tiếp, để không
     # bao giờ còn mục "cho_duyet" đọng lại chờ người bấm nút.
+    #
+    # Quét chạy ở BACKGROUND, không chặn response: nó kéo theo giải CP-SAT cho
+    # từng tuần có ràng buộc mới, và đo được 194s khi quét 14 mục — quản lý
+    # bấm vào Hộp thư không được phép đứng chờ vài phút mới thấy danh sách.
+    # Các luồng ghi thật vẫn gọi autopilot trực tiếp nên lần mở trang này
+    # thường không có gì để quét; đây chỉ là lưới an toàn bù đắp.
     session = auth_session(authorization) or {}
     store_id = str(session.get("store_id") or "quan_01")
-    try:
-        from ca_api.services.inbox_autopilot import auto_process
-
-        auto_process(store_id=store_id)
-    except Exception:
-        pass
+    background_tasks.add_task(_chay_autopilot_nen, store_id)
 
     items = kv_get("inbox_rang_buoc", [])
     enriched = []
@@ -1023,6 +1041,86 @@ def inbox_list(authorization: Annotated[str | None, Header()] = None) -> dict[st
         else:
             enriched.append(it)
     return {"items": enriched, "nguon": "quan", "co_du_lieu_mau": _co_du_lieu_mau(enriched)}
+
+
+def _giai_lich_cho_tuan_dich(
+    *,
+    store_id: str,
+    week: str,
+    role: str,
+    actor_id: str,
+    item_id: str,
+    idempotency_key: str,
+) -> dict[str, Any]:
+    """Chạy solver cho TUẦN ĐÍCH rồi cập nhật lifecycle của tuần đó.
+
+    Tách khỏi `_decide_inbox_item` để `services/inbox_autopilot.py` gọi lại được
+    theo TUẦN thay vì theo từng mục: một lượt quét có thể quyết n mục, mà mỗi
+    mục một lần gọi CP-SAT thì trang Hộp thư phải chờ n × thời gian giải (đo
+    được 194s cho 14 mục). Giải MỘT lần cho cả nhóm vừa nhanh hơn, vừa đúng
+    hơn: lịch sinh ra phải thỏa TẤT CẢ ràng buộc vừa duyệt, không phải lần
+    lượt chỉ biết một mục.
+
+    Trả về `solver_result` (kèm `schedule_run_id`/`schedule_run_status`).
+    """
+    life = _life(store_id=store_id)
+    # Cổng khoá phải xét trạng thái của TUẦN ĐÍCH, không phải tuần đang làm
+    # việc. Trường hợp thật: lịch tuần này đã công bố, nhân viên nhắn báo bận
+    # cho TUẦN SAU (còn nháp) — xét tuần hiện tại sẽ trả LIFECYCLE_LOCKED và
+    # AI không bao giờ xếp lại tuần đích, dù tuần đó hoàn toàn được phép.
+    tuan_hien_tai = str(life.get("tuan_iso") or "")
+    if week == tuan_hien_tai:
+        life_tuan_dich = life
+        dong_bo_toan_cuc = True
+    else:
+        life_tuan_dich = _life(week, store_id=store_id)
+        dong_bo_toan_cuc = False
+    # Neo khoá tuần trước khi lưu: `_save_life` suy ra khoá ghi
+    # `lich_tuan_lifecycle_by_week` từ `doc["tuan_iso"]`; thiếu nó thì bản
+    # ghi rơi vào tuần hiện tại của đồng hồ, tức trạng thái `cho_duyet` của
+    # tuần đích bị ghi nhầm chỗ.
+    life_tuan_dich["tuan_iso"] = week
+    current_state = str(life_tuan_dich.get("trang_thai") or "may_sinh")
+    if current_state in {"da_duyet", "da_cong_bo", "da_dong"}:
+        solver_result: dict[str, Any] = {
+            "ok": False,
+            "skipped": True,
+            "status": "LIFECYCLE_LOCKED",
+            "detail": f"lich_{current_state}_khong_tu_dong_xep_lai",
+        }
+    else:
+        # Đi qua application service authoritative để mọi trigger dùng chung
+        # một đường CP-SAT (schedule_run/fingerprint/audit/open_shift).
+        try:
+            authoritative = run_authoritative_schedule(
+                store_id=store_id,
+                tuan_iso=week,
+                actor_id=actor_id,
+                idempotency_key=idempotency_key,
+            )
+            solver_result = authoritative.get("result") or {}
+            # KHÔNG gán toàn bộ `authoritative` vào `result` (gây tham chiếu vòng
+            # khi serialize JSON). Chỉ giữ metadata run ở mức solver_result.
+            solver_result["schedule_run_id"] = authoritative.get("id")
+            solver_result["schedule_run_status"] = authoritative.get("status")
+        except Exception:
+            solver_result = {
+                "ok": False,
+                "status": "ERROR",
+                "detail": "khong_the_chay_solver",
+            }
+        if solver_result.get("ok"):
+            life_tuan_dich["trang_thai"] = "cho_duyet"
+            life_tuan_dich["solver"] = solver_result
+            life_tuan_dich["schedule_run_id"] = solver_result.get("schedule_run_id")
+            life_tuan_dich["cap_nhat_luc"] = _clock.now_iso()
+            life_tuan_dich["cap_nhat_boi"] = role
+            _save_life(
+                life_tuan_dich,
+                store_id=store_id,
+                dong_bo_toan_cuc=dong_bo_toan_cuc,
+            )
+    return solver_result
 
 
 def _decide_inbox_item(
@@ -1194,65 +1292,17 @@ def _decide_inbox_item(
         and tu_dong_xep_lich
         and found.get("hieu_luc", {}).get("loai") == "rang_buoc_cho_solver"
     ):
-        life = _life(store_id=store_id)
         rb = found.get("rang_buoc") or {}
-        # Cổng khoá phải xét trạng thái của TUẦN ĐÍCH, không phải tuần đang làm
-        # việc. Trường hợp thật: lịch tuần này đã công bố, nhân viên nhắn báo bận
-        # cho TUẦN SAU (còn nháp) — xét tuần hiện tại sẽ trả LIFECYCLE_LOCKED và
-        # AI không bao giờ xếp lại tuần đích, dù tuần đó hoàn toàn được phép.
-        tuan_hien_tai = str(life.get("tuan_iso") or "")
+        tuan_hien_tai = str(_life(store_id=store_id).get("tuan_iso") or "")
         week = str(rb.get("tuan_id") or tuan_hien_tai or "2026-W01")
-        if week == tuan_hien_tai:
-            life_tuan_dich = life
-            dong_bo_toan_cuc = True
-        else:
-            life_tuan_dich = _life(week, store_id=store_id)
-            dong_bo_toan_cuc = False
-        # Neo khoá tuần trước khi lưu: `_save_life` suy ra khoá ghi
-        # `lich_tuan_lifecycle_by_week` từ `doc["tuan_iso"]`; thiếu nó thì bản
-        # ghi rơi vào tuần hiện tại của đồng hồ, tức trạng thái `cho_duyet` của
-        # tuần đích bị ghi nhầm chỗ.
-        life_tuan_dich["tuan_iso"] = week
-        current_state = str(life_tuan_dich.get("trang_thai") or "may_sinh")
-        if current_state in {"da_duyet", "da_cong_bo", "da_dong"}:
-            solver_result = {
-                "ok": False,
-                "skipped": True,
-                "status": "LIFECYCLE_LOCKED",
-                "detail": f"lich_{current_state}_khong_tu_dong_xep_lai",
-            }
-        else:
-            # Đi qua application service authoritative để mọi trigger dùng chung
-            # một đường CP-SAT (schedule_run/fingerprint/audit/open_shift).
-            try:
-                authoritative = run_authoritative_schedule(
-                    store_id=store_id,
-                    tuan_iso=week,
-                    actor_id=actor_id,
-                    idempotency_key=f"inbox:{item_id}:{week}:solve",
-                )
-                solver_result = authoritative.get("result") or {}
-                # KHÔNG gán toàn bộ `authoritative` vào `result` (gây tham chiếu vòng
-                # khi serialize JSON). Chỉ giữ metadata run ở mức solver_result.
-                solver_result["schedule_run_id"] = authoritative.get("id")
-                solver_result["schedule_run_status"] = authoritative.get("status")
-            except Exception:
-                solver_result = {
-                    "ok": False,
-                    "status": "ERROR",
-                    "detail": "khong_the_chay_solver",
-                }
-            if solver_result.get("ok"):
-                life_tuan_dich["trang_thai"] = "cho_duyet"
-                life_tuan_dich["solver"] = solver_result
-                life_tuan_dich["schedule_run_id"] = solver_result.get("schedule_run_id")
-                life_tuan_dich["cap_nhat_luc"] = _clock.now_iso()
-                life_tuan_dich["cap_nhat_boi"] = role
-                _save_life(
-                    life_tuan_dich,
-                    store_id=store_id,
-                    dong_bo_toan_cuc=dong_bo_toan_cuc,
-                )
+        solver_result = _giai_lich_cho_tuan_dich(
+            store_id=store_id,
+            week=week,
+            role=role,
+            actor_id=actor_id,
+            item_id=item_id,
+            idempotency_key=f"inbox:{item_id}:{week}:solve",
+        )
         response["tu_dong_xep_lich"] = solver_result
         _audit(
             "inbox_auto_schedule",

@@ -87,7 +87,7 @@ const GROUPS: NavGroup[] = [
       { href: "/hao-phi", label: "Hao phí" },
       { href: "/khao-sat-gia", label: "Khảo sát giá" },
       { href: "/page-quan", label: "Page quán" },
-      { href: "/page-quan/fb-inbox", label: "Duyệt bài Fanpage" },
+      { href: "/page-quan/fb-inbox", label: "Bình luận & Inbox duyệt" },
       { href: "/page-quan/dat-ban", label: "Sơ đồ & đặt bàn" },
       { href: "/gmail", label: "Quản lý Gmail" },
       { href: "/cau-hinh-quan", label: "Cấu hình quán & AI" },

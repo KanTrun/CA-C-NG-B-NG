@@ -28,18 +28,8 @@ export default function CopilotPage() {
   if (!role) return <AuthGate />;
 
   return (
-    <div className="nq-copilot-page" style={{ ["--accent" as string]: chat.profile.accent }}>
-      <header className="nq-copilot-page__head">
-        <div>
-          <p className="nq-copilot-page__kicker">Trợ lý · {roleLabel(role)}</p>
-          <h1 className="nq-copilot-page__title">{chat.profile.label}</h1>
-        </div>
-        <Link href="/hom-nay" className="nq-btn nq-btn-ghost nq-btn-sm">
-          Về Hôm nay
-        </Link>
-      </header>
-
-      <div className="nq-copilot-page__frame">
+    <div className="flex flex-col h-[calc(100vh-68px)] max-w-5xl mx-auto p-2 sm:p-5">
+      <div className="flex-1 rounded-3xl overflow-hidden border border-amber-500/40 shadow-2xl bg-slate-950/95 backdrop-blur-xl flex flex-col min-h-0">
         <CopilotBody chat={chat} mode="page" onClearHistory={() => chat.clearHistory()} />
       </div>
     </div>

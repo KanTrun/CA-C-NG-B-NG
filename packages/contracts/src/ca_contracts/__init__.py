@@ -546,6 +546,11 @@ class CopilotResponse(BaseModel):
     direct_answer: str | None = None
     citations: list[str] = Field(default_factory=list)
     agent_mode: str = "replay"
+    # Lượt này chỉ là CÂU HỎI LÀM RÕ, chưa phải hành động. Client nhắn dùng
+    # cờ này để biết lượt sau câu của người dùng là câu TRẢ LỜI — trước đây
+    # phải so chuỗi trong `reply_text`, nên đổi câu chữ là hỏng ngay, và không
+    # phân biệt được "hỏi lý do" với các câu hỏi làm rõ khác.
+    clarification_kind: str | None = None
 
 
 # ── Universal Orchestration (PR9): Capability Registry ───────────────────────

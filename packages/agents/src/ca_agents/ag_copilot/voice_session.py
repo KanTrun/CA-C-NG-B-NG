@@ -7,7 +7,7 @@ import base64
 import json
 import os
 from collections.abc import Awaitable, Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Protocol
 
 GEMINI_LIVE_MODEL = "gemini-3.8-live-extended-thinking"
@@ -33,11 +33,25 @@ class LiveConnection(Protocol):
 Connector = Callable[[str], Awaitable[LiveConnection]]
 
 
+@dataclass
+class VoiceTurnState:
+    """Trạng thái lượt trong phiên voice (mutable, để nhét vào context frozen).
+
+    Cần cho multi-turn xin nghỉ: copilot hỏi "lý do xin nghỉ là gì ạ?" rồi NV
+    trả lời ở lượt sau. Không giữ `user_turns`/`last_reply` thì lượt trả lời
+    không match intent nào và lý do bị bỏ rơi.
+    """
+
+    user_turns: list[str] = field(default_factory=list)
+    last_reply: str = ""
+
+
 @dataclass(frozen=True)
 class VerifiedVoiceContext:
     user_id: str
     user_role: str
     store_id: str
+    turn_state: VoiceTurnState = field(default_factory=VoiceTurnState)
 
 
 def voice_enabled() -> bool:

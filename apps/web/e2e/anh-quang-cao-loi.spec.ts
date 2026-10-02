@@ -9,9 +9,49 @@ import { expect, test, type Page } from "@playwright/test";
  */
 
 const MON = "mon_sua";
+const ANH_1PX =
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+
+/** Bước 1 qua được để vào được bước tạo ảnh (test này tập trung vào lỗi khi sinh ảnh). */
+async function chan_kiem_anh_dat(page: Page, ghi = ""): Promise<void> {
+    await page.route(`**/api/v1/menu/${MON}/anh/kiem-tra`, async (route) => {
+        await route.fulfill({
+            status: 200,
+            contentType: "application/json",
+            body: JSON.stringify({
+                ok: true,
+                mon_id: MON,
+                da_kiem: !ghi,
+                bao_bi: "glass",
+                ghi,
+            }),
+        });
+    });
+}
+
+/** Chặn endpoint prompt quảng cáo để trả kết quả nhanh, không phụ thuộc backend. */
+async function chan_prompt_quang_cao(page: Page): Promise<void> {
+    await page.route(`**/api/v1/menu/${MON}/anh/prompt-quang-cao`, async (route) => {
+        await route.fulfill({
+            status: 200,
+            contentType: "application/json",
+            body: JSON.stringify({
+                ok: true,
+                provider: "local-template",
+                mon_id: MON,
+                prompt_en: "A refreshing cup of iced milk coffee on a wooden table, professional photography",
+                prompt_vi: "Cà phê sữa đá trên bàn gỗ",
+                bao_bi: "glass",
+                bo_qua: [],
+            }),
+        });
+    });
+}
 
 /** Đăng nhập và mở món có sẵn, rồi mở khu tạo ảnh. */
 async function mo_khu_tao_anh(page: Page): Promise<void> {
+    await chan_kiem_anh_dat(page);
+    await chan_prompt_quang_cao(page);
     await page.goto("/login");
     await page.getByLabel("Tài khoản").fill("hung");
     await page.getByLabel("Mật khẩu").fill("nhipquan");
@@ -21,8 +61,18 @@ async function mo_khu_tao_anh(page: Page): Promise<void> {
     await page.goto("/menu");
     await page.getByRole("button", { name: /Cà phê sữa/ }).click();
     await page.getByRole("button", { name: "Tạo ảnh quảng cáo (AI)" }).click();
-    // Prompt dựng xong là khu tạo ảnh sẵn sàng.
+    // Khu tạo ảnh sẵn sàng (nút tạo ảnh hiện, đang khoá vì chưa có ảnh).
     await expect(page.getByRole("button", { name: "Tạo ảnh (AI)" })).toBeVisible({ timeout: 15_000 });
+}
+
+/** Chọn ảnh sản phẩm thật — bắt buộc trước khi bấm tạo ảnh. */
+async function chon_anh_san_pham(page: Page): Promise<void> {
+    await page.locator("#aigen-photo").setInputFiles({
+        name: "nuoc.png",
+        mimeType: "image/png",
+        buffer: Buffer.from(ANH_1PX, "base64"),
+    });
+    await expect(page.getByRole("button", { name: "Tạo ảnh (AI)" })).toBeEnabled({ timeout: 15_000 });
 }
 
 /** Chặn endpoint generate để trả lỗi provider với mã cho trước. */
@@ -42,6 +92,7 @@ test("hết hạn mức → câu tiếng Việt có gợi ý chờ và tạo l�
         'http_429:{"error":{"code":429,"message":"You exceeded your current quota"}}',
     );
     await mo_khu_tao_anh(page);
+    await chon_anh_san_pham(page);
     await page.getByRole("button", { name: "Tạo ảnh (AI)" }).click();
 
     const canhBao = page.getByRole("alert").filter({ hasText: /hạn mức|quota/i });
@@ -55,6 +106,7 @@ test("hết hạn mức → câu tiếng Việt có gợi ý chờ và tạo l�
 test("thiếu khoá sửa ảnh → chỉ đúng việc cần làm", async ({ page }) => {
     await chan_loi_provider(page, "thieu_key_sua_anh", "pollinations-edit");
     await mo_khu_tao_anh(page);
+    await chon_anh_san_pham(page);
     await page.getByRole("button", { name: "Tạo ảnh (AI)" }).click();
 
     const canhBao = page.getByRole("alert").filter({ hasText: /khoá|AI sửa ảnh/i });
@@ -66,6 +118,7 @@ test("thiếu khoá sửa ảnh → chỉ đúng việc cần làm", async ({ pa
 test("máy chủ vẽ ảnh lỗi 5xx → câu tiếng Việt, không stack trace", async ({ page }) => {
     await chan_loi_provider(page, 'http_503:{"detail":"upstream unavailable"}');
     await mo_khu_tao_anh(page);
+    await chon_anh_san_pham(page);
     await page.getByRole("button", { name: "Tạo ảnh (AI)" }).click();
 
     const canhBao = page.getByRole("alert").filter({ hasText: /lỗi|thử lại/i });
@@ -77,6 +130,7 @@ test("máy chủ vẽ ảnh lỗi 5xx → câu tiếng Việt, không stack trac
 test("API chưa chạy (mất mạng) → nhắc kiểm tra kết nối", async ({ page }) => {
     await page.route(`**/api/v1/menu/${MON}/anh/generate`, (route) => route.abort("failed"));
     await mo_khu_tao_anh(page);
+    await chon_anh_san_pham(page);
     await page.getByRole("button", { name: "Tạo ảnh (AI)" }).click();
 
     const canhBao = page.getByRole("alert").filter({ hasText: /máy chủ|mạng|nối/i });
@@ -103,6 +157,7 @@ test("tạo ảnh thành công → hiện ảnh kèm nguồn", async ({ page }) 
         });
     });
     await mo_khu_tao_anh(page);
+    await chon_anh_san_pham(page);
     await page.getByRole("button", { name: "Tạo ảnh (AI)" }).click();
 
     await expect(page.getByAltText("Ảnh quảng cáo AI")).toBeVisible({ timeout: 10_000 });

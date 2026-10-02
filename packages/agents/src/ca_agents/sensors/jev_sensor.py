@@ -46,8 +46,11 @@ DEFAULT_FAILURE_THRESHOLD = 3
 DEFAULT_OPEN_SECONDS = 60
 
 
-def _env_flag(name: str) -> bool:
-    return os.getenv(name, "").strip().lower() in ("1", "true", "yes", "on")
+def _env_flag(name: str, default: bool = False) -> bool:
+    raw = os.getenv(name, "").strip().lower()
+    if not raw:
+        return default
+    return raw in ("1", "true", "yes", "on")
 
 
 @dataclass(frozen=True)
@@ -70,8 +73,8 @@ class JevSensor:
     """Cảm biến gọi Jev. `enabled=False` → luôn `ok=False` (fail-closed).
 
     Bật Jev thật bằng cách đặt env:
-      JEV_API_KEY=<key>   (bắt buộc)
-      JEV_ENABLED=true    (mặc định đọc từ env; nếu không có thì dùng `enabled`)
+      JEV_API_KEY=<key>   (bắt buộc — thiếu key thì fail-closed, không gọi mạng)
+      JEV_ENABLED=true    (mặc định BẬT khi không đặt; đặt =0/false để tắt hẳn)
       JEV_BASE_URL=...    (tùy chọn, mặc định https://api.typesafe.ai)
       JEV_ENDPOINT=...    (tùy chọn, mặc định /v1/systemone)
     """
@@ -93,10 +96,11 @@ class JevSensor:
     _half_open_probe_used: bool = field(default=False, init=False)
 
     def __post_init__(self) -> None:
-        # `enabled=None` → đọc từ env (JEV_ENABLED). Truyền True/False tường
-        # minh để ÉP trạng thái, không bị env override (quan trọng cho test).
+        # `enabled=None` → đọc từ env (JEV_ENABLED, mặc định BẬT khi không đặt).
+        # Truyền True/False tường minh để ÉP trạng thái, không bị env override
+        # (quan trọng cho test).
         if self.enabled is None:
-            self.enabled = _env_flag(JEV_ENABLED_ENV)
+            self.enabled = _env_flag(JEV_ENABLED_ENV, default=True)
         # `api_key=None` → đọc từ env. Truyền "" (rỗng) để ép tắt (fail-closed).
         if self.api_key is None:
             self.api_key = os.getenv(JEV_API_KEY_ENV, "").strip() or None

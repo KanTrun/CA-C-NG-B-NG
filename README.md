@@ -1913,17 +1913,15 @@ cd apps/web && npm run test:e2e   # Playwright e2e
 ```mermaid
 gitGraph
     commit id: "init"
+    commit id: "feat(core)"
+    commit id: "feat(sprint1-2)"
     branch release/semifinal
+    commit id: "semifinal" tag: "v0.1.0-semifinal"
+    checkout main
+    commit id: "feat(sprint3-5)"
     branch release/final
+    commit id: "final" tag: "v1.0.0-final"
     checkout main
-    commit id: "feat"
-    commit id: "feat "
-    checkout release/semifinal
-    merge main tag: "v0.1.0-semifinal"
-    checkout main
-    commit id: "feat  "
-    checkout release/final
-    merge main tag: "v1.0.0-final"
 ```
 
 | Nhánh | Vai trò |

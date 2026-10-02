@@ -6,7 +6,10 @@ from unittest.mock import patch
 
 from ca_agents.ag_fbpage import (
     FBMessageInput,
+    build_human_response,
+    build_public_context_summary,
     classify_customer_intent,
+    detect_customer_psychology,
     process_fb_message,
 )
 from ca_agents.guardrails import check_input_guardrail, is_tool_allowed
@@ -277,4 +280,148 @@ def test_send_messenger_bubbles(monkeypatch):
     assert sent[0] == ("psid_123", "Dạ quán em chào bạn nha 🫶", None)
     assert sent[1] == ("psid_123", "Quán có Bạc Xỉu 29k đậm đà lắm nè.", None)
 
+
+
+# ── Nhiem vu B: intent hoi_thanh_toan (STK / chuyen khoan / coc ban) ────────────
+
+_PAYMENT_PROFILE = {
+    "ten_quan": "Nhịp Quán",
+    "ngan_hang": "Vietcombank",
+    "stk_ngan_hang": "0123456789",
+    "chu_tai_khoan": "NGUYEN VAN A",
+    "chinh_sach_dat_ban": "Cọc 50%",
+    "hotline": "0901234567",
+}
+
+
+def test_payment_intent_wins_over_booking_when_no_details():
+    """Xin số tài khoản để đặt bàn, không có chi tiết (giờ/người/SĐT) → thanh toán."""
+    emotion, intent, conf = detect_customer_psychology(
+        "cho em xin số tài khoản để đặt bàn"
+    )
+    assert intent == "hoi_thanh_toan"
+    assert emotion == "inquiring"
+    assert conf >= 0.85
+
+
+def test_payment_intent_standalone_and_accents():
+    """Câu hỏi thanh toán đứng riêng (có/không dấu) vẫn ra hoi_thanh_toan."""
+    for text in (
+        "cho em xin số tài khoản để đặt bàn",
+        "so tai khoan nha",
+        "quán có nhận chuyển khoản không",
+        "đặt cọc bàn thế nào ạ",
+        "momo hay zalopay đều được không",
+    ):
+        assert classify_customer_intent(text)[0] == "hoi_thanh_toan", text
+
+
+def test_booking_with_details_stays_dat_ban():
+    """Có chi tiết đặt bàn (giờ/người) → vẫn là dat_ban, tôn trọng state machine."""
+    assert classify_customer_intent("đặt bàn 4 người 19h tối nay")[0] == "dat_ban"
+    assert (
+        classify_customer_intent(
+            "đặt bàn 4 người tối nay, cho em xin số tài khoản để cọc"
+        )[0]
+        == "dat_ban"
+    )
+
+
+def test_build_human_response_payment_uses_profile():
+    """Profile có STK → reply chứa đúng số tài khoản ngân hàng + chính sách cọc."""
+    reply, requires_approval, agent = build_human_response(
+        "hoi_thanh_toan",
+        "inquiring",
+        "cho em xin số tài khoản để đặt bàn",
+        {"profile": _PAYMENT_PROFILE},
+    )
+    assert "0123456789" in reply
+    assert "Vietcombank" in reply
+    assert "NGUYEN VAN A" in reply
+    assert "Cọc 50%" in reply
+    assert not requires_approval
+    assert agent == "AG-FRONTDESK"
+    # Cụm này trùng _FORBIDDEN_REGEX của supervisor → tuyệt đối không được lọt
+    # vào reply (tránh bị hạ xuống queue khiến khách không nhận được gì).
+    assert "tài khoản ngân hàng cá nhân" not in reply.lower()
+
+
+def test_build_human_response_payment_fallback_when_unconfigured():
+    """Chưa cấu hình ngân hàng → trả lời trung thực + hotline, không bịa STK."""
+    reply, requires_approval, _agent = build_human_response(
+        "hoi_thanh_toan",
+        "inquiring",
+        "cho em xin số tài khoản",
+        {"profile": {"hotline": "0901234567"}},
+    )
+    assert "chưa cập nhật" in reply.lower()
+    assert "0901234567" in reply
+    assert not requires_approval
+
+
+def test_booking_reply_appends_stk_when_payment_words():
+    """Tin đặt bàn KÈM hỏi thanh toán → reply đặt bàn được chèn STK cấu hình."""
+    reply, _requires_approval, _agent = build_human_response(
+        "dat_ban",
+        "booking",
+        "đặt bàn 4 người tối nay, cho em xin số tài khoản để cọc",
+        {"profile": _PAYMENT_PROFILE},
+    )
+    assert "0123456789" in reply
+
+
+def test_build_public_context_summary_contains_all_config():
+    """Prompt LLM phải có ĐỦ mọi trường công khai (trước đây thiếu STK/fanpage)."""
+    summary = build_public_context_summary(
+        {
+            **_PAYMENT_PROFILE,
+            "ten_quan": "Cà phê mộc",
+            "dia_chi_chi_tiet": "45 Nguyễn Huệ",
+            "gio_mo_cua_chi_tiet": "06:30 - 22:30",
+            "fanpage_url": "https://facebook.com/nhipquan",
+            "website": "https://nhipquan.vn",
+"khoang_gia": "25.000 - 60.000đ",
+            "tien_ich": "Wifi, máy lạnh",
+            "huong_dan_agent": "- Luôn xưng em",
+        },
+        [{"ten": "Cà phê sữa", "gia_formatted": "30,000đ"}],
+        [{"tieu_de": "Combo sáng"}],
+    )
+    for needle in (
+        "Cà phê mộc",
+        "45 Nguyễn Huệ",
+        "06:30 - 22:30",
+        "https://facebook.com/nhipquan",
+        "https://nhipquan.vn",
+        "25.000 - 60.000đ",
+        "Wifi, máy lạnh",
+        "- Luôn xưng em",
+        "Cà phê sữa",
+        "Combo sáng",
+        "0123456789",
+        "Cọc 50%",
+    ):
+        assert needle in summary, needle
+    # Trường chưa cấu hình phải hiện placeholder, không nhồi chuỗi rỗng.
+    assert "(chưa cập nhật)" in summary
+
+
+def test_process_fb_message_payment_auto_respond():
+    """Khách hỏi STK (đã cấu hình) → auto_respond, reply chứa STK, không đẩy duyệt."""
+    msg = FBMessageInput(
+        psid="psid_stk",
+        text="cho em xin số tài khoản để đặt bàn",
+        message_id="mid_stk",
+        timestamp=1700000000,
+    )
+    out = asyncio.run(
+        process_fb_message(
+            msg,
+            auto_respond_enabled=True,
+            public_context={"profile": _PAYMENT_PROFILE},
+        )
+    )
+    assert out.action == "auto_respond", f"reason={out.reason} intent={out.intent} reply={out.response}"
+    assert out.intent == "hoi_thanh_toan"
+    assert "0123456789" in (out.response or "")
 

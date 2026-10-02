@@ -1,10 +1,100 @@
 # Kế hoạch cải tiến tính năng tạo ảnh quảng cáo menu (AI)
 
-> **Ngày lập:** 2026-09-22 · **Cập nhật:** 2026-09-25
-> **Trạng thái:** Phase 1 **đã xong** · Phase 2–4 chờ làm
-> **File liên quan:** `packages/agents/src/ca_agents/menu_prompt.py` ·
-> `ca_agents/image_gen.py` · `ca_agents/bg_redesign.py` · `ca_agents/menu_style.py` ·
-> `apps/web/src/app/menu/page.tsx` · `apps/api/src/ca_api/interfaces/http/pos.py`
+> **Ngày lập:** 2026-09-22 · **Cập nhật:** 2026-09-27
+> **Trạng thái:** Phase 1 **đã xong** · Luồng 4 bước **đã xong** (§8) · Phase 2–4 chờ làm
+> **File liên quan:** `packages/agents/src/ca_agents/menu_ad_prompt.py` ·
+> `ca_agents/menu_prompt.py` · `ca_agents/image_gen.py` · `ca_agents/bg_redesign.py` ·
+> `ca_agents/menu_style.py` · `apps/web/src/app/menu/page.tsx` ·
+> `apps/api/src/ca_api/interfaces/http/pos.py`
+
+---
+
+## 8. Luồng ẢNH QUẢNG CÁO 4 BƯỚC (2026-09-27) — đã triển khai
+
+Chốt lại yêu cầu: **ảnh thật là nguồn sự thật duy nhất về sản phẩm**, AI chỉ được
+đổi bối cảnh/ánh sáng/phong cách quanh nó. Trước đây prompt mô tả món bằng lời
+("iced peach tea") nên model **vẽ lại** sản phẩm từ đầu — ra một chai na ná chứ
+không phải chai của quán.
+
+### 8.1 Bốn bước
+
+| Bước | Việc | Hàm / endpoint |
+|---|---|---|
+| 1 | Kiểm ảnh có phải sản phẩm đựng chất lỏng + nhìn rõ | `validate_product_image` · `POST /anh/kiem-tra` |
+| 2 | Thu ý kiến người dùng bằng lời thường → `user_feedback_history` | `append_feedback` (state UI) |
+| 3 | Lắp prompt = **TEMPLATE GỐC** + toàn bộ ý kiến đã ghi | `build_ad_prompt` · `POST /anh/prompt-quang-cao` |
+| 4 | Lặp chỉnh sửa: nối ý kiến mới, lắp lại prompt, hỏi tiếp | `build_ad_prompt` (gọi lại) |
+
+Bước 2 và 4 dùng **cùng một hàm**: lịch sử ý kiến là danh sách nối thêm, không có
+nhánh "chỉnh sửa" riêng (hai nhánh sẽ lệch nhau theo thời gian).
+
+### 8.2 Ràng buộc bắt buộc — không bao giờ bỏ
+
+Bốn điều khoản luôn có mặt ở MỌI lần tạo ảnh, kể cả lần chỉnh sửa thứ N:
+
+1. Sản phẩm chính diện, căn giữa khung (*front-facing and centered*).
+2. Không đổi hình dáng, nhãn mác, chữ, logo, màu bao bì, màu nước, nắp/nút.
+3. Chỉ được đổi bối cảnh, ánh sáng, phong cách, tâm trạng, góc chụp, mặt bàn, vật trang trí.
+4. Không thêm người/bàn tay, không đè chữ hay logo lạ lên sản phẩm.
+
+Ý kiến người dùng vi phạm điều 2 hoặc 4 bị **lọc ở tầng prompt** và trả về trong
+`bo_qua` để UI nói rõ yêu cầu nào không áp dụng được — âm thầm bỏ thì người dùng
+tưởng AI lờ mình.
+
+### 8.3 Ưu tiên khi ý kiến mâu thuẫn
+
+Lịch sử **không bị xoá**. Yêu cầu mới nhất được nhắc lại ở cuối prompt dưới dạng
+`Latest instruction to prioritize: …` — model sinh ảnh ưu tiên mệnh đề đứng sau,
+nên "nền biển" rồi "nền trắng studio" ra nền trắng, mà các ý kiến cũ **không liên
+quan** (ánh sáng, góc chụp) vẫn còn nguyên trong prompt.
+
+### 8.4 Kiểm ảnh đầu vào — fail-closed hai tầng
+
+| Tình huống | Kết quả | Vì sao |
+|---|---|---|
+| Không phải file ảnh / ảnh < 200px / ảnh hỏng ruột | `ok=false` | Không AI nào chữa được file không phải ảnh |
+| AI thị giác nói không phải sản phẩm nước, hoặc mờ | `ok=false` + `thong_diep` | Đúng Bước 1 của quy trình |
+| **Không gọi được AI thị giác** (thiếu khoá, provider lỗi) | `ok=true, da_kiem=false` | Chặn ở đây là tính năng chết khi rút mạng, trong khi phần lớn giá trị vẫn làm được |
+
+Trường hợp thứ ba **phải nói thật** với người dùng là ảnh chưa được kiểm nội dung
+(`ghi` trong response) — không được để họ tưởng ảnh đã qua AI xác nhận.
+
+### 8.5 Hai luồng tách biệt
+
+| | Luồng ảnh quảng cáo (4 bước) | "AI vẽ mới" |
+|---|---|---|
+| Cần ảnh | ✅ bắt buộc | không |
+| Prompt mô tả sản phẩm? | **không** — chỉ bối cảnh + ràng buộc | có, dịch từ tên món |
+| `prompt_quang_cao` | `true` | `false` (mặc định) |
+| Đảm bảo giống sản phẩm thật | ✅ | ❌ |
+
+Cờ `prompt_quang_cao` mặc định `false` để lời gọi cũ giữ nguyên hành vi.
+
+### 8.6 Từ vựng mở rộng
+
+`menu_prompt._GLOSSARY` thêm nhóm **bao bì đựng chất lỏng** (chai/lọ/hũ/bình/ca/
+hộp/túi/gói/lon/thùng + cụm dài "chai thủy tinh", "chai nhựa"). Nhóm này cần cho
+luồng ảnh thật: prompt phải gọi đúng loại bao bì để model không vẽ lại sản phẩm
+thành ly.
+
+Cả `menu_prompt` lẫn `menu_ad_prompt` đều có **bảng tra không dấu suy ra tự động**
+từ bảng có dấu — người dùng gõ "doi nen sang mau xanh" vẫn ra
+"bright background green tones" thay vì lọt nguyên tiếng Việt vào prompt.
+
+**Bẫy đã gặp:** khớp từ khoá cấm bằng *chuỗi con* gây chặn oan vì khi bỏ dấu
+"mẫu" nằm trong "màu" và "đổ" nằm trong "đổi" — người dùng yêu cầu "màu xanh" lại
+bị báo là đòi thêm người. Đã chuyển sang khớp theo **ranh giới từ** (`\b`), và bỏ
+hai mục từ khoá mơ hồ (`mẫu`, `lật`) thay bằng cụm dài không thể trùng (`lật ngược`,
+`dựng đứng`).
+
+### 8.7 Kiểm thử
+
+| Bộ test | Số lượng | Nội dung |
+|---|---:|---|
+| `packages/agents/tests/test_menu_ad_prompt.py` | 66 | loại bao bì, lọc ý kiến (kể cả chặn oan), dịch không dấu, **ràng buộc còn sau 10 lần chỉnh**, ưu tiên ý kiến mới, các nhánh Bước 1 |
+| `apps/api/tests/unit/test_menu_ad_flow_http.py` | 24 | phân quyền, 422/404, data-URL, `bo_qua` trả về UI, tất định, trần 12 ý kiến |
+
+Không test nào mở mạng: Bước 1 được neo ở tầng `validate_product_image`.
 
 ---
 

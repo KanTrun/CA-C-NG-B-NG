@@ -1878,22 +1878,27 @@ def test_time_off_bao_ban_tao_de_xuat_cho_duyet() -> None:
 
 
 def test_time_off_bao_ban_mot_ca_giu_dung_khung() -> None:
-    """«Tôi bận ca sáng thứ 5» → chỉ chặn ca sáng, KHÔNG nghỉ cả ngày.
+    """«Tôi bận ca sáng thứ 5 vì …» → chỉ chặn ca sáng, KHÔNG nghỉ cả ngày.
 
     Đây là lỗi gốc: trước đây mọi báo bận đều bị ép về 07:00–22:00 + xin_nghi
     nên "bận ca sáng" xoá luôn ca chiều/tối cùng ngày.
+
+    Câu có kèm lý do vì copilot nay HỎI LẠI khi NV không nêu lý do (xem
+    `test_time_off_thieu_ly_do_khong_tao_de_xuat`) — test này kiểm khung giờ,
+    không kiểm lý do, nên thêm lý do để vẫn đi tới bước duyệt đơn.
     """
     from ca_api.persist import kv_get
 
     token = _login_staff()
     res = client.post(
         "/api/v1/copilot/message",
-        json={"message": "Tôi bận ca sáng thứ 5", "channel": "web"},
+        json={"message": "Tôi bận ca sáng thứ 5 vì đi khám bệnh", "channel": "web"},
         headers={"Authorization": f"Bearer {token}"},
     )
     assert res.status_code == 200
     data = res.json()
     assert data["intent"] == "PROPOSE_TIME_OFF"
+    assert data["action_proposal"] is not None, data.get("reply_text")
     action_id = data["action_proposal"]["action_id"]
 
     exec_res = client.post(
@@ -1907,6 +1912,139 @@ def test_time_off_bao_ban_mot_ca_giu_dung_khung() -> None:
     assert item["rang_buoc"]["thu"] == "T5"
     assert item["rang_buoc"]["start"] == "06:30"
     assert item["rang_buoc"]["end"] == "12:00"
+
+
+def test_time_off_thieu_ly_do_khong_tao_de_xuat() -> None:
+    """NV nói xin nghỉ mà KHÔNG nêu lý do → copilot hỏi lại, KHÔNG tạo đơn.
+
+    Lỗi gốc: parser điền sẵn `ly_do="bận"` nên đơn vẫn tạo được và quản lý duyệt
+    một đơn nghỉ không biết lý do — không ai biết phải hỏi NV điều gì.
+    """
+    token = _login_staff()
+    res = client.post(
+        "/api/v1/copilot/message",
+        json={"message": "Tôi bận buổi chiều thứ 5", "channel": "web"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert res.status_code == 200
+    data = res.json()
+    assert data["action_proposal"] is None, "Không được tạo đề xuất khi thiếu lý do"
+    assert "lý do" in data["reply_text"], f"Phải hỏi lý do: {data['reply_text']!r}"
+
+
+def test_time_off_ly_do_that_co_trong_don_cho_quan_ly() -> None:
+    """Lý do tới tay quản lý phải SẠCH: không lẫn ca/ngày, không phải "bận" mặc định.
+
+    Lỗi gốc: "xin nghỉ ca sáng thứ 3 vì con ốm" bị đưa vào đơn với lý do
+    "sang thứ 3 vì con ốm" — lý do thật bị chôn sau cụm ca/ngày.
+    """
+    from ca_api.persist import kv_get
+
+    token = _login_staff()
+    res = client.post(
+        "/api/v1/copilot/message",
+        json={"message": "Tôi xin nghỉ ca sáng thứ 3 vì con ốm", "channel": "web"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert res.status_code == 200
+    data = res.json()
+    assert data["intent"] == "PROPOSE_TIME_OFF"
+    proposal = data["action_proposal"]
+    assert proposal is not None
+    assert proposal["payload_diff"]["ly_do"] == "con ốm"
+
+    exec_res = client.post(
+        "/api/v1/copilot/execute-action",
+        json={"action_id": proposal["action_id"], "decision": "approve"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert exec_res.status_code == 200
+    item = next(t for t in kv_get("inbox_rang_buoc", []) if t.get("agent") == "ag_copilot")
+    assert "con ốm" in item["tom_tat"], f"Lý do thật không tới quản lý: {item['tom_tat']!r}"
+    for nhieu in ("ca sang", "ca sáng", "thứ 3", "thu 3"):
+        assert nhieu not in item["tom_tat"], f"Token ca/ngày lọt vào lý do: {item['tom_tat']!r}"
+
+
+def test_time_off_luot_hai_tra_loi_ly_do() -> None:
+    """Lượt 1 hỏi lý do → lượt 2 NV trả lời thì ra được đơn, giữ ngày lượt 1."""
+    from ca_api.persist import kv_get
+
+    token = _login_staff()
+    l1 = client.post(
+        "/api/v1/copilot/message",
+        json={"message": "Tôi bận buổi chiều thứ 5", "channel": "web"},
+        headers={"Authorization": f"Bearer {token}"},
+    ).json()
+    assert l1["action_proposal"] is None
+
+    l2 = client.post(
+        "/api/v1/copilot/message",
+        json={
+            "message": "đi khám bệnh",
+            "channel": "web",
+            "recent_messages": ["Tôi bận buổi chiều thứ 5"],
+            "cho_phep_noi_ly_do": True,
+        },
+        headers={"Authorization": f"Bearer {token}"},
+    ).json()
+    proposal = l2.get("action_proposal")
+    assert proposal is not None, f"Lượt 2 phải ra được đề xuất: {l2.get('reply_text')!r}"
+    diff = proposal["payload_diff"]
+    assert diff["ly_do"] == "đi khám bệnh"
+    assert diff["thu"] == "T5", "Phải giữ thứ của lượt 1"
+    assert (diff["start"], diff["end"]) == ("12:00", "17:30"), "Phải giữ khung giờ lượt 1"
+
+    exec_res = client.post(
+        "/api/v1/copilot/execute-action",
+        json={"action_id": proposal["action_id"], "decision": "approve"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert exec_res.status_code == 200
+    assert kv_get("inbox_rang_buoc", []), "Phải có đơn nghỉ trong inbox"
+
+
+def test_time_off_khong_hoi_ly_do_khi_khong_phai_luot_tra_loi() -> None:
+    """Không có cờ `cho_phep_noi_ly_do` → câu ngắn không bị bắt thành lý do."""
+    token = _login_staff()
+    res = client.post(
+        "/api/v1/copilot/message",
+        json={
+            "message": "đi khám bệnh",
+            "channel": "web",
+            "recent_messages": ["Tôi bận buổi chiều thứ 5"],
+        },
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    data = res.json()
+    assert data["action_proposal"] is None
+    assert data["intent"] == "OUT_OF_SCOPE"
+
+
+def test_time_off_ngay_tuong_doi_khong_bi_bo_rhoi() -> None:
+    """"Hôm nay"/"ngày mai" không có "thứ X" → vẫn suy được thứ, không mất đơn."""
+    from ca_api.persist import kv_get
+
+    token = _login_staff()
+    res = client.post(
+        "/api/v1/copilot/message",
+        json={"message": "Tôi bận buổi chiều nay vì việc gia đình", "channel": "web"},
+        headers={"Authorization": f"Bearer {token}"},
+    ).json()
+    proposal = res.get("action_proposal")
+    assert proposal is not None, f"Không được bỏ rơi ngày tương đối: {res.get('reply_text')!r}"
+    assert proposal["payload_diff"]["thu"] in {"T2", "T3", "T4", "T5", "T6", "T7", "CN"}
+    assert proposal["payload_diff"]["ly_do"] == "việc gia đình"
+
+    exec_res = client.post(
+        "/api/v1/copilot/execute-action",
+        json={"action_id": proposal["action_id"], "decision": "approve"},
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert exec_res.status_code == 200
+    item = next(t for t in kv_get("inbox_rang_buoc", []) if t.get("agent") == "ag_copilot")
+    assert "nay" not in item["tom_tat"], f"Token ngày tương đối lọt vào lý do: {item['tom_tat']!r}"
+
+
 def test_pr10_task_complete_proposal_and_execute() -> None:
     """Đánh dấu xong việc treo qua chat: propose -> approve -> trang_thai='xong'."""
     from ca_api.persist import kv_set

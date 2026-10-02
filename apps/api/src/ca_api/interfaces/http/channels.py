@@ -36,6 +36,7 @@ from ca_agents.customer_memory import (
 )
 from ca_agents.facebook_page import (
     fetch_conversations,
+    fetch_psid_name,
     hide_comment,
     is_within_24h_window,
     page_health,
@@ -86,6 +87,7 @@ from ca_api.persist import (
     fb_review_decide,
     fb_review_finalize_claim,
     fb_review_get,
+    fb_review_insert,
     fb_review_link_generation,
     fb_review_list,
     fb_review_release_claim,
@@ -553,6 +555,31 @@ def _fb_auto_send_enabled() -> bool:
     return fb_auto_send_enabled()
 
 
+def _fb_auto_reservation_enabled() -> bool:
+    """Cờ đặt bàn tự động (KV `fb_policy_runtime` → env `NHIPQUAN_AUTO_RESERVATION`).
+
+    Fail-open về True: nếu đọc cờ lỗi thì giữ hành vi mặc định (state-machine tự
+    chạy), vì fail-closed ở đây sẽ đẩy mọi tin đặt bàn vào hộp thư khi hệ thống
+    lỗi — tức là lặp lại đúng triệu chứng "im lặng" mà PR này đang sửa.
+    """
+    try:
+        return bool(ca_api.services.table_reservation_service.auto_reservation_enabled())
+    except Exception:
+        LOG.exception("doc auto_reservation that bai")
+        return True
+
+
+def _owner_policy_from_context(public_context: dict[str, Any] | None) -> str:
+    """`chinh_sach_dat_ban` chủ quán nhập — đầu vào cho supervisor gate (ADR-008).
+
+    Rỗng khi chưa cấu hình → supervisor chặn mọi hứa tài chính như trước.
+    """
+    prof = (public_context or {}).get("profile")
+    if not isinstance(prof, dict):
+        return ""
+    return str(prof.get("chinh_sach_dat_ban") or "").strip()
+
+
 @router.get("/api/v1/page/status")
 def page_status(authorization: Annotated[str | None, Header()] = None) -> dict[str, Any]:
     _require_manager(authorization)
@@ -563,6 +590,19 @@ def page_status(authorization: Annotated[str | None, Header()] = None) -> dict[s
     if mode == "live" and token and page_id:
         health = page_health()
     connected = mode == "live" and token and bool(health.get("ok"))
+    has_app_secret = bool(os.environ.get("NHIPQUAN_FB_APP_SECRET", "").strip())
+    has_verify_token = bool(os.environ.get("NHIPQUAN_FB_WEBHOOK_VERIFY", "").strip())
+    # Webhook Meta chỉ gửi được sự kiện (kể cả comment bài viết/ảnh) khi đủ
+    # App Secret (ký HMAC) + verify token. Thiếu → mọi POST webhook bị 403,
+    # hộp thư duyệt sẽ KHÔNG bao giờ thấy comment mới.
+    webhook_ready = has_app_secret and has_verify_token
+    webhook_detail = (
+        "san_sang"
+        if webhook_ready
+        else "thieu_" + "+".join(
+            [p for p, ok in (("app_secret", has_app_secret), ("verify_token", has_verify_token)) if not ok]
+        )
+    )
     return {
         "mode": mode,
         "connected": connected,
@@ -571,6 +611,14 @@ def page_status(authorization: Annotated[str | None, Header()] = None) -> dict[s
         "page_name": health.get("page_name") if health.get("ok") else None,
         "graph_ok": bool(health.get("ok")),
         "graph_detail": None if health.get("ok") else health.get("detail"),
+        "webhook_ready": webhook_ready,
+        "webhook_detail": webhook_detail,
+        # Cờ bối cảnh cho UI hiện banner ngay thay vì im lặng: thiếu App Secret
+        # ⇒ mọi event thật của Meta bị chặn ở verify chữ ký.
+        "webhook_secret_present": has_app_secret,
+        "auto_send_enabled": _fb_auto_send_enabled(),
+        "auto_reservation_enabled": _fb_auto_reservation_enabled(),
+        "llm_mode": agent_mode(),
         "huong_dan": (
             "Tạo Page Facebook rồi làm theo docs/runbooks/facebook-page-connect.md "
             "— không dùng dữ liệu giả."
@@ -590,9 +638,49 @@ def page_sync(authorization: Annotated[str | None, Header()] = None) -> dict[str
         raise HTTPException(status_code=502, detail=str(e)[:180]) from e
 
     def mut(doc: dict[str, Any]) -> dict[str, Any]:
-        by_id = {t.get("id"): t for t in doc.get("threads", []) if t.get("id")}
+        stored = [t for t in doc.get("threads", []) if isinstance(t, dict)]
+        by_id = {t.get("id"): t for t in stored if t.get("id")}
+        by_psid: dict[str, dict[str, Any]] = {}
+        for t in stored:
+            psid = str(t.get("psid") or "")
+            if psid and psid not in by_psid:
+                by_psid[psid] = t
         for th in threads:
+            if not isinstance(th, dict) or not th.get("id"):
+                continue
+            psid = str(th.get("psid") or "")
+            target = by_id.get(th.get("id")) or (by_psid.get(psid) if psid else None)
+            if target is not None:
+                # Đã có thread (webhook hoặc lần sync trước): dồn tên thật +
+                # lịch sử sync vào, GIỮ nguyên trường AI/draft/pending — không
+                # ghi đè mất, không tạo dòng trùng cho cùng một người.
+                sync_name = str(th.get("from") or "")
+                if sync_name and not _has_real_name(target):
+                    target["sender_name"] = sync_name
+                    target["from"] = sync_name
+                if sync_name and psid:
+                    try:
+                        kv_set(f"psid_name:{store_id}:{psid}", sync_name)
+                    except Exception:
+                        pass
+                seen_ids = {
+                    str(r.get("id"))
+                    for r in (target.get("replies") or [])
+                    if isinstance(r, dict)
+                }
+                for r in th.get("replies") or []:
+                    if isinstance(r, dict) and str(r.get("id")) not in seen_ids:
+                        target.setdefault("replies", []).append(r)
+                        seen_ids.add(str(r.get("id")))
+                if th.get("tom_tat"):
+                    target["tom_tat"] = th["tom_tat"]
+                by_id[target.get("id")] = target
+                if psid and psid not in by_psid:
+                    by_psid[psid] = target
+                continue
             by_id[th["id"]] = th
+            if psid and psid not in by_psid:
+                by_psid[psid] = th
         doc["threads"] = list(by_id.values())
         doc["mode"] = "live"
         return doc
@@ -721,6 +809,49 @@ class FBDebounceManager:
 _FB_DEBOUNCE_MANAGER = FBDebounceManager()
 
 
+def _has_real_name(thread: dict[str, Any]) -> bool:
+    """Thread đã có tên người thật (không phải sentinel, không phải PSID số)."""
+    psid = str(thread.get("psid") or thread.get("sender_id") or "")
+    for key in ("sender_name", "customer_name", "from"):
+        raw = thread.get(key)
+        if (
+            isinstance(raw, str)
+            and raw.strip()
+            and raw.strip() not in {"Khách", "Khách hàng", "Customer"}
+            and raw.strip() != psid
+        ):
+            return True
+    return False
+
+
+async def _resolve_sender_name(store_id: str, sender: str) -> str:
+    """Tên người nhắn Messenger: cache KV trước, thiếu thì tra Graph (best-effort).
+
+    Webhook Meta chỉ gửi PSID nên thread webhook mặc định không có tên.
+    Lookup lỗi/quyền thiếu → trả "" để caller fallback, không bao giờ raise.
+    """
+    try:
+        cached = kv_get(f"psid_name:{store_id}:{sender}", "")
+        if isinstance(cached, str) and cached.strip():
+            return cached.strip()
+    except Exception:
+        pass
+    # Chỉ tra cứu khi chạy live thật — replay/test không gọi mạng ra ngoài.
+    if _page_mode() != "live" or agent_mode() != "live":
+        return ""
+    try:
+        name = await asyncio.to_thread(fetch_psid_name, sender)
+    except Exception:
+        return ""
+    name = str(name or "").strip()
+    if name:
+        try:
+            kv_set(f"psid_name:{store_id}:{sender}", name)
+        except Exception:
+            pass
+    return name
+
+
 async def _execute_fb_pipeline(
     *,
     store_id: str,
@@ -828,6 +959,35 @@ async def _execute_fb_pipeline(
             reservation_state=out.reservation_state,
         )
 
+    # Chống "treo claim": moderation đã claim auto_send (status='approved') nhưng
+    # pipeline lại chốt queue_to_inbox (LLM draft bị supervisor từ chối, circuit
+    # breaker, cần duyệt) → nhánh gửi bị bỏ qua VÀ hàng approved đứng yên trong
+    # DB: khách không nhận gì, quản lý cũng không thấy trong hộp thư (im lặng).
+    # Bắt buộc trả hàng về pending + ghi bản nháp để QL thấy và xử lý được.
+    if out.action != "auto_respond" and moderation.get("review_id"):
+        try:
+            review_id_int = int(moderation["review_id"])
+            released = bool(fb_review_release_claim(review_id_int))
+            fb_review_update_proposed(
+                review_id_int,
+                proposed_response=str(
+                    out.suggested_reply
+                    or moderation.get("response")
+                    or "Đã chuyển quản lý xử lý."
+                ),
+            )
+            if released:
+                audit_add(
+                    _now(),
+                    "system",
+                    "fb_auto_claim_released",
+                    {"review_id": review_id_int, "reason": out.reason},
+                    actor_type="system",
+                    agent_name="ag_fbpage",
+                )
+        except Exception:
+            LOG.exception("fb claim release failed")
+
     fingerprint = hashlib.sha256(f"{store_id}:{page_id}:{mid}:{out.action}:{out.suggested_reply or out.response or ''}".encode()).hexdigest()
     policy_action = "auto_send" if out.action == "auto_respond" else "queue_review"
     generation_id = f"facebook-{fingerprint[:24]}"
@@ -884,6 +1044,12 @@ async def _execute_fb_pipeline(
     th["is_within_24h"] = is_within_24h_window(ts)
     th["customer_profile"] = cust_prof
 
+    # Webhook Meta không gửi tên người nhắn — tra cứu bổ sung để UI hiện
+    # tên thật thay vì dãy số PSID (best-effort, có cache KV theo PSID).
+    sender_name = await _resolve_sender_name(store_id, sender)
+    if sender_name:
+        th["sender_name"] = sender_name
+
     if out.action == "auto_respond" and out.response:
         bot_reply = {
             "id": f"bot_{uuid.uuid4().hex[:6]}",
@@ -920,6 +1086,10 @@ async def _execute_fb_pipeline(
             existing["tom_tat"] = thread["tom_tat"]
             existing.setdefault("replies", []).extend(thread.get("replies") or [])
             existing["psid"] = thread.get("psid")
+            # Giữ tên thật đã tra được: tin sau lookup lỗi không xóa tên cũ,
+            # tin sau có tên thì backfill khi thread chưa có tên thật.
+            if thread.get("sender_name") and not _has_real_name(existing):
+                existing["sender_name"] = thread["sender_name"]
             existing["intent"] = thread.get("intent")
             existing["confidence"] = thread.get("confidence")
             existing["suggested_reply"] = thread.get("suggested_reply")
@@ -935,6 +1105,97 @@ async def _execute_fb_pipeline(
 
     kv_mutate(f"page_quan:{store_id}", mut, _page_store(store_id))
     return True
+
+
+def _queue_not_live_messages(body_bytes: bytes) -> dict[str, Any]:
+    """Page chưa live: NHẬN tin vào hộp thư thay vì trả `page_chua_live` và nuốt mất.
+
+    Trước đây webhook trả `{"ok": false, "detail": "page_chua_live"}` → tin khách
+    mất hẳn (không queue, không inbox, không audit). Tin đã qua verify chữ ký ở
+    caller nên đây là sự kiện THẬT của Meta, không phải payload rác.
+
+    Ranh giới an toàn: KHÔNG gửi gì ra ngoài (chưa có token Page để gửi), chỉ ghi
+    hàng `pending` để quản lý thấy và trả lời tay.
+    """
+    try:
+        payload = json.loads(body_bytes.decode("utf-8"))
+    except Exception:
+        return {"ok": True, "n": 0, "detail": "page_chua_live"}
+    if not isinstance(payload, dict):
+        return {"ok": True, "n": 0, "detail": "page_chua_live"}
+    entries = payload.get("entry") or []
+    if not isinstance(entries, list):
+        return {"ok": True, "n": 0, "detail": "page_chua_live"}
+
+    page_id_cfg = os.environ.get("NHIPQUAN_FB_PAGE_ID", "").strip()
+    n_queued = 0
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        if page_id_cfg and entry.get("id") and str(entry.get("id")) != page_id_cfg:
+            continue
+        page_id = str(entry.get("id") or page_id_cfg).strip()
+        if not page_id:
+            continue
+        store_id = resolve_store_id_from_page_id(page_id)
+        messaging = entry.get("messaging") or []
+        if not isinstance(messaging, list):
+            continue
+        for ev in messaging:
+            if not isinstance(ev, dict):
+                continue
+            sender_raw = ev.get("sender")
+            sender = (
+                str((sender_raw or {}).get("id") or "")
+                if isinstance(sender_raw, dict)
+                else ""
+            )
+            msg = ev.get("message") or {}
+            if not isinstance(msg, dict) or msg.get("is_echo"):
+                continue
+            text = str(msg.get("text") or "").strip()
+            mid = str(msg.get("mid") or "").strip()
+            if not text or not sender or not mid:
+                continue
+            # L0 idempotency — Meta retry không tạo trùng.
+            try:
+                claimed = fb_try_claim_scoped_event(
+                    store_id=store_id,
+                    page_id=page_id,
+                    event_type="messaging",
+                    external_event_id=mid,
+                )
+            except Exception:
+                LOG.exception("claim event not-live that bai")
+                continue
+            if not claimed:
+                continue
+            try:
+                fb_review_insert(
+                    {
+                        "source": "messenger",
+                        "external_thread_id": f"fb_{sender}",
+                        "external_psid": sender,
+                        "message_text": text[:1000],
+                        "detected_intent": "khac",
+                        "confidence": 0.0,
+                        "policy_action": "queue_review",
+                        "assigned_role": "quan_ly",
+                        "proposed_response": (
+                            "Page chưa kết nối — quản lý kiểm tra cấu hình Page "
+                            "rồi trả lời khách."
+                        ),
+                        "flagged_reasons": ["page_chua_live"],
+                        "store_id": store_id,
+                        "status": "pending",
+                        "created_at": _now(),
+                    }
+                )
+            except Exception:
+                LOG.exception("insert review not-live that bai")
+                continue
+            n_queued += 1
+    return {"ok": True, "n": n_queued, "detail": "page_chua_live"}
 
 
 @router.api_route("/api/v1/channels/facebook/webhook", methods=["GET", "POST"])
@@ -960,10 +1221,28 @@ async def facebook_webhook(request: Request) -> Any:
                 "add it to .env (Meta App Dashboard → App Settings → Basic → App Secret) "
                 "then restart the stack, otherwise ALL real Meta events get 403."
             )
+        # Ghi audit để vận hành thấy "bị chặn bao nhiêu" mà không log body/PII.
+        # Vẫn fail-closed: giữ 403, không xử lý tin chưa xác thực.
+        try:
+            audit_add(
+                _now(),
+                "system",
+                "fb_webhook_rejected",
+                {
+                    "reason": "invalid_signature",
+                    "app_secret_present": bool(
+                        os.environ.get("NHIPQUAN_FB_APP_SECRET", "").strip()
+                    ),
+                },
+                actor_type="system",
+                agent_name="ag_fbpage",
+            )
+        except Exception:
+            LOG.exception("audit fb_webhook_rejected that bai")
         raise HTTPException(status_code=403, detail="invalid_signature")
 
     if _page_mode() != "live" or not os.environ.get("NHIPQUAN_FB_PAGE_TOKEN", "").strip():
-        return {"ok": False, "detail": "page_chua_live"}
+        return _queue_not_live_messages(body_bytes)
 
     try:
         payload = json.loads(body_bytes.decode("utf-8"))
@@ -1209,15 +1488,15 @@ async def facebook_webhook(request: Request) -> Any:
             if moderation.get("action") not in {"block_silent", "block_polite"}:
                 # Comment công khai.
                 # - Nếu policy cho auto_send (intent an toàn + confidence cao,
-                #   COMMENT_SAFE_INTENTS + AUTO_THRESHOLD_COMMENT) VÀ cờ
-                #   auto_send bật: gửi trả lời công khai ngay, không cần QL
-                #   duyệt. Ưu tiên LLM draft thông minh, fallback về response
-                #   template đã qua supervisor.
+                #   COMMENT_SAFE_INTENTS + AUTO_THRESHOLD_COMMENT): gửi trả lời
+                #   công khai ngay, KHÔNG phụ thuộc cờ auto-send (quyết định
+                #   của Chủ quán: comment an toàn luôn được trả lời; cờ chỉ
+                #   giữ cho Messenger). Ưu tiên LLM draft thông minh,
+                #   fallback về response template đã qua supervisor.
                 # - Ngược lại: sinh LLM draft cho QL duyệt tay (ADR-008).
                 if (
                     moderation.get("action") == "auto_send"
                     and moderation.get("response")
-                    and _fb_auto_send_enabled()
                 ):
                     final_text = str(moderation["response"]).strip()
                     if agent_mode() == "live":
@@ -1228,7 +1507,11 @@ async def facebook_webhook(request: Request) -> Any:
                                 is_comment=True,
                             )
                             if comment_draft:
-                                sup = supervise_outgoing_response(text, comment_draft)
+                                sup = supervise_outgoing_response(
+                                    text,
+                                    comment_draft,
+                                    owner_policy=_owner_policy_from_context(public_ctx),
+                                )
                                 if sup.is_approved and sup.sanitized_response.strip():
                                     final_text = sup.sanitized_response.strip()
                         except Exception:
@@ -1259,7 +1542,11 @@ async def facebook_webhook(request: Request) -> Any:
                             is_comment=True,
                         )
                         if comment_draft:
-                            sup = supervise_outgoing_response(text, comment_draft)
+                            sup = supervise_outgoing_response(
+                                text,
+                                comment_draft,
+                                owner_policy=_owner_policy_from_context(public_ctx),
+                            )
                             if sup.is_approved and sup.sanitized_response.strip():
                                 fb_review_update_proposed(
                                     int(moderation["review_id"]),
@@ -1282,14 +1569,19 @@ def _thread_display_name(thread: dict[str, Any]) -> str:
       5. Mã PSID rút gọn để vẫn phân biệt được ai đang nhắn (tránh "Khách" chung chung).
     """
     raw = thread.get("sender_name") or thread.get("customer_name") or thread.get("from") or ""
-    if isinstance(raw, str) and raw.strip() and raw.strip() not in {"Khách", "Khách hàng", "Customer"}:
+    psid = str(thread.get("psid") or thread.get("sender_id") or "")
+    if (
+        isinstance(raw, str)
+        and raw.strip()
+        and raw.strip() not in {"Khách", "Khách hàng", "Customer"}
+        and raw.strip() != psid
+    ):
         return raw.strip()
     prof = thread.get("customer_profile")
     if isinstance(prof, dict):
         ten = prof.get("ten_khach")
         if isinstance(ten, str) and ten.strip():
             return ten.strip()
-    psid = str(thread.get("psid") or thread.get("sender_id") or "")
     if psid:
         return f"Khách {psid[-4:]}"
     return "Khách"
@@ -1721,6 +2013,7 @@ class FbPolicyBody(BaseModel):
     auto_send_enabled: bool | None = None
     auto_price_cap_vnd: int | None = None
     jev_enabled: bool | None = None
+    auto_reservation_enabled: bool | None = None
     note: str | None = None
 
 
@@ -1732,6 +2025,7 @@ def _fb_policy_get() -> dict[str, Any]:
             os.environ.get("NHIPQUAN_FB_AUTO_PRICE_CAP_VND", "100000")
         ),
         "jev_enabled": fb_jev_enabled(),
+        "auto_reservation_enabled": _fb_auto_reservation_enabled(),
         "page_mode": _page_mode(),
         "intent_thresholds": {
             "chao_hoi": 0.90,
@@ -1782,11 +2076,13 @@ def fb_policy_set(
         body.auto_send_enabled is not None
         or body.auto_price_cap_vnd is not None
         or body.jev_enabled is not None
+        or body.auto_reservation_enabled is not None
     ):
         set_fb_policy_runtime(
             auto_send_enabled=body.auto_send_enabled,
             auto_price_cap_vnd=body.auto_price_cap_vnd,
             jev_enabled=body.jev_enabled,
+            auto_reservation_enabled=body.auto_reservation_enabled,
         )
     if body.auto_send_enabled is not None:
         changes["auto_send_enabled"] = body.auto_send_enabled
@@ -1794,6 +2090,8 @@ def fb_policy_set(
         changes["auto_price_cap_vnd"] = int(body.auto_price_cap_vnd)
     if body.jev_enabled is not None:
         changes["jev_enabled"] = body.jev_enabled
+    if body.auto_reservation_enabled is not None:
+        changes["auto_reservation_enabled"] = body.auto_reservation_enabled
     _audit(
         s["nv_id"],
         "fb_policy_update",

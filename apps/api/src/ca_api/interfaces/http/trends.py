@@ -78,10 +78,19 @@ def get_trends_radar(
     mode: str = Query(default="auto"),
     authorization: Annotated[str | None, Header()] = None,
 ) -> dict[str, Any]:
-    """Fetch real-time scraped trends with news excerpts, TikTok videos & comments."""
+    """Fetch real-time scraped trends with news excerpts, TikTok videos & comments.
+
+    QA 2026-10-01: đo production `GET /trends/radar` (all) mất **~90s** vì mỗi
+    lượt xem cào live cả 5 nguồn (endpoint không dùng cache dù `ag_trend` đã có
+    cache tổng hợp TTL 90s). Truyền `force_live=False` để các lượt xem trùng
+    tham số trong 90s dùng lại kết quả — giảm chờ cho người dùng và giảm tải
+    nguồn bên thứ ba (tránh bị chặn IP). Lượt đầu sau hết TTL vẫn cào live
+    (UI đã có trạng thái "Đang lấy dữ liệu thị trường…").
+    """
     _require_auth(authorization)
     trends = fetch_trend_radar(
-        platform_filter=region, category_filter=category, keyword=keyword, scrape_mode=mode
+        platform_filter=region, category_filter=category, keyword=keyword, scrape_mode=mode,
+        force_live=False,
     )
     return {
         "ok": True,

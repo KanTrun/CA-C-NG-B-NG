@@ -144,6 +144,9 @@ export function useCopilotChat(mode: Mode = "pane") {
   const [streamingId, setStreamingId] = useState<string | null>(null);
   const typingTimers = useRef<Record<string, number>>({});
   const messagesRef = useRef<ChatMessage[]>(messages);
+  // Loại làm rõ của lượt gần nhất ("thieu_ly_do" | "thieu_thu" | …). Lưu theo
+  // CỜ do server gửi, không so chuỗi trong `reply_text`.
+  const clarifRef = useRef<string | null>(null);
 
   // Cập nhật ref mỗi render để handleSendMessage có state mới nhất
   useEffect(() => {
@@ -350,14 +353,20 @@ export function useCopilotChat(mode: Mode = "pane") {
 
       try {
         const token = getToken();
-        const recent = messagesRef.current
-          .filter((m) => m.sender === "user")
-          .slice(-3)
-          .map((m) => m.text);
+        // Chỉ lấy tin của NGƯỜI DÙNG: `recent_messages` là ngữ cảnh để agent
+        // hiểu câu lệnh trước, tin của copilot không phải lệnh của NV.
+        const ganDay = messagesRef.current.filter((m) => m.sender === "user");
+        const recent = ganDay.slice(-3).map((m) => m.text);
+        // Lượt trước copilot đã hỏi "lý do xin nghỉ là gì?" → câu này là câu TRẢ
+        // LỜI. Dùng cờ `clarification_kind` từ response thay vì so chuỗi trong
+        // `reply_text`: đổi câu chữ là hỏng ngay, và không phân biệt được
+        // "hỏi lý do" với các câu hỏi làm rõ khác.
+        const choPhepNoiLyDo = clarifRef.current === "thieu_ly_do";
         const payload = JSON.stringify({
           message: text,
           channel: mode === "page" ? "web-page" : "web",
           recent_messages: recent,
+          cho_phep_noi_ly_do: choPhepNoiLyDo,
           attachments: attachments || [],
         });
 
@@ -381,6 +390,9 @@ export function useCopilotChat(mode: Mode = "pane") {
                 m.id === copilotId && !m.text ? { ...m, pending_status: status } : m
               )
             );
+          },
+          (kind) => {
+            clarifRef.current = kind;
           }
         );
 
@@ -420,6 +432,10 @@ export function useCopilotChat(mode: Mode = "pane") {
         const citations: string[] | null = Array.isArray(data.citations)
           ? data.citations
           : null;
+        clarifRef.current =
+          typeof data.clarification_kind === "string"
+            ? data.clarification_kind
+            : null;
 
         setMessages((prev) =>
           prev.map((m) =>
@@ -502,7 +518,8 @@ async function streamCopilot(
   payload: string,
   token: string,
   onDelta: (delta: string) => void,
-  onStatus?: (status: string) => void
+  onStatus?: (status: string) => void,
+  onMeta?: (clarificationKind: string | null) => void
 ): Promise<StreamResult> {
   try {
     const res = await fetch(`${API_BASE}/api/v1/copilot/message/stream`, {
@@ -542,6 +559,11 @@ async function streamCopilot(
             try {
               const data = JSON.parse(dataStr);
               if (eventName === "meta") {
+                onMeta?.(
+                  typeof data.clarification_kind === "string"
+                    ? data.clarification_kind
+                    : null
+                );
                 meta = {
                   action_proposal: data.action_proposal ?? null,
                   citations: Array.isArray(data.citations) ? data.citations : null,

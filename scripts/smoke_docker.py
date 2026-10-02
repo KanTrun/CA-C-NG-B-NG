@@ -102,7 +102,13 @@ def main() -> int:
         started = call(base, "/api/v1/phieu/start", token=token, body={"mau": "mo_quan"})
         show("phieu/start", started)
         phieu_id = started.get("id") or started.get("run_id") or started.get("phieu_id")
-        buoc = (started.get("buoc") or [{}])[0].get("ma")
+        # Đẩy BƯỚC ĐANG DỞ, không phải bước đầu template. `phieu/start` trả về
+        # phiếu đang chạy nếu đã có (chạy lại smoke lần hai sẽ trả `ph_1` đã
+        # qua bước 1) — lấy `buoc[0]` thì gọi nhầm bước cũ và nhận
+        # 400 `sai_thu_tu_buoc`, làm smoke không chạy lại được.
+        buoc = started.get("buoc_hien_tai") or (started.get("hien_tai") or {}).get("ma")
+        if not buoc:
+            buoc = (started.get("buoc") or [{}])[0].get("ma")
         if phieu_id and buoc:
             show(
                 "phieu/buoc",

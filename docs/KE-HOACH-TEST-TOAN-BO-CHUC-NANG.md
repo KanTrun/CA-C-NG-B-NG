@@ -156,7 +156,7 @@ Sau đó gọi API kèm header `Authorization: Bearer <token>`.
 | D6 | `/thu-nghiem-an-toan` | Chạy mô phỏng Digital Twin | Trả kết quả mô phỏng · không lỗi | ✅ PASS — 200, 1 kịch bản `qa1` với `ket_qua` đầy đủ |
 | D7 | `/ai-learning` | Xem "Trạng thái vận hành AI" + danh sách rule proposals | Danh sách render · có thống kê | ✅ PASS — `/ai/operations/status` 200 (8 cờ) · `/ai/rules/proposals` 200 |
 | D8 | `/inbox` | Xem hàng đợi ràng buộc (UI hiện là "AI tự động duyệt · chỉ xem") | Danh sách mục · filter trạng thái hoạt động | ✅ PASS — 200, **23 mục** |
-| D9 | `/quanverse` + 4 sub | Mở `/quanverse`, `/war-room`, `/shift-rescue`, `/rules`, `/spatial-memory` | Tất cả 200 · 2 trang có **3D canvas render** | ✅ PASS — 5/5 route web 200; API experience 200 (snapshot/modes/candidates) |
+| D9 | `/quanverse` + 4 sub | Mở `/quanverse` (expect 200) + 4 sub `/war-room`, `/shift-rescue`, `/rules`, `/spatial-memory` (expect **308 redirect về `/quanverse`** — chủ ý, chốt bởi e2e `quanverse-hidden-routes.spec.ts`, redirect khai ở `next.config.js`) | ✅ PASS — `/quanverse` 200; 4 sub 308 `Location: /quanverse` (QA 30/09 N2: không phải bug); API experience 200 (snapshot/modes/candidates) |
 | D10 | 6 trang AI | Mở `/de-xuat-thong-minh`, `/giai-thich`, `/thu-nghiem-an-toan`, `/cam-nang`, `/ai-learning`, `/inbox` · xem panel "Trợ lý đọc giúp trang này" | **0 lỗi 404** `POST /api/v1/ai/insight` (regression bug #25) | ✅ PASS — `POST /ai/insight` **200** (bug #25 còn fix) |
 
 ---

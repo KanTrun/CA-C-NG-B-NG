@@ -94,30 +94,31 @@ _RATE_LIMIT_STORE: dict[str, list[float]] = {}
 
 
 def _get_verified_user(authorization: str | None) -> dict[str, str]:
-    """Extract authenticated session; fallback to default test user if auth not enforced in replay."""
+    """Authenticated session, or `None` when there is none.
+
+    KHÔNG còn fallback về tài khoản `guest` (QA 2026-10-01 LỖI 1): endpoint đọc
+    `/message` và `/message/stream` dùng hàm này nên trước đây KHÔNG CẦN token vẫn
+    gọi được LLM live — mất tiền của quán và lộ số liệu vận hành ra ngoài, đồng
+    thời gom mọi khách vãng lai vào một kho rate-limit chung nên một người spam
+    chặn được cả nhân viên thật.
+
+    Giờ đây endpoint đọc CũNG dùng `_require_user`. Webhook kênh ngoài (Telegram/
+    Zalo) không có token người dùng nên đi đường riêng: xác thực bằng secret
+    header trong chính handler (`copilot_message`), không đi qua hàm này.
+    """
     sess = auth_session(authorization)
-    if sess:
-        return {
-            "username": sess["username"],
-            "user_id": sess["nv_id"],
-            "role": sess["role"],
-            "store_id": sess["store_id"],
-        }
-    # For open endpoints with optional auth, check header or assign unauthenticated
+    if not sess:
+        return {}
     return {
-        "username": "guest",
-        "user_id": "nv_guest",
-        "role": "nhan_vien",
-        "store_id": "quan_01",
+        "username": sess["username"],
+        "user_id": sess["nv_id"],
+        "role": sess["role"],
+        "store_id": sess["store_id"],
     }
 
 
 def _require_user(authorization: str | None) -> dict[str, str]:
-    """Validate user — raise 401 when token missing. For write-like endpoints.
-
-    Giữ `_get_verified_user` cho endpoint đọc (Telegram/Zalo webhook có thể không
-    có token user). Endpoint GHI dữ liệu (execute-action, amend) phải xác thực.
-    """
+    """Validate user — raise 401 when token missing."""
     sess = auth_session(authorization)
     if not sess:
         raise HTTPException(status_code=401, detail="thieu_token_hoac_session_het_han")
@@ -129,13 +130,18 @@ def _require_user(authorization: str | None) -> dict[str, str]:
     }
 
 
-def _check_rate_limit(user_id: str, max_per_min: int = 30) -> None:
+def _check_rate_limit(bucket: str, max_per_min: int = 30) -> None:
+    """Giới hạn tần suất theo `bucket` (user_id đã xác thực hoặc khoá IP).
+
+    Khoá theo `user_id` là đủ vì mọi lượt gọi đều đã qua `_require_user`, nên
+    không còn nhánh "tất cả khách vãng lai dùng chung `nv_guest`".
+    """
     now = time.time()
-    times = [t for t in _RATE_LIMIT_STORE.get(user_id, []) if now - t < 60]
+    times = [t for t in _RATE_LIMIT_STORE.get(bucket, []) if now - t < 60]
     if len(times) >= max_per_min:
         raise HTTPException(status_code=429, detail="rate_limit_exceeded:too_many_requests")
     times.append(now)
-    _RATE_LIMIT_STORE[user_id] = times
+    _RATE_LIMIT_STORE[bucket] = times
 
 
 # ── Request / Response Models ────────────────────────────────────────────────
@@ -146,6 +152,10 @@ class MessageRequestBody(BaseModel):
     channel: str = "web"
     recent_messages: list[str] = Field(default_factory=list, max_length=3)
     attachments: list[dict[str, Any]] = Field(default_factory=list)
+    # Lượt trước copilot đã hỏi "lý do xin nghỉ là gì?" → lượt này NV đang trả
+    # lời. Không có cờ này thì câu trả lời rơi vào OUT_OF_SCOPE và bị bỏ rơi
+    # (lỗi lượt trước đã truyền `recent_messages: []` cứng ở chat/voice).
+    cho_phep_noi_ly_do: bool = False
 
 
 class ExecuteActionBody(BaseModel):
@@ -381,7 +391,9 @@ async def copilot_upload(
     authorization: Annotated[str | None, Header()] = None,
 ) -> dict[str, Any]:
     """Upload tệp đính kèm (ảnh TKB, phiếu, tài liệu) cho AG-COPILOT."""
-    user = _get_verified_user(authorization)
+    # GHI FILE XUỐNG ĐĨA ⇒ bắt buộc phiên thật (QA 2026-10-01: endpoint này
+    # từng dùng `_get_verified_user` nên khách chưa đăng nhập vẫn đẩy được tệp).
+    user = _require_user(authorization)
     _check_rate_limit(user["user_id"])
 
     content = await file.read()
@@ -439,13 +451,25 @@ def copilot_message(
     if not body.message.strip() and not body.attachments:
         raise HTTPException(status_code=422, detail="tin_nhan_hoac_tep_dinh_kem_khong_duoc_de_trong")
 
-    # Webhook signature verification for Telegram if channel is telegram
+    # Webhook Telegram không có token người dùng — xác thực bằng secret header.
+    # FAIL-CLOSED: trước đây `if expected_secret and ...` nghĩa là khi env CHƯA set
+    # thì kiểm tra bị BỎ QUA hoàn toàn, ai cũng khai `channel="telegram"` để đi
+    # vòng xác thực. Nay thiếu secret cũng phải chặn.
     if body.channel == "telegram":
         expected_secret = os.environ.get("TELEGRAM_WEBHOOK_SECRET")
-        if expected_secret and x_telegram_secret != expected_secret:
+        if not expected_secret or x_telegram_secret != expected_secret:
             raise HTTPException(status_code=401, detail="invalid_telegram_webhook_secret")
-
-    user = _get_verified_user(authorization)
+        # Danh tính dịch vụ: KHÔNG phải người, nên khoá rate-limit riêng cho
+        # webhook để một webhook bị spam không khoá luôn phiên của nhân viên.
+        user = {
+            "username": "telegram_webhook",
+            "user_id": "svc_telegram",
+            "role": "nhan_vien",
+            "store_id": body.store_id or "quan_01",
+        }
+    else:
+        # Mọi kênh còn lại (web trong sản phẩm) đều phải có phiên thật.
+        user = _require_user(authorization)
     _check_rate_limit(user["user_id"])
 
     effective_message = body.message.strip()
@@ -462,6 +486,7 @@ def copilot_message(
         "active_date": ngay_hom_nay_vn(),
         "channel": body.channel,
         "recent_messages": body.recent_messages,
+        "cho_phep_noi_ly_do": body.cho_phep_noi_ly_do,
         "attachments": body.attachments,
     }
 
@@ -501,7 +526,10 @@ def copilot_message_stream(
     phản hồi ĐẦU TIÊN tới ngay, và giữ nguyên hình dạng sự kiện cho client cũ.
     """
     t0 = time.time()
-    user = _get_verified_user(authorization)
+    # Endpoint đọc nhưng vẫn tốn tiền LLM ⇒ bắt buộc phiên thật, không fallback
+    # về khách (QA 2026-10-01 LỖI 1). Web có tài khoản đăng nhập nên màn hình
+    # `/copilot` không đổi; chỉ khách lạ gọi thẳng API mới bị chặn 401.
+    user = _require_user(authorization)
     _check_rate_limit(user["user_id"])
     if not body.message.strip() and not body.attachments:
         raise HTTPException(status_code=422, detail="tin_nhan_hoac_tep_dinh_kem_khong_duoc_de_trong")
@@ -519,6 +547,7 @@ def copilot_message_stream(
         "active_date": ngay_hom_nay_vn(),
         "channel": body.channel,
         "recent_messages": body.recent_messages,
+        "cho_phep_noi_ly_do": body.cho_phep_noi_ly_do,
         "attachments": body.attachments,
     }
 
@@ -567,6 +596,9 @@ def copilot_message_stream(
             "citations": list(getattr(response, "citations", []) or []),
             "direct_answer": getattr(response, "direct_answer", None),
             "agent_mode": getattr(response, "agent_mode", "replay"),
+            # Client dùng cờ này để biết lượt sau câu của người dùng có phải
+            # câu TRẢ LỜI làm rõ không, thay vì so chuỗi trong `reply_text`.
+            "clarification_kind": getattr(response, "clarification_kind", None),
         }
         yield _sse("meta", meta)
 
@@ -1533,8 +1565,11 @@ def copilot_get_permissions(
     authorization: Annotated[str | None, Header()] = None,
 ) -> dict[str, Any]:
     """Minh bạch quyền: role hiện tại được (và không được) dùng intent nào."""
+    # Không yêu cầu phiên: đây là bảng hằng số công khai theo vai, không có dữ
+    # liệu quán nào trong đó. Khách lạ coi như `nhan_vien` — quyền thấp nhất,
+    # không rò rỉ gì so với đã đăng nhập.
     user = _get_verified_user(authorization)
-    role = user["role"]
+    role = user.get("role") or "nhan_vien"
     allowed = sorted(copilot_intents_allowed_for_role(role))
     all_intents = sorted(
         str(i.value) if hasattr(i, "value") else str(i)

@@ -91,6 +91,8 @@ export function CopilotDrawer({ open, onClose }: CopilotDrawerProps = {}) {
 
   const [inputMessage, setInputMessage] = useState("");
   const [messages, setMessages] = useState<ChatMessage[]>([WELCOME_MSG]);
+  // Loại làm rõ của lượt gần nhất, đọc từ CỜ server gửi (`clarification_kind`).
+  const [lastClarification, setLastClarification] = useState<string | null>(null);
   const [hydrated, setHydrated] = useState(false);
   const [loading, setLoading] = useState(false);
   const [isListening, setIsListening] = useState(false);
@@ -222,6 +224,9 @@ export function CopilotDrawer({ open, onClose }: CopilotDrawerProps = {}) {
           message: text,
           channel: "web",
           recent_messages: messages.slice(-3).map((m) => m.text),
+          // Lượt trước copilot hỏi lý do nghỉ → câu này là câu trả lời. Đọc CỜ
+          // `clarification_kind` từ response, không so chuỗi trong reply_text.
+          cho_phep_noi_ly_do: lastClarification === "thieu_ly_do",
         }),
       });
 
@@ -232,6 +237,9 @@ export function CopilotDrawer({ open, onClose }: CopilotDrawerProps = {}) {
 
       const replyText: string =
         data.reply_text || "Dạ em đã xử lý xong yêu cầu của anh/chị.";
+      setLastClarification(
+        typeof data.clarification_kind === "string" ? data.clarification_kind : null,
+      );
       const citations: string[] | null = Array.isArray(data.citations)
         ? data.citations
         : null;

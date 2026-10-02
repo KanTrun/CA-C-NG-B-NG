@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, type ReactNode } from "react";
 import { apiGet, apiSend } from "../../lib/api";
 import { viError } from "../../lib/present";
 import { getToken, isManager } from "../../lib/session";
@@ -29,6 +29,12 @@ type Status = {
   follower_count?: number;
   unread_thread_count?: number;
   unreviewed_draft_count?: number;
+  webhook_ready?: boolean;
+  webhook_detail?: string;
+  webhook_secret_present?: boolean;
+  auto_send_enabled?: boolean;
+  auto_reservation_enabled?: boolean;
+  llm_mode?: string;
 };
 
 type Thread = {
@@ -164,6 +170,55 @@ type TrendItem = {
   tu_khoa_hashtag: string[];
 };
 
+/**
+ * Banner canh bao chatbot co chay that khong.
+ *
+ * KHONG phu trung App Secret / Page chua noi: banner `webhook_ready` va chip
+ * trang thai o tren da lo cac truong hop do. Banner nay chi lo cac co KHONG ai
+ * hien: auto-send tat (khach khong nhan gi ca) va dat ban tu dong tat.
+ */
+function PageHealthBanner({ status }: { status: Status | null }) {
+  if (!status) return null;
+
+  const rows: ReactNode[] = [];
+  if (status.auto_send_enabled === false) {
+    rows.push(
+      <>
+        <strong className="font-bold">Tu tra loi dang TAT.</strong> Moi tin khach
+        deu vao hop thu cho duyet tay o{" "}
+        <Link href="/page-quan/fb-inbox" className="underline font-bold">
+          /page-quan/fb-inbox
+        </Link>{" "}
+        — khach khong duoc tra loi gi. Bat lai bang cong tac «Tu tra loi» tren
+        trang do.
+      </>,
+    );
+  }
+  if (status.auto_reservation_enabled === false) {
+    rows.push(
+      <>
+        <strong className="font-bold">Dat ban tu dong dang TAT.</strong> Tin dat
+        ban vao hop thu cho quan ly duyet; cau hoi so tai khoan/chuyen khoan van
+        duoc bot tra loi ngay.
+      </>,
+    );
+  }
+  if (rows.length === 0) return null;
+
+  return (
+    <div
+      role="status"
+      className="rounded-lg border-2 border-[var(--nq-warn)] bg-[var(--nq-st-warn-soft)] px-4 py-3 text-sm text-[var(--nq-st-warn-ink)]"
+    >
+      <ul className="space-y-1">
+        {rows.map((r, i) => (
+          <li key={i}>{r}</li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 export default function PageQuanPage() {
   const [token, setToken] = useState("");
   const [manager, setManager] = useState(false);
@@ -216,6 +271,10 @@ export default function PageQuanPage() {
   const [activeThreadId, setActiveThreadId] = useState<string | null>(null);
   const [threadFilter, setThreadFilter] = useState<"all" | "needs_action" | "within_24h">("all");
   const [sendingReplyId, setSendingReplyId] = useState<string | null>(null);
+
+  // Hộp thư duyệt (bình luận bài viết/ảnh + tin chờ): đếm chờ để dẫn sang /page-quan/fb-inbox
+  const [inboxPending, setInboxPending] = useState(0);
+  const [commentPending, setCommentPending] = useState(0);
 
   // Load Saved Trends from localStorage
   useEffect(() => {
@@ -353,6 +412,15 @@ export default function PageQuanPage() {
       })
       .catch((e) => setError(viError(e, { doing: "mở được Page quán" })))
       .finally(() => setLoading(false));
+
+    // Đếm hộp thư duyệt riêng (không chặn load chính): bình luận bài viết/ảnh nằm ở fb-inbox, không nằm trong threads Messenger.
+    apiGet<{ items: Array<{ source?: string; status?: string }> }>("/api/v1/page/fb-inbox?status=pending&limit=100")
+      .then((d) => {
+        const items = d.items ?? [];
+        setInboxPending(items.length);
+        setCommentPending(items.filter((it) => it.source === "comment").length);
+      })
+      .catch(() => {});
 
     fetchTrendsData(regionFilter, categoryFilter, activeKeyword, scrapeMode);
   }, [regionFilter, categoryFilter, activeKeyword, scrapeMode, fetchTrendsData]);
@@ -1697,8 +1765,49 @@ export default function PageQuanPage() {
               <Btn variant="ghost" onClick={load}>
                 Làm mới
               </Btn>
+              <Link
+                href="/page-quan/fb-inbox"
+                className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--nq-accent)] bg-[var(--nq-accent)] px-3 py-1.5 text-xs font-bold text-[var(--nq-accent-ink)] shadow-sm hover:brightness-110 transition"
+                title="Bình luận trên bài viết/ảnh Page nằm ở hộp thư duyệt, không nằm trong danh sách Messenger này"
+              >
+                Duyệt bình luận & tin chờ{inboxPending > 0 ? ` (${inboxPending})` : ""}
+              </Link>
             </div>
           </div>
+
+          {/* Bình luận bài viết/ảnh không nằm trong threads Messenger — dẫn rõ sang hộp thư duyệt */}
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-[color-mix(in_srgb,var(--nq-st-info)_40%,var(--nq-line))] bg-[var(--nq-st-info-soft)] px-4 py-2.5 text-xs">
+            <span className="text-[var(--nq-st-info-ink)]">
+              Bình luận trên <strong>bài viết / ảnh Page</strong> do bot bắt qua webhook{" "}
+              <span className="font-mono">feed/comment</span> và nằm ở{" "}
+              <strong>Hộp thư duyệt</strong>, không nằm trong danh sách Messenger này.
+              {commentPending > 0 ? (
+                <>
+                  {" "}Hiện có <strong>{commentPending} bình luận chờ duyệt</strong>.
+                </>
+              ) : (
+                <> Hiện không có bình luận nào chờ.</>
+              )}
+            </span>
+            <Link
+              href="/page-quan/fb-inbox"
+              className="font-bold text-[var(--nq-accent)] underline decoration-dotted underline-offset-2 hover:text-[var(--nq-accent)]"
+            >
+              Mở Bình luận & Inbox duyệt →
+            </Link>
+          </div>
+
+          {status && status.webhook_ready === false ? (
+            <div className="rounded-lg border-2 border-[var(--nq-red)] bg-[var(--nq-st-danger-soft)] px-4 py-3 text-xs text-[var(--nq-st-danger-ink)]">
+              <strong>Webhook Facebook chưa sẵn sàng ({status.webhook_detail || "thiếu cấu hình"}).</strong>{" "}
+              Mọi sự kiện từ Meta (kể cả bình luận bài viết/ảnh) bị từ chối → hộp thư sẽ không thấy gì mới.
+              Cần điền <span className="font-mono">NHIPQUAN_FB_APP_SECRET</span> +{" "}
+              <span className="font-mono">NHIPQUAN_FB_WEBHOOK_VERIFY</span> rồi subscribe field{" "}
+              <span className="font-mono">feed</span> trên Meta App (xem docs/runbooks/facebook-page-connect.md).
+            </div>
+          ) : null}
+
+          <PageHealthBanner status={status} />
 
           {filteredThreads.length === 0 ? (
             <Empty title="Chưa có hội thoại">
