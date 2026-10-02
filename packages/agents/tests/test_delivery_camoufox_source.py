@@ -237,10 +237,79 @@ def test_fetch_shopeefood_page_khong_co_du_lieu_tra_dict_rong() -> None:
         def goto(self, url: str, **kwargs) -> None:
             pass
 
-        def mouse(self):
-            raise RuntimeError("không cuộn được")
-
-        def locator(self, sel: str):
-            raise RuntimeError("không có nút")
-
     assert fetch_shopeefood_page(_FakePage(), "pho", 10.7769, 106.7009) == {}
+
+
+def test_fetch_delivery_dishes_captures_payload() -> None:
+    """fetch_delivery_dishes bắt đúng payload get_delivery_dishes từ listener."""
+    from ca_agents.sources.delivery_camoufox_source import fetch_delivery_dishes
+
+    class _FakeResponse:
+        def __init__(self, url: str, data: dict) -> None:
+            self.url = url
+            self._data = data
+
+        def json(self) -> dict:
+            return self._data
+
+    class _FakePage:
+        url = "https://shopeefood.vn/quan-test"
+
+        def __init__(self) -> None:
+            self._listeners: list = []
+
+        def on(self, event: str, cb) -> None:
+            self._listeners.append(cb)
+            # Giả lập response bắn về ngay sau khi gắn listener
+            cb(
+                _FakeResponse(
+                    "https://gofood.vn/api/dish/get_delivery_dishes?id=123",
+                    {
+                        "reply": {
+                            "menu_infos": [
+                                {
+                                    "dish_type_name": "Cơm",
+                                    "dishes": [
+                                        {"name": "Cơm sườn", "price": {"value": 35000}}
+                                    ],
+                                }
+                            ]
+                        }
+                    },
+                )
+            )
+
+        def remove_listener(self, event: str, cb) -> None:
+            pass
+
+        def goto(self, url: str, **kwargs) -> None:
+            pass
+
+    res = fetch_delivery_dishes(_FakePage(), "https://shopeefood.vn/quan-test", 10.77, 106.69)
+    assert "reply" in res
+    assert len(res["reply"]["menu_infos"]) == 1
+
+
+def test_scrape_delivery_stores_respects_deadline() -> None:
+    """Khi deadline đã cạn, scrape_delivery_stores không gọi cào menu cho các quán tiếp theo."""
+    _reset_cache()
+    from ca_agents.sources.delivery_camoufox_source import scrape_delivery_stores_camoufox
+
+    fake_stores_payload = {
+        "reply": {
+            "delivery_infos": [
+                {"id": 1, "restaurant_id": 1, "name": "Quán 1", "rating": 4.5, "url_rewrite_name": "q1", "location_url": "hcm"},
+                {"id": 2, "restaurant_id": 2, "name": "Quán 2", "rating": 4.5, "url_rewrite_name": "q2", "location_url": "hcm"},
+            ]
+        }
+    }
+
+    menu_scraped = []
+
+    with patch("ca_agents.sources.delivery_camoufox_source.scrape_page", return_value=fake_stores_payload):
+        with patch("ca_agents.sources.delivery_camoufox_source.scrape_delivery_menu_camoufox", side_effect=lambda *a, **kw: menu_scraped.append(a)):
+            # Với deadline 0, vòng lặp menu phải dừng ngay lập tức
+            stores = scrape_delivery_stores_camoufox(10.78, 106.69, "cơm", 5.0, deadline_s=0.0)
+            assert len(stores) == 2
+            assert len(menu_scraped) == 0, "Không được cào menu khi deadline_s <= 10s"
+
