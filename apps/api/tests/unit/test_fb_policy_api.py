@@ -237,7 +237,19 @@ def test_policy_put_jev_enabled_kill_switch(api: TestClient, monkeypatch) -> Non
     monkeypatch.setenv("JEV_ENABLED", "1")
     assert fm.fb_jev_enabled() is True
 
+    revoke_calls: list[None] = []
+    real_set = fm.set_fb_policy_runtime
+
+    def _spy_set(**kwargs: object) -> dict[str, object]:
+        revoke_calls.append(None)
+        if kwargs.get("jev_enabled") is not None:
+            # Bỏ sensor/chain đã dựng — giống thực tế sau một lần Jev chạy.
+            fm._JEV_SENSOR = object()
+            fm._SENSOR_CHAIN = object()
+        return real_set(**kwargs)  # type: ignore[arg-type]
+
     # Tắt qua API (Chủ quán) → kill-switch hoạt động.
+    monkeypatch.setattr(fm, "set_fb_policy_runtime", _spy_set)
     ok = api.put(
         "/api/v1/page/fb-policy",
         json={"jev_enabled": False, "note": "tắt gấp do nghi ngờ lộ dữ liệu"},
@@ -245,6 +257,13 @@ def test_policy_put_jev_enabled_kill_switch(api: TestClient, monkeypatch) -> Non
     )
     assert ok.status_code == 200
     assert ok.json()["jev_enabled"] is False
+    assert revoke_calls, "API phải đi qua set_fb_policy_runtime"
+
+    # Cờ chính sách chỉ là một nửa: SensorChain đã dựng trước đó phải bị BỎ, nếu
+    # không Jev vẫn chạy thật và vẫn gửi nội dung khách sang TypeSafe dù chủ quán
+    # vừa bấm tắt.
+    assert fm._JEV_SENSOR is None, "tắt Jev phải bỏ sensor đang giữ trong bộ nhớ"
+    assert fm._SENSOR_CHAIN is None, "tắt Jev phải bỏ chain đang giữ trong bộ nhớ"
 
     # env vẫn bật nhưng KV thắng → tắt.
     monkeypatch.setenv("JEV_ENABLED", "1")
@@ -258,6 +277,7 @@ def test_policy_put_jev_enabled_kill_switch(api: TestClient, monkeypatch) -> Non
     )
     assert ok2.status_code == 200
     assert fm.fb_jev_enabled() is True
+
 
 # ── Nhiem vu C: het im lang — treo claim + "nuot" tin khi page chua live ───────
 

@@ -9,8 +9,14 @@ Thiết kế theo kế hoạch JEV v2:
 - **Kill-switch:** `jev.enabled=false` tắt nhanh mà không cần deploy.
 - **Ghim phiên bản:** `jev-1.13.0`, không dùng `jev-latest` ở sản xuất.
 
-Lưu ý: payload HTTP thô dưới đây theo dạng đã dùng trong kế hoạch v1. Khi có
-API key thật, đối chiếu lại docs.typesafe.ai hoặc dùng SDK chính thức.
+Lưu ý: payload HTTP dưới đây đã đối chiếu `https://api.typesafe.ai/openapi.json`
+(2026-10-02): `state` gửi dạng object, `questions` là map name →
+{type, instructions, criteria}. Payload và hash replay dùng CHUNG
+`_build_payload` nên không thể lệch nhau (ADR-007).
+
+**Chưa kiểm chứng bằng lời gọi thật:** mọi môi trường đều thiếu `JEV_API_KEY`,
+nên chưa có bằng chứng TypeSafe chấp nhận payload này. Bật Jev lần đầu thì phải
+gọi thử một lần và đọc vết `fb_jev_sensor` trước khi tin.
 """
 
 from __future__ import annotations
@@ -170,19 +176,59 @@ class JevSensor:
                 consecutive_failures=n, open_until=0.0, half_open_at=0.0
             )
 
-    # ── Replay (ADR-007) ────────────────────────────────────────────────────
+    # ── Payload ─────────────────────────────────────────────────────────────
     @staticmethod
+    def _build_payload(
+        model: str,
+        state: Mapping[str, object],
+        questions: Mapping[str, object],
+    ) -> dict[str, Any]:
+        """Payload gửi TypeSafe — dạng DUY NHẤT dùng cho cả hash lẫn HTTP.
+
+        `state` đi nguyên object (openapi khai string | object | array). Trước
+        đây `_call_api` bọc `json.dumps(state)` còn `_request_hash` băm object
+        thô — hai payload khác nhau, nên hash replay không mô tả thứ đã gửi
+        (ADR-007). Gộp về một hàm để không thể lệch lần nữa.
+        """
+        return {"model": model, "state": dict(state), "questions": dict(questions)}
+
+    @staticmethod
+    def _hash_payload(payload: Mapping[str, object]) -> str:
+        """Băm CANONICAL của payload thật (sort key, không khoảng trắng thừa)."""
+        canonical = json.dumps(
+            payload, sort_keys=True, ensure_ascii=False, separators=(",", ":")
+        )
+        return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+    # ── Replay (ADR-007) ────────────────────────────────────────────────────
     def _request_hash(
+        self,
         state: Mapping[str, object],
         schema_id: str,
         questions: Mapping[str, object] | None = None,
     ) -> str:
-        payload = json.dumps(
-            {"state": state, "schema_id": schema_id, "questions": questions},
-            sort_keys=True,
-            ensure_ascii=False,
+        """Hash của phản hồi đã ghi cho cặp (state, schema, questions).
+
+        `schema_id` GẮN vào hash vì cùng một state có thể được hỏi bằng hai bộ
+        câu hỏi khác nhau (`fb_page` vs `injection_scan`) — không gắn thì hai
+        lượt ghi đè nhau và replay trả sai bộ đáp án.
+        """
+        payload = self._build_payload(
+            self.model_version, state, questions or {}
         )
-        return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+        payload["schema_id"] = schema_id
+        return self._hash_payload(payload)
+
+    def _hash_for_request(
+        self,
+        state: Mapping[str, object],
+        schema_id: str,
+        questions: Mapping[str, object],
+    ) -> str:
+        """Hash của ĐÚNG payload sắp gửi — `_call_api` và `evaluate` dùng chung."""
+        payload = self._build_payload(self.model_version, state, questions)
+        payload["schema_id"] = schema_id
+        return self._hash_payload(payload)
 
     def record_replay(
         self,
@@ -242,7 +288,7 @@ class JevSensor:
         if self._is_half_open():
             self._half_open_probe_used = True
 
-        req_hash = self._request_hash(state, schema_id, questions)
+        req_hash = self._hash_for_request(state, schema_id, questions)
 
         # Replay: dùng phản hồi đã ghi (ADR-007).
         if req_hash in self.replay_store:
@@ -286,9 +332,11 @@ class JevSensor:
     ) -> Mapping[str, Any]:
         """Gọi HTTP tới Jev (TypeSafe System One).
 
-        Schema đã xác minh từ docs.typesafe.ai/api:
+        Schema đã đối chiếu `api.typesafe.ai/openapi.json`:
         - Endpoint: POST {base}/v1/systemone
-        - Request:  {"state": ..., "model": ..., "questions": {...}}
+        - Request:  {"state": string|object|array, "model": str,
+                     "questions": {name: {type, instructions, criteria}}}
+          `state` gửi dạng OBJECT (không bọc chuỗi JSON) — xem `_build_payload`.
         `questions` được truyền (map câu hỏi atom) → gửi thẳng lên API.
         Thiếu questions → lỗi (evaluate() đã chặn trước, đây là lưới an toàn).
         """
@@ -297,11 +345,7 @@ class JevSensor:
         if not questions:
             raise ValueError("questions is required for JevSensor._call_api")
         url = f"{self.base_url}{self.endpoint}"
-        payload = {
-            "model": self.model_version,
-            "state": dict(state),
-            "questions": questions,
-        }
+        payload = self._build_payload(self.model_version, state, questions)
         data = json.dumps(payload, ensure_ascii=False).encode("utf-8")
         req = urllib.request.Request(
             url,

@@ -273,6 +273,131 @@ def test_jev_sensor_api_bad_schema_fail_closed(monkeypatch) -> None:
     assert not r.ok
 
 
+def test_jev_sensor_sends_bearer_header_not_placeholder(monkeypatch) -> None:
+    """`Authorization` phải mang key thật.
+
+    Chốt chặn để khối placeholder không quay lại: payload từng gửi chuỗi che
+    `******` ở mọi lời gọi, và test cũ chỉ mock `_call_api` nên không ai thấy.
+    """
+    import urllib.request
+    from unittest.mock import patch
+
+    s = JevSensor(enabled=True, api_key="key-that")
+    seen: dict[str, str] = {}
+
+    class _Resp:
+        def read(self) -> bytes:
+            return b'{"model": "jev-1.13.0", "answers": {}}'
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a) -> None:
+            return None
+
+    def _fake_urlopen(req, timeout=None):
+        seen.update({k.lower(): v for k, v in req.headers.items()})
+        seen["__data__"] = req.data.decode("utf-8")
+        return _Resp()
+
+    with patch.object(urllib.request, "urlopen", _fake_urlopen):
+        s.evaluate({"noi_dung_khach": "x"}, "fb", Q)
+
+    assert seen["authorization"] == "Bearer key-that"
+    assert "******" not in seen["authorization"]
+
+
+def test_jev_sensor_state_khong_bi_boc_thanh_chuoi_json(monkeypatch) -> None:
+    """`state` phải đi nguyên dạng, không bị `json.dumps` thành một chuỗi.
+
+    TypeSafe khai `state` là string | object | array. Bọc object thành chuỗi
+    JSON vừa bỏ hết cấu trúc trường (instructions đọc theo khoá), vừa làm
+    `_request_hash` băm một payload khác với payload gửi đi (ADR-007).
+    """
+    import json
+    import urllib.request
+    from unittest.mock import patch
+
+    s = JevSensor(enabled=True, api_key="key-that")
+    seen: dict[str, str] = {}
+
+    class _Resp:
+        def read(self) -> bytes:
+            return b'{"model": "jev-1.13.0", "answers": {}}'
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a) -> None:
+            return None
+
+    def _fake_urlopen(req, timeout=None):
+        seen["__data__"] = req.data.decode("utf-8")
+        return _Resp()
+
+    with patch.object(urllib.request, "urlopen", _fake_urlopen):
+        s.evaluate({"noi_dung_khach": "đau bụng"}, "fb", Q)
+
+    payload = json.loads(seen["__data__"])
+    assert isinstance(payload["state"], dict), "state đang bị serialize thành chuỗi JSON"
+    assert payload["state"]["noi_dung_khach"] == "đau bụng"
+
+
+def test_jev_sensor_hash_khop_payload_gui_di(monkeypatch) -> None:
+    """Hash replay phải băm ĐÚNG payload đã gửi (ADR-007).
+
+    Lỗi cũ: `_call_api` gửi `state` bọc chuỗi JSON còn `_request_hash` băm
+    object thô → bản ghi replay mô tả một request khác. Test ghi replay theo
+    payload gửi thật rồi bắt `evaluate` phải dùng lại bản ghi đó (không gọi
+    mạng lần hai).
+    """
+    import json
+    import urllib.request
+    from unittest.mock import patch
+
+    s = JevSensor(enabled=True, api_key="key-that")
+    calls: list[str] = []
+    state = {"noi_dung_khach": "đau bụng"}
+
+    class _Resp:
+        def read(self) -> bytes:
+            return b'{"model": "jev-1.13.0", "answers": {"nguy_co_suc_khoe": {"type": "noul", "noul": 0.77}}}'
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a) -> None:
+            return None
+
+    captured: dict[str, str] = {}
+
+    def _fake_urlopen(req, timeout=None):
+        calls.append("net")
+        captured["payload"] = req.data.decode("utf-8")
+        return _Resp()
+
+    with patch.object(urllib.request, "urlopen", _fake_urlopen):
+        first = s.evaluate(state, "fb", Q)
+
+    assert first.ok
+    sent = json.loads(captured["payload"])
+    # Ghi bản replay từ CHÍNH payload đã gửi (đúng quy trình ADR-007).
+    s.record_replay(
+        state,
+        "fb",
+        {"model": "jev-1.13.0", "answers": {"nguy_co_suc_khoe": {"type": "noul", "noul": 0.11}}},
+        Q,
+    )
+    assert json.loads(captured["payload"])["state"] == sent["state"]
+
+    # Lượt hai phải ăn replay, KHÔNG gọi mạng.
+    with patch.object(urllib.request, "urlopen", _fake_urlopen):
+        second = s.evaluate(state, "fb", Q)
+    assert len(calls) == 1, "hash replay không khớp payload gửi đi → gọi mạng lại"
+    assert second.ok
+    assert second.signals["nguy_co_suc_khoe"].value == 0.11
+
+
 # ── route_fb: bảng quyết định ──────────────────────────────────────────────
 
 

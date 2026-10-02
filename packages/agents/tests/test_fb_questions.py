@@ -77,3 +77,47 @@ def test_anonymize_name_heuristic() -> None:
     out = anonymize_state({"noi_dung_khach": text})
     assert "Trâm" not in out["noi_dung_khach"]
     assert "KH_" in out["noi_dung_khach"]
+
+
+def test_anonymize_khong_de_lot_ten_dau_cau() -> None:
+    """Tên đứng ngay đầu câu vẫn phải bị mask.
+
+    Lỗi cũ: chỉ mask chuỗi ≥ 2 từ, nên "Nam ơi …", "Hùng ạ …", "Chị Hoa …" —
+    đúng những câu chào phổ biến nhất của khách — đi nguyên sang TypeSafe.
+    """
+    for cau in (
+        "Nam ơi cho em hỏi giờ mở cửa",
+        "Hùng ạ em xin nghỉ ca sáng",
+        "Trâm ơi mai em bận",
+        "Lan nhé mai mình nghỉ",
+        "Anh Nam ơi cho em hỏi",
+        "Chị Hoa cho em xin nghỉ",
+        "Anh Tuấn cho em xin nghỉ",
+        "Nguyễn Văn Nam gọi lúc 9h nhé",
+    ):
+        out = anonymize_state({"noi_dung_khach": cau})["noi_dung_khach"]
+        assert "KH_" in out, f"lọt tên: {cau!r} → {out!r}"
+
+
+def test_anonymize_khong_mask_nham_cau_nghiep_vu() -> None:
+    """Từ viết hoa ĐẦU CÂU không phải tên thì không được mask.
+
+    Mask nhầm làm câu hỏi gửi Jev méo nghĩa (vd "Dạ em cảm ơn" → "KH_01 em cảm
+    ơn"), mà đó lại là phần lớn tin nhắn thật.
+    """
+    for cau in (
+        "Dạ em cảm ơn chị nhiều",
+        "Vâng em biết rồi ạ",
+        "Quán mở cửa chưa ạ",
+        "Menu hôm nay có gì",
+        "Hôm nay quán đông không",
+        "Thứ Hai tuần sau em nghỉ",
+        "Pha Chế hôm nay vắng",
+        "Đơn hàng của tôi bị sai",
+        "Lịch tuần này thế nào",
+        "Khách báo đau bụng",
+        "Bảng lương tháng này",
+        "Ca sáng nay vắng",
+    ):
+        out = anonymize_state({"noi_dung_khach": cau})["noi_dung_khach"]
+        assert out == cau, f"mask nhầm câu nghiệp vụ: {cau!r} → {out!r}"

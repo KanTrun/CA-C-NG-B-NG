@@ -345,7 +345,6 @@ def set_fb_policy_runtime(
 ) -> dict[str, Any]:
     """Ghi chính sách runtime (KV + env process) — Chủ quán chỉnh không restart."""
     cur = dict(_policy_runtime())
-    global _JEV_SENSOR, _SENSOR_CHAIN
     if auto_send_enabled is not None:
         cur["auto_send_enabled"] = bool(auto_send_enabled)
         os.environ["NHIPQUAN_FB_AUTO_SEND"] = "1" if auto_send_enabled else "0"
@@ -357,6 +356,12 @@ def set_fb_policy_runtime(
         cur["jev_enabled"] = bool(jev_enabled)
         os.environ["JEV_ENABLED"] = "1" if jev_enabled else "0"
         # Reset cả sensor lẫn chain để lần gọi sau tạo/ko tạo đúng trạng thái.
+        #
+        # `global` là BẮT BUỘC ở đây: nếu chỉ gán `_JEV_SENSOR = None` mà không
+        # khai báo, Python tạo biến CỤC BỘ của hàm, còn hai biến module vẫn giữ
+        # sensor cũ — công tắc "tắt Jev ngay" im lặng không có tác dụng cho tới
+        # khi restart tiến trình.
+        global _JEV_SENSOR, _SENSOR_CHAIN
         _JEV_SENSOR = None
         _SENSOR_CHAIN = None
     if auto_reservation_enabled is not None:
