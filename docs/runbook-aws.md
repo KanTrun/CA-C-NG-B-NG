@@ -154,7 +154,8 @@ không deploy nếu CI đỏ hoặc phát hiện bất kỳ cờ demo/fixture n�
 | Solve chậm | Swap đã có 4G; kiểm `docker stats`; t3.small đủ cho solve 60s của quán nhỏ |
 | Let's Encrypt fail | Chờ 1-2 phút sau lần request đầu; kiểm DuckDNS trỏ đúng IP; port 80/443 mở SG |
 | Không SSH được | SG rule SSH source = IP nhà bạn (đổi IP thì update rule); đúng key file, `chmod 400` trên Linux |
-| Deploy đỏ `no space left on device` (containerd) | Ổ 20GB cạn do dở dang layer pull hoặc image cũ tích lũy: SSH vào chạy `sudo rm -rf /var/lib/containerd/io.containerd.content.v1.content/ingest/* && sudo docker image prune -a -f`. Khuyến nghị: tăng EBS lên 30GB trên AWS Console (EC2 → Volumes → Modify Volume → 30 GiB, không cần reboot). |
+| Khảo sát giá `/khao-sat-gia` đứng mãi ở "Đang quét kênh delivery" | API chạy `--workers 2`; cache in-memory từng worker có thể lệch nếu không đọc KV. Đã sửa: `_refresh_job` luôn đồng bộ snapshot mới nhất từ PostgreSQL KV; UI poll bằng `GET /catchment-survey/{job_id}`; Camoufox dùng `setup_page` gắn listener trước `goto` và có ngân sách `CA_SURVEY_JOB_BUDGET_S` (mặc định 300s). Nếu cần chẩn đoán, xem `docker compose logs api -f | grep job_id`. |
+| Job khảo sát báo `SOURCE_BLOCKED` kèm `het_thoi_gian_cho_phep` | Job vượt ngân sách `CA_SURVEY_JOB_BUDGET_S` (mặc định 300 giây) — nguồn ngoài phản hồi quá chậm. Tăng biến này trong `.env` nếu server yếu, hoặc chấp nhận kết quả rỗng và thử lại vào giờ khác. |
 
 ## 10. Pham vi AWS production
 

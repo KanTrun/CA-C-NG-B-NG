@@ -17,6 +17,7 @@ from __future__ import annotations
 import sys
 import threading
 import time
+from pathlib import Path
 from types import ModuleType
 from typing import Any
 from unittest.mock import MagicMock
@@ -37,7 +38,7 @@ def _stub_sync_api(fake_camoufox: MagicMock) -> ModuleType:
     return stub
 
 
-def _install_camoufox(monkeypatch: pytest.MonkeyPatch, fake_camoufox: MagicMock) -> None:
+def _install_camoufox(monkeypatch: pytest.MonkeyPatch, fake_camoufox: Any) -> None:
     """Cài fake module camoufox.sync_api vào sys.modules."""
     monkeypatch.setitem(sys.modules, "camoufox.sync_api", _stub_sync_api(fake_camoufox))
 
@@ -114,6 +115,62 @@ def test_scrape_page_raises_unavailable_when_binary_missing(monkeypatch: pytest.
     _install_camoufox(monkeypatch, fake)
     with pytest.raises(CamoufoxUnavailable, match="camoufox fetch"):
         scrape_page("https://example.com", lambda page: None)
+
+
+# ── Preflight: chặn đường tự tải lại 300MB (sự cố 2026-10-02) ──
+
+
+def test_preflight_blocks_when_install_dir_missing(monkeypatch: pytest.MonkeyPatch):
+    """Thư mục cài không tồn tại → chặn TRƯỚC khi launch.
+
+    `camoufox` không báo lỗi khi thiếu binary: nó tự `install()` vài trăm MB vào
+    container đang chạy. Trên VM production 20GB (đã từng chạm `no space left on
+    device`) đường đó vừa hỏng vừa nguy hiểm, nên phải từ chối sớm.
+    """
+    monkeypatch.setattr(
+        camoufox_client, "_install_dir", lambda: Path("/khong/ton/tai/camoufox")
+    )
+    fake = _make_fake_camoufox()
+    _install_camoufox(monkeypatch, fake)
+
+    with pytest.raises(CamoufoxUnavailable, match="thiếu binary Camoufox"):
+        camoufox_client._try_launch()
+
+    # Chốt quan trọng: KHÔNG được chạm tới launch (tức không kích hoạt auto-install).
+    assert not fake.called, "preflight phải chặn trước khi gọi Camoufox()"
+
+
+def test_preflight_passes_when_install_dir_populated(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
+    """Thư mục cài có dữ liệu → preflight cho qua, launch diễn ra bình thường."""
+    (tmp_path / "version.json").write_text("{}", encoding="utf-8")
+    monkeypatch.setattr(camoufox_client, "_install_dir", lambda: tmp_path)
+    fake = _make_fake_camoufox()
+    _install_camoufox(monkeypatch, fake)
+
+    camoufox_client._try_launch()
+
+    assert fake.called, "preflight không được chặn khi binary có sẵn"
+
+
+def test_preflight_ignores_empty_install_dir(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
+    """Thư mục tồn tại nhưng RỖNG cũng là thiếu binary — `camoufox fetch` chưa chạy."""
+    assert tmp_path.is_dir() and not list(tmp_path.iterdir())
+    monkeypatch.setattr(camoufox_client, "_install_dir", lambda: tmp_path)
+
+    with pytest.raises(CamoufoxUnavailable, match="thiếu binary Camoufox"):
+        camoufox_client._preflight()
+
+
+def test_preflight_never_raises_when_introspection_fails(monkeypatch: pytest.MonkeyPatch):
+    """Không đọc được INSTALL_DIR → bỏ qua preflight, không chặn oan.
+
+    Chẩn đoán hỏng KHÔNG được biến thành lỗi nghiệp vụ: nếu nhánh này raise thì
+    một thay đổi nội bộ của `camoufox` sẽ làm chết cả tính năng khảo sát.
+    """
+    monkeypatch.setattr(camoufox_client, "_install_dir", lambda: None)
+    camoufox_client._preflight()  # không raise là đạt
 
 
 # ── System-deps path ──
@@ -287,3 +344,42 @@ def test_semaphore_blocks_beyond_max_concurrent(monkeypatch: pytest.MonkeyPatch)
         t.join(timeout=10)
 
     assert peak == 2  # không bao giờ quá 2 browser song song
+
+
+def test_scrape_page_calls_setup_page_before_goto(monkeypatch: pytest.MonkeyPatch) -> None:
+    """setup_page phải được gọi sau khi page tạo và trước khi goto."""
+    events: list[str] = []
+
+    class _FakePage:
+        def goto(self, url: str, **kwargs: Any) -> None:
+            events.append(f"goto:{url}")
+
+    class _FakeBrowser:
+        def new_page(self) -> _FakePage:
+            events.append("new_page")
+            return _FakePage()
+
+    class _FakeCamoufox:
+        def __init__(self, **kwargs: Any) -> None:
+            pass
+
+        def __enter__(self) -> _FakeBrowser:
+            events.append("enter")
+            return _FakeBrowser()
+
+        def __exit__(self, *args: Any) -> None:
+            events.append("exit")
+
+    monkeypatch.setattr(camoufox_client, "_preflight", lambda: None)
+    _install_camoufox(monkeypatch, _FakeCamoufox)
+
+    def my_setup(page: Any) -> None:
+        events.append("setup_page")
+
+    def my_extractor(page: Any) -> str:
+        events.append("extractor")
+        return "done"
+
+    res = scrape_page("https://example.com/test", my_extractor, setup_page=my_setup)
+    assert res == "done"
+    assert events == ["enter", "new_page", "setup_page", "goto:https://example.com/test", "extractor", "exit"]

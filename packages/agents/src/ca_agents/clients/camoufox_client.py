@@ -115,6 +115,39 @@ def _classify_launch_error(e: Exception) -> str:
     return f"launch lỗi khác: {type(e).__name__}: {e}"
 
 
+def _install_dir() -> Any:
+    """Thư mục cài thật của camoufox, hoặc None nếu không đọc được."""
+    try:
+        from camoufox.pkgman import INSTALL_DIR
+
+        return INSTALL_DIR
+    except Exception:  # noqa: BLE001 — chẩn đoán không được làm hỏng luồng chính
+        return None
+
+
+def _preflight() -> None:
+    """Kiểm tra binary CÓ SẴN trước khi launch — chặn đường tự tải lại 300MB.
+
+    `camoufox` không báo lỗi khi thiếu binary: `camoufox_path()` tự `install()`
+    vài trăm MB vào container đang chạy. Trên VM production 20GB (đã từng chạm
+    `no space left on device`) đó là đường hỏng, và nó biến một lỗi cấu hình
+    thành một sự cố đĩa. Ở đây ta từ chối sớm, kèm đúng đường dẫn đang tìm.
+
+    `CAMOUFOX_INSTALL_DIR` vừa ghim chỗ cài, vừa là công tắc: khi nó được đặt,
+    camoufox bỏ qua hoàn toàn nhánh tự tải — nên chỉ cần kiểm tra tồn tại.
+    """
+    install_dir = _install_dir()
+    if install_dir is None:
+        return
+    if os.path.isdir(install_dir) and os.listdir(install_dir):
+        return
+    raise CamoufoxUnavailable(
+        f"thiếu binary Camoufox tại {install_dir} — "
+        "dựng lại image với `CAMOUFOX_INSTALL_DIR=/opt/camoufox` + `python -m camoufox fetch` "
+        "(xem infra/docker/Dockerfile.api và docs/runbooks/camoufox-scraping.md)"
+    )
+
+
 def _try_launch() -> None:
     """Import camoufox + thử launch/close rỗng. Raise CamoufoxUnavailable nếu fail."""
     try:
@@ -123,6 +156,8 @@ def _try_launch() -> None:
         raise CamoufoxUnavailable(
             "chưa cài package `camoufox` — cài: pip install -U 'camoufox[geoip]'"
         ) from e
+
+    _preflight()
 
     # Camoufox là optional dep không có type stub — cast để mypy strict khỏi
     # bac `no-untyped-call`; runtime không đổi.
@@ -173,6 +208,7 @@ def _attempt_once(
     extractor: Callable[[Any], Any],
     timeout_ms: int,
     user_data_dir: str | None = None,
+    setup_page: Callable[[Any], None] | None = None,
 ) -> Any:
     """1 lần launch → goto → extract → close.
 
@@ -206,6 +242,8 @@ def _attempt_once(
 
     try:
         page = browser.new_page() if hasattr(browser, "new_page") else browser
+        if setup_page is not None:
+            setup_page(page)
         try:
             page.goto(url, timeout=timeout_ms)
         except Exception as e:  # noqa: BLE001
@@ -223,6 +261,7 @@ def scrape_page(
     extractor: Callable[[Any], Any],
     timeout_s: int | None = None,
     user_data_dir: str | None = None,
+    setup_page: Callable[[Any], None] | None = None,
 ) -> Any:
     """
     Launch Camoufox → goto url → chạy extractor(page) → đóng browser.
@@ -242,6 +281,7 @@ def scrape_page(
         extractor:     hàm nhận Playwright page, trả dữ liệu đã extract.
         timeout_s:     timeout goto + extract (default env CA_CAMOUFOX_TIMEOUT_S=45).
         user_data_dir: đường dẫn profile lưu session đăng nhập (optional).
+        setup_page:    callback khởi tạo page (gắn listener, set geolocation) trước goto.
 
     Raises:
         CamoufoxUnavailable: chưa cài / chưa fetch / thiếu system deps / bị tắt qua env.
@@ -275,6 +315,7 @@ def scrape_page(
                     extractor,
                     effective_timeout * 1000,
                     user_data_dir=effective_profile,
+                    setup_page=setup_page,
                 )
             except _GotoError as goto_err:
                 last_goto_error = goto_err

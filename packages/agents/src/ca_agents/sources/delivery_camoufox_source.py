@@ -277,13 +277,99 @@ def _city_slug(lat: float, lng: float) -> str:
     return best_slug
 
 
+class _ShopeeListingCollector:
+    """Thu thập responses từ ShopeeFood listing page qua event listener Playwright."""
+
+    def __init__(self, lat: float, lng: float, keyword: str) -> None:
+        self.lat = lat
+        self.lng = lng
+        self.keyword = keyword
+        self.merged: list[dict[str, Any]] = []
+        self.seen_ids: set[Any] = set()
+        self.total_ids: int = 0
+
+    def on_response(self, response: Any) -> None:
+        try:
+            data = response.json()
+        except Exception:
+            return
+        if not isinstance(data, dict):
+            return
+        reply = data.get("reply")
+        if not isinstance(reply, dict):
+            return
+
+        # search_global: tổng số id khớp keyword (chỉ để log/đối chiếu)
+        search_result = reply.get("search_result")
+        if isinstance(search_result, list):
+            for item in search_result:
+                if isinstance(item, dict) and item.get("restaurant_ids"):
+                    self.total_ids = len(item["restaurant_ids"])
+
+        # get_infos / get_browsing_infos: chi tiết từng quán (nhiều lô)
+        infos = reply.get("delivery_infos")
+        if isinstance(infos, list):
+            for info in infos:
+                if not isinstance(info, dict):
+                    continue
+                rid = info.get("restaurant_id") or info.get("id")
+                rid_text = str(rid) if rid is not None else ""
+                key: Any = int(rid_text) if rid_text.isdigit() else rid_text
+                if key in self.seen_ids:
+                    continue
+                self.seen_ids.add(key)
+                self.merged.append(info)
+
+    def setup(self, page: Any) -> None:
+        """Gắn listener VÀ set geolocation TRƯỚC KHI page.goto()."""
+        if hasattr(page, "on"):
+            page.on("response", self.on_response)
+        if hasattr(page, "context") and hasattr(page.context, "set_geolocation"):
+            try:
+                page.context.set_geolocation({"latitude": self.lat, "longitude": self.lng})
+            except Exception:
+                pass
+
+
+class _ShopeeMenuCollector:
+    """Thu thập menu quán ShopeeFood (`get_delivery_dishes`) qua event listener."""
+
+    def __init__(self, lat: float, lng: float) -> None:
+        self.lat = lat
+        self.lng = lng
+        self.captured_payloads: list[dict[str, Any]] = []
+
+    def on_response(self, response: Any) -> None:
+        url = getattr(response, "url", "") or ""
+        # Endpoint menu thực tế (2026): `api/dish/get_delivery_dishes` (không phải
+        # `api/delivery/get_delivery_dishes`).
+        if "get_delivery_dishes" in url:
+            try:
+                data = response.json()
+                if isinstance(data, dict):
+                    self.captured_payloads.append(data)
+            except Exception:
+                pass
+
+    def setup(self, page: Any) -> None:
+        """Gắn listener VÀ set geolocation TRƯỚC KHI page.goto()."""
+        if hasattr(page, "on"):
+            page.on("response", self.on_response)
+        if hasattr(page, "context") and hasattr(page.context, "set_geolocation"):
+            try:
+                page.context.set_geolocation({"latitude": self.lat, "longitude": self.lng})
+            except Exception:
+                pass
+
+
 def fetch_shopeefood_page(
     page: Any,
     keyword: str,
     lat: float,
     lng: float,
     radius_km: float = 5.0,
-    max_scrolls: int = 24,
+    max_scrolls: int = 8,
+    collector: _ShopeeListingCollector | None = None,
 ) -> dict[str, Any]:
     """Điều hướng trang LISTING ShopeeFood và bắt danh sách quán theo keyword.
 
@@ -305,42 +391,9 @@ def fetch_shopeefood_page(
     Gọi API trực tiếp (httpx / page.request / fetch) đều bị chặn: 403 hoặc CORS.
     Cách duy nhất ổn định là để SPA tự gọi rồi bắt response — như hàm này.
     """
-    merged: list[dict[str, Any]] = []
-    seen_ids: set[Any] = set()
-    total_ids = 0
-
-    def on_response(response: Any) -> None:
-        nonlocal total_ids
-        try:
-            data = response.json()
-        except Exception:
-            return
-        if not isinstance(data, dict):
-            return
-        reply = data.get("reply")
-        if not isinstance(reply, dict):
-            return
-
-        # search_global: tổng số id khớp keyword (chỉ để log/đối chiếu)
-        search_result = reply.get("search_result")
-        if isinstance(search_result, list):
-            for item in search_result:
-                if isinstance(item, dict) and item.get("restaurant_ids"):
-                    total_ids = len(item["restaurant_ids"])
-
-        # get_infos / get_browsing_infos: chi tiết từng quán (nhiều lô)
-        infos = reply.get("delivery_infos")
-        if isinstance(infos, list):
-            for info in infos:
-                if not isinstance(info, dict):
-                    continue
-                rid = info.get("restaurant_id") or info.get("id")
-                rid_text = str(rid) if rid is not None else ""
-                key: Any = int(rid_text) if rid_text.isdigit() else rid_text
-                if key in seen_ids:
-                    continue
-                seen_ids.add(key)
-                merged.append(info)
+    if collector is None:
+        collector = _ShopeeListingCollector(lat, lng, keyword)
+        collector.setup(page)
 
     slug = _city_slug(lat, lng)
     listing_url = (
@@ -349,36 +402,36 @@ def fetch_shopeefood_page(
     )
 
     try:
-        page.on("response", on_response)
-        page.context.set_geolocation({"latitude": lat, "longitude": lng})
-        page.goto(listing_url, wait_until="domcontentloaded", timeout=45000)
-        time.sleep(2.5)  # lô get_infos đầu tiên
+        current_url = getattr(page, "url", "") or ""
+        if "danh-sach-dia-diem" not in current_url:
+            page.goto(listing_url, timeout=15000)
+        time.sleep(1.0)  # lô get_infos đầu tiên
 
-        # Tải thêm quán: cuộn đáy + bấm nút phân trang now.vn. Dừng khi 6 vòng
+        # Tải thêm quán: cuộn đáy + bấm nút phân trang now.vn. Dừng khi 3 vòng
         # liên tiếp không thêm quán mới (hết kết quả hoặc bị chặn).
         stable = 0
         for _ in range(max(1, max_scrolls)):
-            before = len(merged)
+            before = len(collector.merged)
             try:
                 page.mouse.wheel(0, 5000)
             except Exception:
                 pass
-            time.sleep(1.2)
+            time.sleep(0.5)
             try:
                 page.locator(
                     "a .icon-paging-next, .icon-paging-next"
-                ).first.click(timeout=800)
-                time.sleep(1.5)
+                ).first.click(timeout=500)
+                time.sleep(0.6)
             except Exception:
                 pass  # trang không có nút phân trang: chỉ cuộn là đủ
-            stable = stable + 1 if len(merged) == before else 0
-            if stable >= 6:
+            stable = stable + 1 if len(collector.merged) == before else 0
+            if stable >= 3:
                 break
     except Exception as exc:
         logger.warning("Lỗi trong quá trình fetch_shopeefood_page: %s", exc)
     finally:
         try:
-            page.remove_listener("response", on_response)
+            page.remove_listener("response", collector.on_response)
         except Exception:
             pass
 
@@ -386,11 +439,11 @@ def fetch_shopeefood_page(
         "shopeefood_listing slug=%s keyword=%s ids_search_global=%d quan_bat_duoc=%d",
         slug,
         keyword,
-        total_ids,
-        len(merged),
+        collector.total_ids,
+        len(collector.merged),
     )
-    if merged:
-        return {"reply": {"delivery_infos": merged}}
+    if collector.merged:
+        return {"reply": {"delivery_infos": collector.merged}}
     return {}
 
 
@@ -399,41 +452,36 @@ def fetch_delivery_dishes(
     store_url: str,
     lat: float,
     lng: float,
+    collector: _ShopeeMenuCollector | None = None,
 ) -> dict[str, Any]:
     """Điều hướng trang quán ShopeeFood và bắt menu (`get_delivery_dishes`).
 
     ShopeeFood (2026) trả menu qua endpoint `get_delivery_dishes` khi vào trang
     quán. Hàm bắt payload chứa `reply.menu_infos` (danh sách món theo nhóm).
     """
-    captured_payloads: list[dict[str, Any]] = []
-
-    def on_response(response: Any) -> None:
-        url = response.url
-        # Endpoint menu thực tế (2026): `api/dish/get_delivery_dishes` (không phải
-        # `api/delivery/get_delivery_dishes`).
-        if "get_delivery_dishes" in url:
-            try:
-                data = response.json()
-                if isinstance(data, dict):
-                    captured_payloads.append(data)
-            except Exception:
-                pass
+    if collector is None:
+        collector = _ShopeeMenuCollector(lat, lng)
+        collector.setup(page)
 
     try:
-        page.on("response", on_response)
-        page.context.set_geolocation({"latitude": lat, "longitude": lng})
-        page.goto(store_url, wait_until="networkidle", timeout=30000)
-        time.sleep(3.0)  # Chờ SPA nạp menu
+        current_url = getattr(page, "url", "") or ""
+        if not current_url or store_url not in current_url:
+            page.goto(store_url, timeout=10000)
+        # Chờ tối đa 3 giây cho SPA nạp menu qua API get_delivery_dishes nếu chưa có
+        for _ in range(6):
+            if collector.captured_payloads:
+                break
+            time.sleep(0.5)
     except Exception as exc:
         logger.warning("Lỗi trong quá trình fetch_delivery_dishes: %s", exc)
     finally:
         try:
-            page.remove_listener("response", on_response)
+            page.remove_listener("response", collector.on_response)
         except Exception:
             pass
 
-    if captured_payloads:
-        return captured_payloads[0]
+    if collector.captured_payloads:
+        return collector.captured_payloads[0]
     return {}
 
 
@@ -480,13 +528,20 @@ def scrape_delivery_stores_camoufox(
     longitude: float,
     keyword: str,
     radius_km: float = 5.0,
+    deadline_s: float | None = None,
 ) -> list[StoreCandidate]:
-    """Hàm điều phối cào danh sách quán qua Camoufox có cache."""
+    """Hàm điều phối cào danh sách quán qua Camoufox có cache.
+
+    `deadline_s` là thời gian còn lại của job khảo sát: hết hạn thì dừng lấy menu
+    để nhường thời gian cho các bước sau, thay vì treo tới khi worker bị restart.
+    """
     cache_k = _cache_key(latitude, longitude, keyword, radius_km)
     cached = _cache_get(cache_k)
     if cached is not None:
         logger.info("Delivery Camoufox cache hit cho key=%s", cache_k)
         return cached
+
+    collector = _ShopeeListingCollector(latitude, longitude, keyword)
 
     def _extractor(page: Any) -> dict[str, Any]:
         return fetch_shopeefood_page(
@@ -495,11 +550,19 @@ def scrape_delivery_stores_camoufox(
             lat=latitude,
             lng=longitude,
             radius_km=radius_km,
+            collector=collector,
         )
 
-    target_url = f"https://shopeefood.vn/search?keyword={quote(keyword)}"
+    slug = _city_slug(latitude, longitude)
+    target_url = (
+        f"https://shopeefood.vn/{slug}/danh-sach-dia-diem-giao-tan-noi"
+        f"?q={quote(keyword)}"
+    )
+    timeout_s = 20 if deadline_s is None else max(5, min(25, int(deadline_s)))
     try:
-        result_json = scrape_page(target_url, _extractor)
+        result_json = scrape_page(
+            target_url, _extractor, timeout_s=timeout_s, setup_page=collector.setup
+        )
     except CamoufoxUnavailable:
         logger.info("Camoufox không khả dụng cho delivery scraping")
         raise
@@ -509,12 +572,21 @@ def scrape_delivery_stores_camoufox(
 
     stores = extract_delivery_stores_from_json(result_json)
     if stores:
-        # Lấy menu cho từng quán (chỉ lấy tối đa 5 quán đầu để tránh quá chậm).
+        # Lấy menu cho từng quán (tối đa 3 quán đầu để đảm bảo ngân sách thời gian).
         # Bọc try/except: menu lỗi KHÔNG được làm mất danh sách quán.
-        for store in stores[:5]:
+        start_mono = time.monotonic()
+        for store in stores[:3]:
+            if deadline_s is not None:
+                elapsed = time.monotonic() - start_mono
+                con_lai = deadline_s - elapsed
+                if con_lai <= 10.0:
+                    logger.info("Ngân sách thời gian còn ít (%.1fs) — dừng cào menu", con_lai)
+                    break
             if store.url:
                 try:
-                    menu = scrape_delivery_menu_camoufox(store.url, latitude, longitude)
+                    menu = scrape_delivery_menu_camoufox(
+                        store.url, latitude, longitude, deadline_s=10.0
+                    )
                     if menu:
                         store.dishes = menu
                 except Exception as exc:  # noqa: BLE001
@@ -527,10 +599,13 @@ def scrape_delivery_menu_camoufox(
     store_url: str,
     latitude: float,
     longitude: float,
+    deadline_s: float | None = None,
 ) -> list[DishItem]:
     """Cào menu của một quán ShopeeFood qua Camoufox (endpoint `get_delivery_dishes`)."""
     if not store_url:
         return []
+
+    collector = _ShopeeMenuCollector(latitude, longitude)
 
     def _extractor(page: Any) -> dict[str, Any]:
         return fetch_delivery_dishes(
@@ -538,10 +613,14 @@ def scrape_delivery_menu_camoufox(
             store_url=store_url,
             lat=latitude,
             lng=longitude,
+            collector=collector,
         )
 
+    timeout_s = 10 if deadline_s is None else max(5, min(12, int(deadline_s)))
     try:
-        result_json = scrape_page(store_url, _extractor)
+        result_json = scrape_page(
+            store_url, _extractor, timeout_s=timeout_s, setup_page=collector.setup
+        )
     except CamoufoxUnavailable:
         logger.info("Camoufox không khả dụng cho delivery menu scraping")
         return []

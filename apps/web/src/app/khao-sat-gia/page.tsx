@@ -184,8 +184,14 @@ const COST_PLUS_CANH_BAO =
 
 const POLL_MS = 3000;
 
-/** Trạng thái job còn đang chạy — phải tiếp tục poll. */
-const DANG_CHAY = new Set(["queued", "scraping_online", "scraping_dinein", "ocr_processing", "aggregating"]);
+/** Trạng thái job còn đang chạy — phải tiếp tục poll (khớp `_DANG_CHAY` ở API). */
+const DANG_CHAY = new Set([
+  "queued",
+  "scraping_online",
+  "scraping_dinein",
+  "ocr_processing",
+  "aggregating",
+]);
 
 type ManHinh = "nhap" | "chay" | "review" | "ket-qua";
 
@@ -404,6 +410,7 @@ export default function KhaoSatGiaPage() {
     return res.data;
   }, []);
 
+
   const docKetQua = useCallback(async (id: string): Promise<void> => {
     const res = await apiGet<Envelope<KetQua>>(`/api/v1/market/catchment-survey/${id}/result`);
     setKetQua(res.data);
@@ -457,22 +464,19 @@ export default function KhaoSatGiaPage() {
         if (huy || !job) return;
         consecutiveErrors = 0;
         setError(null);
-        if (!DANG_CHAY.has(job.status)) {
-          void dongBoManHinh(jobId, job);
-        } else {
-          setStatus(job);
-        }
+        void dongBoManHinh(jobId, job);
       })
       .catch((e) => {
         if (huy) return;
         consecutiveErrors++;
         if (consecutiveErrors >= 3) {
+          setManHinh("nhap");
           setError(loiKhaoSat(e, "theo dõi được khảo sát"));
         }
       });
 
     const timer = setInterval(() => {
-      // Tab ẩn thì dừng gọi: job vẫn chạy ở máy chủ, không cần đốt request.
+      // Tab ẩn thì dừng gọi: job vẫn chờ ở máy chủ, không cần đốt request.
       if (document.hidden) return;
       void docTrangThai(jobId)
         .then((job) => {
@@ -491,6 +495,7 @@ export default function KhaoSatGiaPage() {
           consecutiveErrors++;
           if (consecutiveErrors >= 3) {
             clearInterval(timer);
+            setManHinh("nhap");
             setError(loiKhaoSat(e, "theo dõi được khảo sát"));
           }
         });

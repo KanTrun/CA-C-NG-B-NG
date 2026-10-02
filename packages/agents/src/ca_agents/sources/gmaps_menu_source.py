@@ -12,6 +12,7 @@ import random
 import time
 from dataclasses import dataclass
 from typing import Any
+from urllib.parse import quote
 
 from ca_contracts.catchment_survey import StoreCandidate
 from ca_contracts.catchment_survey_v2 import SurveyErrorCode
@@ -232,11 +233,17 @@ def fetch_gmaps_menu_images_page(
     stats = _get_source_stats("gmaps")
 
     try:
-        page.context.set_geolocation({"latitude": lat, "longitude": lng})
+        if hasattr(page, "context") and hasattr(page.context, "set_geolocation"):
+            try:
+                page.context.set_geolocation({"latitude": lat, "longitude": lng})
+            except Exception:
+                pass
         search_query = f"{keyword} gần đây"
-        search_url = f"https://www.google.com/maps/search/{search_query}/@{lat},{lng},15z"
-        page.goto(search_url, wait_until="networkidle", timeout=30000)
-        time.sleep(3.0)
+        search_url = f"https://www.google.com/maps/search/{quote(search_query)}/@{lat},{lng},15z"
+        current_url = getattr(page, "url", "") or ""
+        if "google.com/maps" not in current_url:
+            page.goto(search_url, wait_until="domcontentloaded", timeout=15000)
+        time.sleep(2.0)
 
         feed_items = page.locator(_SEL_KHUNG_KET_QUA).all()
         for idx, item in enumerate(feed_items[:10]):
@@ -305,15 +312,27 @@ def scrape_gmaps_menu_images_camoufox(
     keyword: str,
     radius_km: float = 3.0,
     max_images: int = 3,
+    deadline_s: float | None = None,
 ) -> list[StoreCandidate]:
-    """Điều phối cào ảnh menu Google Maps bằng Camoufox có cache + SOURCE_BLOCKED retry."""
+    """Điều phối cào ảnh menu Google Maps bằng Camoufox có cache + SOURCE_BLOCKED retry.
+
+    `deadline_s` là thời gian còn lại của job khảo sát: không retry khi đã cạn
+    ngân sách (mỗi lần retry là một lượt proxy tính tiền thật).
+    """
     cache_k = _cache_key(latitude, longitude, keyword, radius_km)
     cached = _cache_get(cache_k)
     if cached is not None:
         return cached
 
-    target_url = f"https://www.google.com/maps/search/{keyword}/@{latitude},{longitude},15z"
+    target_url = f"https://www.google.com/maps/search/{quote(keyword)}/@{latitude},{longitude},15z"
     last_result: dict[str, Any] = {"places": []}
+
+    def _setup_gmaps(page: Any) -> None:
+        try:
+            if hasattr(page, "context") and hasattr(page.context, "set_geolocation"):
+                page.context.set_geolocation({"latitude": latitude, "longitude": longitude})
+        except Exception:
+            pass
 
     for attempt in range(_MAX_BLOCK_RETRIES + 1):
         def _extractor(page: Any) -> dict[str, Any]:
@@ -326,8 +345,11 @@ def scrape_gmaps_menu_images_camoufox(
                 max_images=max_images,
             )
 
+        timeout_s = 20 if deadline_s is None else max(5, min(25, int(deadline_s)))
         try:
-            result_json = scrape_page(target_url, _extractor)
+            result_json = scrape_page(
+                target_url, _extractor, timeout_s=timeout_s, setup_page=_setup_gmaps
+            )
         except CamoufoxUnavailable:
             logger.info("Camoufox không khả dụng cho Google Maps menu scraping")
             raise
@@ -337,7 +359,7 @@ def scrape_gmaps_menu_images_camoufox(
 
         # Check SOURCE_BLOCKED
         if result_json.get("error_code") == SurveyErrorCode.SOURCE_BLOCKED:
-            if attempt < _MAX_BLOCK_RETRIES:
+            if attempt < _MAX_BLOCK_RETRIES and (deadline_s is None or deadline_s > 0):
                 delay = _backoff_delay(attempt)
                 logger.info(
                     "SOURCE_BLOCKED retry %d/%d, waiting %.1fs",
