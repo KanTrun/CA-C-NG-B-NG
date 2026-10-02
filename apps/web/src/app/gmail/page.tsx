@@ -1,10 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ApiError, apiGet, apiSend } from "../../lib/api";
 import { formatRelativeTime } from "../../lib/date";
 import { loiKetNoiGmail, loiOAuthGmail, viError } from "../../lib/present";
+import { QUAN_NHOM, locMailQuan, type QuanNhomId } from "../../lib/quan-mail";
 import { getRole, getToken, isChuQuan } from "../../lib/session";
 import { Icon } from "../../ui/icons";
 import {
@@ -167,6 +168,18 @@ export default function GmailPage() {
   const [messageReadFilter, setMessageReadFilter] = useState("");
   const [messageLimit, setMessageLimit] = useState(PAGE_SIZE);
 
+  // Lọc "chỉ hiện mail liên quan quán": mặc định BẬT để ẩn mail hệ thống
+  // (Google no-reply…) và chỉ giữ việc quán (đơn hàng, NCC, đặt bàn…).
+  // Lưu lựa chọn vào localStorage để lần sau mở lại vẫn giữ.
+  const [chiQuan, setChiQuan] = useState(true);
+  const [quanNhom, setQuanNhom] = useState<QuanNhomId>("");
+
+  // Tự động cập nhật mail mới: mỗi 60 giây gọi đồng bộ tăng dần (rẻ quota)
+  // rồi nạp lại hộp thư. Tắt đi nếu quán muốn bấm tay để tiết kiệm quota.
+  const [tuDong, setTuDong] = useState(true);
+  const [dongBoNen, setDongBoNen] = useState(false);
+  const [lanCapNhat, setLanCapNhat] = useState<string | null>(null);
+
   const [labelName, setLabelName] = useState("");
   const [filterCriteria, setFilterCriteria] = useState("");
   const [filterAction, setFilterAction] = useState("");
@@ -233,19 +246,91 @@ export default function GmailPage() {
     if (token && accountId && activeTab !== "accounts") void loadAccountDetail(accountId);
   }, [token, accountId, activeTab, loadAccountDetail]);
 
-  // Google redirect về /gmail?email=... hoặc ?error=... sau khi người dùng đồng ý.
+  // Đọc lựa chọn lọc/tự động đã lưu từ lần trước (chỉ chạy một lần ở client).
+  useEffect(() => {
+    try {
+      if (window.localStorage.getItem("gmail_chi_quan") === "0") setChiQuan(false);
+      const nhom = window.localStorage.getItem("gmail_quan_nhom") as QuanNhomId | null;
+      if (nhom === "don_hang" || nhom === "nha_cung_cap" || nhom === "dat_ban" || nhom === "khieu_nai" || nhom === "tai_chinh") {
+        setQuanNhom(nhom);
+      }
+      if (window.localStorage.getItem("gmail_tu_dong") === "0") setTuDong(false);
+    } catch {
+      // localStorage bị chặn (ẩn danh…) thì giữ mặc định, không sập trang.
+    }
+  }, []);
+
+  // Danh sách sau khi áp bộ lọc quán — tính từ `messages` gốc để số liệu
+  // "đã ẩn X mail hệ thống" luôn đúng dù đổi từ khoá tìm kiếm.
+  const { hien: messagesHienThi, an: messagesAn } = useMemo(
+    () => locMailQuan(messages, { chi_quan: chiQuan, nhom: quanNhom }),
+    [messages, chiQuan, quanNhom],
+  );
+
+  // Tự động cập nhật mail mới: mỗi 60 giây đồng bộ tăng dần rồi nạp lại.
+  // Chỉ chạy ở tab Hộp thư đang mở một tài khoản cụ thể và có bật công tắc.
+  // Lỗi nền (mất mạng, token hỏng) thì bỏ qua im lặng — banner lỗi chỉ dành
+  // cho thao tác tay của người dùng, tránh spam đỏ màn hình mỗi phút.
+  useEffect(() => {
+    if (!token || !accountId || activeTab !== "messages" || !tuDong) return;
+    let huy = false;
+    let dangChay = false;
+    async function dongBoDinhKy() {
+      if (dangChay || huy) return;
+      dangChay = true;
+      setDongBoNen(true);
+      try {
+        await apiSend("/api/v1/gmail/sync", { account_id: accountId });
+        if (!huy) {
+          await loadAccountDetail(accountId);
+          setLanCapNhat(new Date().toISOString());
+        }
+      } catch {
+        // Bỏ qua — lần sau thử lại.
+      } finally {
+        dangChay = false;
+        if (!huy) setDongBoNen(false);
+      }
+    }
+    const timer = window.setInterval(dongBoDinhKy, 60000);
+    return () => {
+      huy = true;
+      window.clearInterval(timer);
+    };
+  }, [token, accountId, activeTab, tuDong, loadAccountDetail]);
+
+  // Google redirect về /gmail?email=...&account_id=... hoặc ?error=... sau khi
+  // người dùng đồng ý. Vừa kết nối xong thì đồng bộ toàn bộ NGAY để hộp thư
+  // có mail mà xem — trước đây phải mò sang tab Đồng bộ bấm tay nên nhiều
+  // người tưởng "kết nối xong mà không thấy thư đến".
   useEffect(() => {
     const connectedEmail = searchParams.get("email");
+    const connectedAccount = searchParams.get("account_id");
     const oauthError = searchParams.get("error");
     if (!connectedEmail && !oauthError) return;
     if (connectedEmail) {
-      setNotice(`Đã kết nối Gmail: ${connectedEmail}`);
+      setNotice(`Đã kết nối Gmail: ${connectedEmail}. Đang tải thư mới…`);
+      const id = connectedAccount || "";
+      void (async () => {
+        try {
+          if (id) {
+            await apiSend("/api/v1/gmail/sync", { account_id: id, full_sync: true });
+            setNotice(`Đã kết nối Gmail: ${connectedEmail}. Thư mới đã về.`);
+          }
+          await loadAccounts();
+          if (id) await loadAccountDetail(id);
+        } catch (cause) {
+          setError(viError(cause, { doing: "tải thư sau khi kết nối Gmail" }));
+        }
+      })();
+      // Mở thẳng hộp thư của tài khoản vừa kết nối thay vì ở lại tab Tài khoản.
+      router.replace(id ? `/gmail?tab=messages&account_id=${id}` : "/gmail?tab=accounts");
     } else if (oauthError) {
       setError(loiOAuthGmail(oauthError));
+      // Xoá query lỗi để thông báo không lặp lại khi tải lại trang.
+      router.replace("/gmail?tab=accounts");
     }
-    // Xoá query để thông báo không lặp lại khi tải lại trang.
-    router.replace("/gmail?tab=accounts");
-  }, [searchParams, router]);
+  }, [searchParams, router, loadAccounts, loadAccountDetail]);
 
   async function addAccount(e: React.FormEvent) {
     e.preventDefault();
@@ -653,7 +738,7 @@ export default function GmailPage() {
       {activeTab === "messages" && accountId ? (
         <section>
           {accountSwitcher()}
-          <OpsCard eyebrow={account?.email ?? "Hộp thư"} title="Email trong hộp thư" count={messages.length} countLabel="email">
+          <OpsCard eyebrow={account?.email ?? "Hộp thư"} title="Email trong hộp thư" count={messagesHienThi.length} countLabel="email">
             <div className="mb-6 flex flex-wrap items-end gap-3">
               <Input
                 placeholder="Tìm theo chủ đề, người gửi hoặc nội dung"
@@ -681,11 +766,84 @@ export default function GmailPage() {
               </Select>
             </div>
 
+            <div className="mb-6 flex flex-wrap items-center gap-x-6 gap-y-3 nq-surface-block p-4">
+              <label className="flex cursor-pointer items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={chiQuan}
+                  onChange={(e) => {
+                    setChiQuan(e.target.checked);
+                    try {
+                      window.localStorage.setItem("gmail_chi_quan", e.target.checked ? "1" : "0");
+                    } catch {
+                      // Bỏ qua khi localStorage bị chặn.
+                    }
+                  }}
+                  className="h-4 w-4"
+                />
+                Chỉ hiện mail liên quan quán
+              </label>
+              {chiQuan ? (
+                <Select
+                  value={quanNhom}
+                  onChange={(e) => {
+                    const next = e.target.value as QuanNhomId;
+                    setQuanNhom(next);
+                    try {
+                      window.localStorage.setItem("gmail_quan_nhom", next);
+                    } catch {
+                      // Bỏ qua khi localStorage bị chặn.
+                    }
+                  }}
+                  className="w-60"
+                  aria-label="Nhóm việc của quán"
+                >
+                  {QUAN_NHOM.map((n) => (
+                    <option key={n.id} value={n.id} title={n.goi_y}>
+                      {n.label}
+                    </option>
+                  ))}
+                </Select>
+              ) : null}
+              <label className="flex cursor-pointer items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={tuDong}
+                  onChange={(e) => {
+                    setTuDong(e.target.checked);
+                    try {
+                      window.localStorage.setItem("gmail_tu_dong", e.target.checked ? "1" : "0");
+                    } catch {
+                      // Bỏ qua khi localStorage bị chặn.
+                    }
+                  }}
+                  className="h-4 w-4"
+                />
+                Tự động cập nhật mail mới (mỗi phút)
+              </label>
+              <span className="nq-meta-line">
+                {dongBoNen
+                  ? "Đang kiểm tra mail mới…"
+                  : lanCapNhat
+                    ? `Đã tự cập nhật ${formatRelativeTime(lanCapNhat)}`
+                    : account?.sync_state?.last_sync_at
+                      ? `Đồng bộ gần nhất ${formatRelativeTime(account.sync_state.last_sync_at)}`
+                      : "Chưa đồng bộ lần nào"}
+                {chiQuan && messagesAn > 0 ? ` · đã ẩn ${messagesAn} mail hệ thống` : ""}
+              </span>
+            </div>
+
             {loading ? (
               <Loading skeleton="table" rows={5}>Đang tải hộp thư…</Loading>
             ) : messages.length === 0 ? (
-              <Empty title="Không có email phù hợp">
-                Thử đổi từ khoá tìm kiếm, hoặc chạy đồng bộ để lấy email mới nhất từ Google.
+              <Empty title="Chưa có email nào">
+                Hộp thư trong app còn trống. Bấm &quot;Đồng bộ ngay&quot; bên dưới để tải thư từ Google về — lần đầu có thể mất một lúc.
+              </Empty>
+            ) : messagesHienThi.length === 0 ? (
+              <Empty title="Không có email nào liên quan quán">
+                {messagesAn > 0
+                  ? `Đã ẩn ${messagesAn} mail hệ thống (thông báo Google, quảng cáo…). Bỏ tick "Chỉ hiện mail liên quan quán" để xem tất cả, hoặc đổi nhóm việc.`
+                  : "Thử đổi từ khoá tìm kiếm hoặc nhóm việc khác."}
               </Empty>
             ) : (
               <Table
@@ -740,13 +898,16 @@ export default function GmailPage() {
                     ),
                   },
                 ]}
-                rows={messages}
+                rows={messagesHienThi}
               />
             )}
 
             <div className="mt-6 flex flex-wrap gap-4">
               <Btn variant="ghost" onClick={() => loadAccountDetail(accountId)} busy={loading}>
                 Nạp lại hộp thư
+              </Btn>
+              <Btn busy={busy === "sync"} onClick={() => runSync(false)}>
+                Đồng bộ ngay (lấy mail mới từ Google)
               </Btn>
             </div>
           </OpsCard>
