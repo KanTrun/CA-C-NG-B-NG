@@ -69,10 +69,20 @@ def build_setup_message(context: VerifiedVoiceContext) -> str:
         "ActionProposal qua pipeline nghiệp vụ; không tự thực thi mutation. "
         f"Người dùng đã xác thực: {context.user_id}; vai trò: {context.user_role}; "
         f"cơ sở: {context.store_id}. Trả lời tiếng Việt ngắn gọn, rõ ràng. "
+        # Live hay rơi vào OUT_OF_SCOPE khi người dùng nói câu có trạng từ thời
+        # gian chen giữa cụm ("lịch hôm nay của tôi"). Vì vậy nêu thẳng nhóm câu
+        # hỏi về ca/lịch CỦA CHÍNH người dùng và buộc gọi tool.
+        "QUY TẮC BẮT BUỘC: mọi câu hỏi liên quan tới ca làm việc hoặc lịch làm "
+        "việc của CHÍNH người dùng — ví dụ 'lịch hôm nay của tôi', 'ca hôm nay "
+        "của tôi', 'hôm nay tôi có ca không', 'hôm nay tôi có đi làm không', "
+        "'tôi làm ca mấy giờ' — BẮT BUỘC gọi tool run_copilot_pipeline với "
+        "nguyên văn câu người dùng nói. TUYỆT ĐỐI không trả lời thay bằng câu "
+        "xã giao, không nói 'tôi không có thông tin lịch cá nhân', và không tự "
+        "suy đoán kết quả. "
         "Khi người dùng yêu cầu tra cứu dữ liệu, xếp lịch, duyệt đổi ca, báo cáo "
-        "hao hụt, quy trình SOP, kiểm kê tồn kho, gửi thư, khảo sát vùng — hãy gọi "
-        "tool run_copilot_pipeline với toàn bộ câu hỏi của người dùng. Không tự bịa "
-        "dữ liệu; mọi kết quả phải qua pipeline nghiệp vụ."
+        "hao hụt, quy trình SOP, kiểm kê tồn kho, gửi thư, khảo sát vùng — cũng "
+        "gọi tool run_copilot_pipeline với toàn bộ câu hỏi của người dùng. Không "
+        "tự bịa dữ liệu; mọi kết quả phải qua pipeline nghiệp vụ."
     )
     return json.dumps(
         {
