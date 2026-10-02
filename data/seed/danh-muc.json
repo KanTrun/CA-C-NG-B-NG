@@ -11,6 +11,24 @@
     { "ma": "banh", "ten": "Bánh & ăn kèm", "mo_ta": "Bánh ngọt, bánh mặn bán kèm" },
     { "ma": "nguyen_lieu", "ten": "Nguyên liệu pha chế", "mo_ta": "Bán theo gói cho quán tự pha" }
   ],
+  "nguyen_lieu": [
+    { "ma": "ca_phe_hat", "ten": "Cà phê hạt", "don_vi": "g", "nhom": "ca_phe" },
+    { "ma": "sua_tuoi", "ten": "Sữa tươi", "don_vi": "ml", "nhom": "ca_phe" },
+    { "ma": "sua_dac", "ten": "Sữa đặc", "don_vi": "ml", "nhom": "ca_phe" },
+    { "ma": "kem", "ten": "Kem whipped", "don_vi": "g", "nhom": "ca_phe" },
+    { "ma": "duong", "ten": "Đường", "don_vi": "g", "nhom": "ca_phe" },
+    { "ma": "da", "ten": "Đá viên", "don_vi": "g", "nhom": "ca_phe" },
+    { "ma": "ly", "ten": "Ly / cốc dùng một lần", "don_vi": "cái", "nhom": "ca_phe" },
+    { "ma": "ong_hut", "ten": "Ống hút", "don_vi": "cái", "nhom": "ca_phe" },
+    { "ma": "tra", "ten": "Trà", "don_vi": "g", "nhom": "tra" },
+    { "ma": "matcha", "ten": "Matcha", "don_vi": "g", "nhom": "tra" },
+    { "ma": "dao", "ten": "Đào / topping trái", "don_vi": "g", "nhom": "tra" },
+    { "ma": "syrup", "ten": "Syrup", "don_vi": "ml", "nhom": "tra" },
+    { "ma": "trai_cay", "ten": "Trái cây", "don_vi": "g", "nhom": "sinh_to" },
+    { "ma": "banh", "ten": "Bánh kèm", "don_vi": "cái", "nhom": "banh" },
+    { "ma": "nuoc_dong_chai", "ten": "Nước đóng chai", "don_vi": "chai", "nhom": "nuoc_dong_chai" },
+    { "ma": "nuoc_loc", "ten": "Nước lọc", "don_vi": "ml", "nhom": "ca_phe" }
+  ],
   "mon": [
     { "id": "ca_phe_den", "nhom": "ca_phe", "ten": "Cà phê đen", "gia": 25000, "bom": { "ca_phe_hat": 18, "duong": 5, "da": 120, "ly": 1 }, "hinh_mo_ta": "ly cà phê đen đá" },
     { "id": "ca_phe_sua", "nhom": "ca_phe", "ten": "Cà phê sữa", "gia": 30000, "bom": { "ca_phe_hat": 16, "sua_dac": 20, "da": 120, "ly": 1 }, "hinh_mo_ta": "ly cà phê sữa đá" },
@@ -58,13 +76,13 @@
     { "id": "banh_quy", "nhom": "banh", "ten": "Bánh quy bơ", "gia": 20000, "bom": { "banh": 1 }, "hinh_mo_ta": "đĩa bánh quy bơ" },
     { "id": "combo_sang", "nhom": "banh", "ten": "Combo sáng", "gia": 59000, "bom": { "ca_phe_hat": 14, "sua_tuoi": 100, "banh": 1, "ly": 1 }, "hinh_mo_ta": "khay combo cà phê và bánh" },
 
-    { "id": "goi_ca_phe_250", "nhom": "nguyen_lieu", "ten": "Gói cà phê hạt 250g", "gia": 120000, "bom": { "ca_phe_hat": 250 }, "hinh_mo_ta": "gói cà phê hạt" },
-    { "id": "goi_tra_100", "nhom": "nguyen_lieu", "ten": "Gói trà 100g", "gia": 85000, "bom": { "tra": 100 }, "hinh_mo_ta": "gói trà khô" },
-    { "id": "hop_matcha_50", "nhom": "nguyen_lieu", "ten": "Hộp matcha 50g", "gia": 180000, "bom": { "matcha": 50 }, "hinh_mo_ta": "hộp matcha bột xanh" },
-    { "id": "chai_syrup_500", "nhom": "nguyen_lieu", "ten": "Chai syrup 500ml", "gia": 95000, "bom": { "syrup": 500 }, "hinh_mo_ta": "chai syrup trái cây" },
-    { "id": "bi_da_2kg", "nhom": "nguyen_lieu", "ten": "Bịch đá viên 2kg", "gia": 30000, "bom": { "da": 2000 }, "hinh_mo_ta": "bịch đá viên" },
-    { "id": "hop_sua_tuoi_1l", "nhom": "nguyen_lieu", "ten": "Hộp sữa tươi 1L", "gia": 42000, "bom": { "sua_tuoi": 1000 }, "hinh_mo_ta": "hộp sữa tươi" },
-    { "id": "bich_ly_50", "nhom": "nguyen_lieu", "ten": "Bịch ly nhựa 50 cái", "gia": 55000, "bom": { "ly": 50 }, "hinh_mo_ta": "bịch ly nhựa" },
-    { "id": "bich_ong_hut_100", "nhom": "nguyen_lieu", "ten": "Bịch ống hút 100 cái", "gia": 25000, "bom": { "ong_hut": 100 }, "hinh_mo_ta": "bịch ống hút giấy" }
+    { "id": "goi_ca_phe_250", "nhom": "nguyen_lieu", "ten": "Gói cà phê hạt 250g", "gia": 120000, "bom": { "ca_phe_hat": 250 }, "an": true, "hinh_mo_ta": "gói cà phê hạt" },
+    { "id": "goi_tra_100", "nhom": "nguyen_lieu", "ten": "Gói trà 100g", "gia": 85000, "bom": { "tra": 100 }, "an": true, "hinh_mo_ta": "gói trà khô" },
+    { "id": "hop_matcha_50", "nhom": "nguyen_lieu", "ten": "Hộp matcha 50g", "gia": 180000, "bom": { "matcha": 50 }, "an": true, "hinh_mo_ta": "hộp matcha bột xanh" },
+    { "id": "chai_syrup_500", "nhom": "nguyen_lieu", "ten": "Chai syrup 500ml", "gia": 95000, "bom": { "syrup": 500 }, "an": true, "hinh_mo_ta": "chai syrup trái cây" },
+    { "id": "bi_da_2kg", "nhom": "nguyen_lieu", "ten": "Bịch đá viên 2kg", "gia": 30000, "bom": { "da": 2000 }, "an": true, "hinh_mo_ta": "bịch đá viên" },
+    { "id": "hop_sua_tuoi_1l", "nhom": "nguyen_lieu", "ten": "Hộp sữa tươi 1L", "gia": 42000, "bom": { "sua_tuoi": 1000 }, "an": true, "hinh_mo_ta": "hộp sữa tươi" },
+    { "id": "bich_ly_50", "nhom": "nguyen_lieu", "ten": "Bịch ly nhựa 50 cái", "gia": 55000, "bom": { "ly": 50 }, "an": true, "hinh_mo_ta": "bịch ly nhựa" },
+    { "id": "bich_ong_hut_100", "nhom": "nguyen_lieu", "ten": "Bịch ống hút 100 cái", "gia": 25000, "bom": { "ong_hut": 100 }, "an": true, "hinh_mo_ta": "bịch ống hút giấy" }
   ]
 }

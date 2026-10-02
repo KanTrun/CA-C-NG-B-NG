@@ -106,6 +106,10 @@ def nap(danh_muc: dict[str, Any], *, dry_run: bool = False) -> dict[str, Any]:
             "ten": str(m["ten"]).strip(),
             "gia": int(m["gia"]),
             "an": bool(m.get("an", False)),
+            # `nhom` PHẢI gửi kèm: thiếu thì `menu_upsert` ghi chuỗi rỗng, 49 món
+            # mất nhóm và rơi vào `_nhom_suy_tu_bom` đoán — món bao bì thành "Cà
+            # phê", "Combo sáng" thành "Cà phê" thay vì "Đồ ăn".
+            "nhom": str(m.get("nhom") or "").strip(),
             "bom": {str(k): float(v) for k, v in m["bom"].items()},
         }
         if mid in truoc:

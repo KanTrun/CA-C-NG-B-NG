@@ -40,6 +40,8 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel, Field
 
 from ca_api.interfaces.http.sprint3 import _require_chu_quan, _require_manager, _require_role
+from ca_api.nguyen_lieu import chuan_hoa_bom
+from ca_api.nguyen_lieu import don_vi as don_vi_nguyen_lieu
 from ca_api.persist import (
     NangVaiLoi,
     audit_add,
@@ -76,12 +78,10 @@ _STATUS_NEXT = {
     "xong": set(),
     "huy": set(),
 }
-_DON_VI_BOM = {
-    "cafe_g": "g",
-    "sua_ml": "ml",
-    "dao_lat": "lát",
-    "ly": "ly",
-}
+# Đơn vị nguyên liệu lấy từ bảng chuẩn `ca_api.nguyen_lieu` (đọc
+# `data/seed/danh-muc.json`). Bản cũ `_DON_VI_BOM` nằm ngay đây chỉ liệt kê 4 mã
+# LEGACY (`cafe_g`, `sua_ml`, `dao_lat`, `ly`) không còn món nào dùng, nên 15 mã
+# thật rơi về mặc định "đơn vị" — người dùng thấy `ca_phe_hat 42 đơn vị`.
 
 # Thứ tự nhóm chuẩn của quán, dùng cho menu quầy. Món chưa khai `nhom` được suy
 # từ BOM để menu cũ vẫn phân mục được thay vì dồn hết vào "khác".
@@ -225,7 +225,11 @@ def _ghi_tieu_thu_uoc_luong(don: dict[str, Any], ai: str) -> None:
         mon = menu_get(str(dong["mon_id"]))
         if not mon:
             continue
-        for hang, mot_don_vi in mon["bom"].items():
+        # `bom` của món cũ còn khoá LEGACY (`cafe_g`, `sua_ml`) → quy về mã chuẩn
+        # TRƯỚC khi ghi, nếu không thì sổ tiêu thụ lại sinh thêm mặt hàng trùng
+        # ("Cà phê" cạnh "Cà phê hạt") đúng như lỗi đang phải sửa.
+        bom = chuan_hoa_bom(mon.get("bom"))
+        for hang, mot_don_vi in bom.items():
             try:
                 so_luong = float(mot_don_vi) * int(dong["so_luong"])
             except (TypeError, ValueError):
@@ -235,14 +239,17 @@ def _ghi_tieu_thu_uoc_luong(don: dict[str, Any], ai: str) -> None:
             tieu_thu_append(
                 {
                     "id": f"ttq_{uuid.uuid4().hex[:10]}",
+                    # Ghi MÃ chuẩn, không ghi tên: `hang` là khoá để gộp sổ theo
+                    # nguyên liệu. Tên tiếng Việt có dấu do tầng đọc tra bảng
+                    # (`ca_api.nguyen_lieu`) — cùng một bảng với kiểm kê tay.
                     "hang": hang,
+                    "so_luong": so_luong,
+                    "don_vi": don_vi_nguyen_lieu(hang),
                     # Món gây ra dòng trừ kho này: sổ tiêu thụ phải nối được
-                    # "cafe_g 24 g" ngược về "Cà phê sữa ×2" thay vì chỉ ra mã BOM.
+                    # "Cà phê hạt 24 g" ngược về "Cà phê sữa ×2" thay vì chỉ ra mã BOM.
                     "mon_id": mon["id"],
                     "mon_ten": mon["ten"],
                     "mon_so_luong": int(dong["so_luong"]),
-                    "so_luong": so_luong,
-                    "don_vi": _DON_VI_BOM.get(hang, "đơn vị"),
                     "duoi_nguong": False,
                     "ai": ai,
                     "luc": datetime.now(UTC).isoformat(),
@@ -342,6 +349,10 @@ def menu_luu(
         mon = MonNuoc(id=mid, **du_lieu).model_dump()
     except ValueError as exc:
         raise HTTPException(status_code=422, detail="mon_khong_hop_le") from exc
+    # Quy khoá BOM về mã chuẩn + cộng định mức khi hai khoá quy về một mã — cửa
+    # sau cuối chặn `cafe_g` quay lại DB. Làm ở đây (không làm trong hợp đồng)
+    # để `MonNuoc` vẫn nhận đúng dữ liệu chủ quán gửi lên.
+    mon["bom"] = chuan_hoa_bom(mon.get("bom"))
     if not mon.get("nhom"):
         mon["nhom"] = _nhom_suy_tu_bom(mon.get("bom"))
     out = menu_upsert(mon)

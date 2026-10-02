@@ -56,6 +56,16 @@ from ca_api.interfaces.http.sprint3 import (
     _require_manager,
     _require_role,
 )
+from ca_api.nguyen_lieu import (
+    chuan_hoa_ma,
+    la_ma_chuan,
+    loc_dong_tieu_thu,
+    tim_ma_theo_ten,
+    tong_hop_tieu_thu,
+)
+from ca_api.nguyen_lieu import (
+    don_vi as don_vi_nguyen_lieu,
+)
 from ca_api.nhan_vien import list_nhan_vien_ops
 from ca_api.orchestration import Clock
 from ca_api.persist import (
@@ -1639,10 +1649,28 @@ def hom_nay(authorization: Annotated[str | None, Header()] = None) -> dict[str, 
 
 @router.get("/api/v1/tieu-thu")
 def tieu_thu_list(authorization: Annotated[str | None, Header()] = None) -> dict[str, Any]:
+    """Sổ tiêu thụ trong ca.
+
+    Trả **hai** hình, vì hai việc đọc khác nhau:
+
+    * ``tong_hop`` — một dòng cho một nguyên liệu, đã gộp ``cafe_g`` với
+      ``ca_phe_hat``, tên có dấu, kèm ``nhom`` để lọc và ``mon_lien_quan`` để
+      bấm về món đang bán. Đây là thứ trang ``/tieu-thu`` vẽ.
+    * ``items`` — từng dòng đã dọn (bỏ dòng hỏng, bỏ trùng), giữ ``luc``/``ai``/
+      ``mon_*``. Lịch sử ghi tay không bị mất khi gộp.
+
+    ``da_bo_qua`` = số dòng dữ liệu cũ không đọc được (thiếu ``hang``/``so_luong``,
+    đúng hình seeder ``order_id/status/items``). Báo ra chứ không nuốt im lặng.
+    """
     _require_role(authorization)
+    from ca_api.persist import menu_list
+
     ton = kv_get("tieu_thu", [])
+    sach, da_bo_qua = loc_dong_tieu_thu(ton)
     return {
-        "items": ton,
+        "tong_hop": tong_hop_tieu_thu(sach, menu_list()),
+        "items": sach,
+        "da_bo_qua": da_bo_qua,
         "nguon": "quan",
         "ghi": "số lượng, không kế toán",
         "co_du_lieu_mau": _co_du_lieu_mau(ton),
@@ -1655,11 +1683,18 @@ def tieu_thu_ghi(
     authorization: Annotated[str | None, Header()] = None,
 ) -> dict[str, Any]:
     role = _require_manager(authorization)
+    # Ghi tay nhập "Cà phê hạt" / "Ca phe hat" / "ca_phe_hat" → cùng MÃ chuẩn.
+    # Không tra được ("Sữa đặc nhà") thì giữ nguyên đúng chữ người ta gõ.
+    raw = body.hang.strip()
+    ma = tim_ma_theo_ten(raw)
+    if ma is None:
+        cung_ma = chuan_hoa_ma(raw)
+        ma = cung_ma if la_ma_chuan(cung_ma) else raw
     item = {
         "id": f"tt_{uuid.uuid4().hex[:8]}",
-        "hang": body.hang.strip(),
+        "hang": ma,
         "so_luong": body.so_luong,
-        "don_vi": body.don_vi,
+        "don_vi": don_vi_nguyen_lieu(ma) if la_ma_chuan(ma) else body.don_vi,
         "duoi_nguong": body.so_luong < 2,
         "ai": role,
         "luc": datetime.now(UTC).isoformat(),

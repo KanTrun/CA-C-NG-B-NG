@@ -1484,10 +1484,14 @@ def _migrate_schema(cx: sqlite3.Connection) -> None:
 
 
 _MENU_MAC_DINH = (
-    ("mon_den", "Cà phê đen", 25000, {"cafe_g": 18, "ly": 1}, "ca_phe"),
-    ("mon_sua", "Cà phê sữa", 30000, {"cafe_g": 16, "sua_ml": 40, "ly": 1}, "ca_phe"),
-    ("mon_tra", "Trà đào", 35000, {"dao_lat": 3, "ly": 1}, "tra"),
-    ("mon_da", "Bạc xỉu", 32000, {"cafe_g": 12, "sua_ml": 80, "ly": 1}, "ca_phe"),
+    # Khóa BOM viết MÃ CHUẨN (`ca_phe_hat`, `sua_tuoi`, `dao`) chứ không mã legacy
+    # (`cafe_g`, `sua_ml`, `dao_lat`). Bảng seed này là NƠI SINH RA mã legacy ấy
+    # trên DB mới; để nguyên thì mỗi lượt khởi tạo lại dựng menu "Cà phê đen" +
+    # BOM mã cũ, và sổ tiêu thụ lại sinh thêm mặt hàng trùng.
+    ("mon_den", "Cà phê đen", 25000, {"ca_phe_hat": 18, "ly": 1}, "ca_phe"),
+    ("mon_sua", "Cà phê sữa", 30000, {"ca_phe_hat": 16, "sua_tuoi": 40, "ly": 1}, "ca_phe"),
+    ("mon_tra", "Trà đào", 35000, {"dao": 3, "ly": 1}, "tra"),
+    ("mon_da", "Bạc xỉu", 32000, {"ca_phe_hat": 12, "sua_tuoi": 80, "ly": 1}, "ca_phe"),
     # Nước đóng chai: bán nguyên chai, không qua pha chế. Thiếu nhóm này thì danh
     # mục mặc định chỉ có đồ pha — quán mới mở không bán được nước suối, và ô
     # chọn nguyên liệu ở menu có `nuoc_dong_chai` mà không món nào dùng.
@@ -3148,13 +3152,19 @@ def menu_list(*, gom_an: bool = False) -> list[dict[str, Any]]:
 
 def menu_upsert(mon: dict[str, Any]) -> dict[str, Any]:
     init_db()
+    from ca_api.nguyen_lieu import chuan_hoa_bom
+
     mid = str(mon["id"]).strip()
     ten = str(mon["ten"]).strip()
     gia = int(mon["gia"])
     an = 1 if mon.get("an") else 0
     hinh_url = str(mon.get("hinh_url") or "").strip()
     nhom = str(mon.get("nhom") or "").strip()
-    bom = json.dumps(mon.get("bom") or {}, ensure_ascii=False)
+    # Cửa chặn DUY NHẤT khi ghi menu: khoá BOM quy về mã chuẩn trước khi chạm DB.
+    # `menu_luu` (PUT món) đã làm việc này, nhưng seed/migration/script ghi thẳng
+    # qua đây — bỏ qua thì mã legacy lại chui vào và sinh mặt hàng trùng ở
+    # `/tieu-thu`.
+    bom = json.dumps(chuan_hoa_bom(mon.get("bom")), ensure_ascii=False)
     with _conn() as cx:
         cx.execute(
             """

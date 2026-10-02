@@ -170,10 +170,23 @@ def test_complete_order_records_estimated_consumption_and_manager_can_fix_active
         f"/api/v1/quay/don/{don_id}/chuyen", json={"trang_thai": "xong"}, headers=minh
     ).status_code == 409
 
-    consumption = client.get("/api/v1/tieu-thu", headers=minh).json()["items"]
+    payload = client.get("/api/v1/tieu-thu", headers=minh).json()
+    consumption = payload["items"]
     from_order = [x for x in consumption if x.get("don_quay_id") == don_id]
-    assert {x["hang"] for x in from_order} == {"cafe_g", "sua_ml", "ly"}
+    # Sổ trả MÃ chuẩn + TÊN CÓ DẤU + đúng đơn vị. Mốc cũ `{"cafe_g","sua_ml","ly"}`
+    # chính là mã legacy làm `/tieu-thu` hiện "Cà phê / Sua tuoi / đơn vị".
+    assert {x["ma"] for x in from_order} == {"ca_phe_hat", "sua_tuoi", "ly"}
+    assert {x["hang"] for x in from_order} == {
+        "Cà phê hạt",
+        "Sữa tươi",
+        "Ly / cốc dùng một lần",
+    }
+    assert {x["don_vi"] for x in from_order} == {"g", "ml", "cái"}
+    assert {x["nhom"] for x in from_order} == {"ca_phe"}
     assert all(x["nguon"] == "uoc_luong_tu_quay" for x in from_order)
+    # `tong_hop` gộp một dòng cho một nguyên liệu — trang `/tieu-thu` vẽ cái này.
+    assert {d["ma"] for d in payload["tong_hop"]} == {"ca_phe_hat", "sua_tuoi", "ly"}
+    assert all(d["so_dong"] >= 1 for d in payload["tong_hop"])
     # Mỗi dòng trừ kho phải nối về đúng món đã bán (Cà phê sữa ×3), không chỉ
     # ra mã BOM trơ — sổ tiêu thụ đọc lúc khoá ca cần vết "ai dùng cái gì".
     assert all(x["mon_id"] == "mon_sua" for x in from_order)
