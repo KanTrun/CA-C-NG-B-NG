@@ -8,6 +8,7 @@
  *  3. Giá trị `null`/`undefined`/object → dấu gạch, tuyệt đối không "[object Object]".
  */
 import { ApiError } from "./api";
+import { MAT_HANG } from "./nguyen-lieu";
 
 const DASH = "—";
 
@@ -458,19 +459,11 @@ export function lossNgay(row: { luc?: unknown; created_at?: unknown; ngay?: unkn
   return safeText(row.luc ?? row.created_at ?? row.ngay ?? row.at, "");
 }
 
-const MAT_HANG: Record<string, string> = {
-  sua_tuoi: "Sữa tươi",
-  ca_phe_hat: "Cà phê hạt",
-  tra: "Trà",
-  duong: "Đường",
-  ly_nhua: "Ly nhựa",
-  ong_hut: "Ống hút",
-  banh: "Bánh",
-  da: "Đá",
-  matcha: "Matcha",
-};
-
-/** `sua_tuoi` → "sữa tươi". Tên đã là tiếng Việt thì giữ nguyên. */
+/** `sua_tuoi` → "Sữa tươi". Tên đã là tiếng Việt thì giữ nguyên.
+ *
+ * Bảng đọc từ `lib/nguyen-lieu.ts` (mirror `data/seed/danh-muc.json`) — không
+ * còn bảng `MAT_HANG` con riêng ở đây, lệch là mất dấu lại tái diễn.
+ */
 export function matHangLabel(code: unknown): string {
   const raw = safeText(code, "");
   if (!raw) return "Mặt hàng chưa ghi tên";

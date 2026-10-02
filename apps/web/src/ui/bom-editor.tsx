@@ -1,39 +1,29 @@
 "use client";
 
+import { BOM_INGREDIENTS, chuanHoaMa, donViNguyenLieu, tenNguyenLieu } from "../lib/nguyen-lieu";
 import { Btn, Input, Select } from "./kit";
 
 export type BomRow = { key: string; qty: string };
 
-/** Nguyên liệu phổ biến — key giữ nguyên cho API, nhãn dành cho quản lý. */
-export const BOM_INGREDIENTS: Array<{ key: string; label: string; unit: string }> = [
-  { key: "ca_phe_hat", label: "Cà phê hạt", unit: "g" },
-  { key: "cafe_g", label: "Cà phê", unit: "g" },
-  { key: "sua_tuoi", label: "Sữa tươi", unit: "ml" },
-  { key: "tra", label: "Trà", unit: "g" },
-  { key: "matcha", label: "Matcha", unit: "g" },
-  { key: "dao", label: "Đào / topping trái", unit: "g" },
-  { key: "da", label: "Đá", unit: "g" },
-  { key: "banh", label: "Bánh kèm", unit: "cái" },
-  { key: "ly", label: "Ly / cốc dùng một lần", unit: "cái" },
-  { key: "nuoc_dong_chai", label: "Nước đóng chai", unit: "chai" },
-];
+/** Nguyên liệu phổ biến — bảng chuẩn đọc từ `data/seed/danh-muc.json`. */
+export { BOM_INGREDIENTS };
 
 const CUSTOM = "__custom__";
 
 export function ingredientLabel(key: string): string {
-  const hit = BOM_INGREDIENTS.find((i) => i.key === key);
-  if (hit) return hit.label;
-  return key.replace(/_/g, " ");
+  return tenNguyenLieu(key);
 }
 
 export function ingredientUnit(key: string): string {
-  return BOM_INGREDIENTS.find((i) => i.key === key)?.unit ?? "đơn vị";
+  return donViNguyenLieu(key);
 }
 
 export function bomToRows(bom: Record<string, number>): BomRow[] {
   const entries = Object.entries(bom ?? {});
   if (entries.length === 0) return [{ key: "ly", qty: "1" }];
-  return entries.map(([key, qty]) => ({ key, qty: String(qty) }));
+  // `cafe_g` / `sua_ml` là mã cũ còn sót trong DB — quy về mã chuẩn trước khi
+  // đưa vào ô chọn, nếu không sẽ rơi vào ô "nguyên liệu khác" với mã thô.
+  return entries.map(([key, qty]) => ({ key: chuanHoaMa(key), qty: String(qty) }));
 }
 
 export function rowsToBom(rows: BomRow[]): Record<string, number> {

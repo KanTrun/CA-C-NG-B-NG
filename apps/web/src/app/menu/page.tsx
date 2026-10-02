@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { apiGet, apiSend, apiUpload, ApiError } from "../../lib/api";
 import { menuImageUrl } from "../../lib/menu-image";
 import { viError } from "../../lib/present";
@@ -400,6 +400,28 @@ export default function MenuPage() {
   useEffect(() => {
     if (token) void load();
   }, [load, token]);
+
+  /**
+   * `/tieu-thu` nối "món liên quan" bằng `/menu#<mon_id>` — nếu không mở đúng
+   * món thì link chỉ thả người dùng vào một danh sách 49 món phải tự tìm lại.
+   * Chạy đúng một lần rồi xoá hash: nếu giữ hash thì lần `load()` sau khi lưu
+   * sẽ chọn lại món và reset form đang sửa dở.
+   */
+  const daMoTuHash = useRef(false);
+  useEffect(() => {
+    if (daMoTuHash.current || loading || items.length === 0) return;
+    daMoTuHash.current = true;
+    const mid = window.location.hash.slice(1);
+    if (!mid) return;
+    const hit = items.find((m) => m.id === mid);
+    if (!hit) return;
+    select(hit);
+    window.requestAnimationFrame(() => {
+      document.getElementById(mid)?.scrollIntoView({ block: "center" });
+    });
+    window.history.replaceState(null, "", window.location.pathname + window.location.search);
+  }, [items, loading]);
+
   useEffect(() => {
     if (token) void loadStyles();
   }, [loadStyles, token]);
@@ -930,6 +952,7 @@ export default function MenuPage() {
             {items.map((mon) => (
               <button
                 key={mon.id}
+                id={mon.id}
                 type="button"
                 className={`nq-menu-card ${form.id === mon.id ? "nq-menu-card--on" : ""}`}
                 onClick={() => select(mon)}
