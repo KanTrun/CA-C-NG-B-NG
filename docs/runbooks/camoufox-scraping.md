@@ -271,6 +271,45 @@ print('camoufox:', 'OK' if is_available() else 'NOT INSTALLED')
 3. Verify lại bằng lệnh health check ở trên
 4. Trong lúc đó hệ thống **vẫn hoạt động bình thường** — tier bị skip, rơi xuống Apify
 
+### 🔴 Trên Docker: `thiếu binary Camoufox tại /opt/camoufox`
+
+**Nguyên nhân (sự cố thật 2026-10-02):** `camoufox` tính thư mục cài bằng
+`platformdirs.user_cache_dir("camoufox")`, tức phụ thuộc `$HOME`/`$XDG_CACHE_HOME`
+của tiến trình. Khi bước `camoufox fetch` lúc build và tiến trình lúc runtime
+thấy hai giá trị khác nhau, `INSTALL_DIR` trỏ sai chỗ → binary fetch lúc build
+không được dùng. Tệ hơn: `camoufox_path()` **không báo lỗi** mà tự `install()`
+lại ~300MB **vào container đang chạy** — trên VM 20GB từng chạm
+`no space left on device` thì đường đó vừa hỏng vừa nguy hiểm.
+
+**Cách xử lý:** ghim đường dẫn cài trong image để nó không phụ thuộc `$HOME`:
+
+```dockerfile
+ENV CAMOUFOX_INSTALL_DIR=/opt/camoufox \
+    XDG_CACHE_HOME=/opt/run-cache      # CỐ Ý nằm ngoài /opt/camoufox
+RUN pip install --no-cache-dir -U 'camoufox[geoip]' && python -m camoufox fetch
+```
+
+Hai điểm dễ làm sai:
+
+- **`XDG_CACHE_HOME` phải KHÁC `/opt/camoufox`.** Nếu trùng, một lần dọn cache
+  chung (`shutil.rmtree(INSTALL_DIR)`) sẽ xoá luôn `fontconfig` của camoufox —
+  xem `camoufox/utils.py:81` dùng chính `INSTALL_DIR / 'fontconfig'` làm cache.
+- **Phải kiểm bằng launch thật, không chỉ `camoufox path`.** Lệnh `path` vẫn
+  thoát 0 khi binary hỏng hoặc thiếu system deps; `Dockerfile.api` mở một trang
+  thật rồi đóng để chứng minh — đúng phép thử mà `_try_launch()` dùng lúc chạy.
+
+`ca_agents.clients.camoufox_client._preflight()` chặn sớm khi thư mục cài rỗng
+hoặc thiếu, nên cấu hình sai giờ báo lỗi rõ ràng kèm đường dẫn thay vì âm thầm
+tải lại hàng trăm MB.
+
+**Kiểm chứng bên trong container đang chạy:**
+
+```bash
+sudo docker compose exec api python -c \
+  "from camoufox.pkgman import INSTALL_DIR; import os; \
+   print(INSTALL_DIR, os.path.isdir(INSTALL_DIR), len(os.listdir(INSTALL_DIR)))"
+```
+
 ### 🔴 Log: `CamoufoxUnavailable: ... yêu cầu đăng nhập (login-wall)`
 
 **Nguyên nhân:** TikTok/Threads redirect về trang login — nguồn đang siết chặn anonymous scraping

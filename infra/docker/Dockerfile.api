@@ -28,9 +28,36 @@ RUN pip install --no-cache-dir \
     -e ./packages/agents \
     -e ./apps/api
 
-# Camoufox: install + fetch binary (for Threads/TikTok browser scraping)
+# Camoufox: install + fetch binary (dùng cho khảo sát giá + Threads/TikTok).
+#
+# VÌ SAO PHẢI GHIM `CAMOUFOX_INSTALL_DIR` (sự cố 2026-10-02):
+# `camoufox` tính thư mục cài bằng `platformdirs.user_cache_dir("camoufox")`,
+# tức là phụ thuộc `HOME`/`XDG_CACHE_HOME` của tiến trình. Khi fetch lúc build
+# và chạy lúc runtime lệch môi trường, `INSTALL_DIR` trỏ sai chỗ → runtime báo
+# "Camoufox is not installed" rồi `camoufox_path()` TỰ TẢI LẠI ~300MB vào
+# container đang chạy. Trên VM 20GB đã từng chạm `no space left on device`,
+# đường tự tải lại đó vừa hỏng vừa nguy hiểm.
+#
+# Ghim vào `/opt/camoufox` để đường dẫn CỐ ĐỊNH, không phụ thuộc `$HOME` — và để
+# `XDG_CACHE_HOME` nằm NGOÀI `/opt/camoufox` hòng không xoá nhầm dữ liệu giữa
+# các lần chạy. Biến `CAMOUFOX_INSTALL_DIR` cũng là công tắc để tắt tự tải.
+ENV CAMOUFOX_INSTALL_DIR=/opt/camoufox \
+    XDG_CACHE_HOME=/opt/run-cache
 RUN pip install --no-cache-dir -U 'camoufox[geoip]' \
     && python -m camoufox fetch
+
+# Cổng build-time: chứng minh binary THỰC SỰ chạy được ngay trong image.
+# `camoufox path` chỉ in đường dẫn — nó vẫn "thành công" khi binary hỏng hoặc
+# thiếu system deps. Phải mở một trang thật rồi đóng, đúng như `_try_launch()`
+# mà `ca_agents.clients.camoufox_client` dùng lúc runtime.
+RUN python -c "\
+from camoufox.sync_api import Camoufox; \
+cm = Camoufox(headless=True); \
+b = cm.__enter__(); \
+b.new_page(); \
+cm.__exit__(None, None, None); \
+print('CAMOUFOX_LAUNCH_OK')" \
+    && python -m camoufox path
 
 # Dữ liệu instance NHỊP QUÁN: seed, golden, template phiếu, tham số lao động
 COPY config ./config
