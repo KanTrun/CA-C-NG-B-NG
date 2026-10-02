@@ -254,7 +254,7 @@ class TestGenerateGuards:
 
 
 class TestGenerateModes:
-    """Ba chế độ tạo ảnh — chỉ kiểm tra nhánh CHẶN (không gọi mạng)."""
+    """Hai chế độ tạo ảnh từ ảnh thật — chỉ kiểm tra nhánh CHẶN (không gọi mạng)."""
 
     _MON = "mon_che_do"
 
@@ -375,12 +375,12 @@ class TestModeAvailability:
         assert client.get("/api/v1/menu/anh/kha-dung", headers=minh).status_code == 403
 
     def test_always_available_modes(self) -> None:
-        """Hai chế độ không cần khoá ảnh luôn phải khả dụng."""
+        """Chế độ giữ sản phẩm luôn khả dụng; không còn chế độ vẽ mới."""
         hung = headers(client, "hung")
         res = client.get("/api/v1/menu/anh/kha-dung", headers=hung)
         assert res.status_code == 200
         che_do = res.json()["che_do"]
-        assert che_do["from_prompt"]["kha_dung"] is True
+        assert "from_prompt" not in che_do
         assert che_do["keep_drink"]["kha_dung"] is True
 
     def test_edit_photo_reports_reason_when_blocked(self) -> None:
@@ -398,7 +398,8 @@ class TestModeAvailability:
         # miễn phí, không cần thẻ) và gợi ý chế độ chạy được ngay.
         assert "CLOUDFLARE_ACCOUNT_ID" in edit["ly_do"]
         assert "dash.cloudflare.com" in edit["ly_do"]
-        assert "Giữ nguyên ly nước" in edit["ly_do"] or "AI vẽ mới" in edit["ly_do"]
+        # Nhãn chế độ phải khớp UI hiện tại (chạy cho mọi bao bì, không riêng ly).
+        assert "Giữ nguyên sản phẩm" in edit["ly_do"]
 
     def test_edit_photo_blocked_returns_422_with_reason(self) -> None:
         """Chọn chế độ thiếu khoá → 422 kèm lý do, KHÔNG gọi provider rồi mới lỗi."""
@@ -425,9 +426,9 @@ class TestModeAvailability:
 
 
 class TestPromptEndpoint:
-    """`/anh/prompt` dựng prompt tất định — không gọi mạng, không gọi LLM."""
+    """`/anh/prompt` (dựng prompt từ tên món) đã xoá — mọi prompt đều từ ảnh thật."""
 
-    def test_builds_prompt_from_dish_name(self) -> None:
+    def test_prompt_theo_mon_da_bi_xoa(self) -> None:
         _reset_styles()
         hung = headers(client, "hung")
         client.put(
@@ -440,52 +441,5 @@ class TestPromptEndpoint:
             json={"aspect_ratio": "4:5"},
             headers=hung,
         )
-        assert res.status_code == 200
-        body = res.json()
-        assert body["ok"] is True
-        assert body["provider"] == "local-template"
-        # Tên món tiếng Việt được dịch sang cụm tiếng Anh đúng (khớp cụm dài trước).
-        assert "peach orange lemongrass tea" in body["prompt_en"]
-        assert "4:5" not in body["prompt_en"]  # tỷ lệ chỉ đổi bố cục, không lộ ra prompt
-        assert "vertical composition" in body["prompt_en"]
-        # Prompt phải cấm chữ trên ảnh — model hay vẽ biển hiệu/menu chữ nhòe.
-        assert "no text" in body["prompt_en"]
-
-    def test_same_dish_and_style_gives_same_prompt(self) -> None:
-        """Tất định: hai lần gọi phải ra y hệt — điều kiện để ảnh cả menu đồng bộ."""
-        _reset_styles()
-        hung = headers(client, "hung")
-        client.put(
-            "/api/v1/menu/ca_phe_sua_da",
-            json={"ten": "Cà phê sữa đá", "gia": 25000, "bom": {"ly": 1}},
-            headers=hung,
-        )
-        first = client.post("/api/v1/menu/ca_phe_sua_da/anh/prompt", json={}, headers=hung).json()
-        second = client.post("/api/v1/menu/ca_phe_sua_da/anh/prompt", json={}, headers=hung).json()
-        assert first["prompt_en"] == second["prompt_en"]
-        assert "iced milk coffee" in first["prompt_en"]
-
-    def test_unknown_style_slug_rejected(self) -> None:
-        _reset_styles()
-        hung = headers(client, "hung")
-        client.put(
-            "/api/v1/menu/tra_dao",
-            json={"ten": "Trà đào", "gia": 35000, "bom": {"ly": 1}},
-            headers=hung,
-        )
-        res = client.post(
-            "/api/v1/menu/tra_dao/anh/prompt",
-            json={"style_slug": "khong_co_that"},
-            headers=hung,
-        )
-        assert res.status_code == 422
-        assert res.json()["detail"] == "phong_cach_khong_ton_tai"
-
-    def test_requires_chu_quan(self) -> None:
-        _reset_styles()
-        minh = headers(client, "minh")
-        assert (
-            client.post("/api/v1/menu/tra_dao/anh/prompt", json={}, headers=minh).status_code
-            == 403
-        )
-        assert client.post("/api/v1/menu/tra_dao/anh/prompt", json={}).status_code == 401
+        # Endpoint không còn tồn tại → 404/405, không trả prompt vẽ mới theo tên món.
+        assert res.status_code in (404, 405)

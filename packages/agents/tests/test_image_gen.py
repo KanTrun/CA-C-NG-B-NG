@@ -949,7 +949,7 @@ def test_image_edit_unavailable_without_any_key() -> None:
     # chế độ thay thế, nếu không người dùng mới không biết làm gì tiếp.
     assert "CLOUDFLARE_ACCOUNT_ID" in reason
     assert "dash.cloudflare.com" in reason
-    assert "AI vẽ mới" in reason
+    assert "Giữ nguyên sản phẩm" in reason
 
 
 def test_image_edit_unavailable_with_only_gemini_key(
@@ -965,7 +965,8 @@ def test_image_edit_unavailable_with_only_gemini_key(
     assert ok is False
     assert "CLOUDFLARE_ACCOUNT_ID" in reason
     # Lý do phải gợi ý chế độ chạy được ngay để người dùng không bị chặn việc.
-    assert "Giữ nguyên ly nước" in reason or "AI vẽ mới" in reason
+    # Nhãn chế độ phải khớp UI hiện tại (chạy cho mọi bao bì, không riêng ly).
+    assert "Giữ nguyên sản phẩm" in reason
 
 
 def test_image_edit_available_with_pollinations_key(monkeypatch: pytest.MonkeyPatch) -> None:

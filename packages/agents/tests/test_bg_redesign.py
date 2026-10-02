@@ -193,7 +193,10 @@ class TestSegmentation:
         res = generate_background_redesign(buf.getvalue(), PROMPT)
         assert not res.ok
         assert res.error == "segment_failed"
-        assert "giữ nguyên ly nước" in res.text
+        # Câu hướng dẫn phải khớp NHÃN của chế độ trên UI ("giữ nguyên sản phẩm"),
+        # không phải tên cũ ("giữ nguyên ly nước") — chế độ này chạy cho mọi bao bì
+        # đựng chất lỏng (chai/lọ/bình/hộp/túi), không riêng ly.
+        assert "giữ nguyên sản phẩm" in res.text
         # Thoát sớm: tối đa 1 request nền (không retry seed thứ hai).
         assert len(patch_pollinations) <= 1
 
