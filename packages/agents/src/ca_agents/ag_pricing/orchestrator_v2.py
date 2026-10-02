@@ -16,7 +16,9 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import threading
+import time
 import urllib.request
 from datetime import datetime, timezone
 from typing import Any
@@ -70,6 +72,51 @@ logger = logging.getLogger(__name__)
 _IMAGE_TIMEOUT_S = 10.0
 _IMAGE_MAX_BYTES = 8 * 1024 * 1024
 _UA = "Mozilla/5.0 (compatible; nhipquan-pricing-radar/2.1)"
+
+#: Ngân sách thời gian mặc định cho cả lượt khảo sát (giây). Job PHẢI kết thúc ở
+#: một trạng thái cuối trong hạn này; hết hạn thì `FAILED` với mã `SOURCE_BLOCKED`.
+#: Trước đây không có hạn nào: cào delivery có thể treo ở `page.goto` mãi mãi, và
+#: job nằm im ở `scraping_online` cho tới khi worker bị restart (sự cố 2026-10-02).
+_JOB_BUDGET_MAC_DINH_S = 300.0
+_JOB_BUDGET_BIEN = "CA_SURVEY_JOB_BUDGET_S"
+
+
+def _job_budget_s() -> float:
+    """Đọc ngân sách tại thời điểm chạy để cấu hình lại (và test) có hiệu lực."""
+    try:
+        return max(1.0, float(os.getenv(_JOB_BUDGET_BIEN, str(_JOB_BUDGET_MAC_DINH_S))))
+    except ValueError:
+        return _JOB_BUDGET_MAC_DINH_S
+
+
+class _JobDeadline:
+    """Đồng hồ đếm ngược cho một lượt khảo sát.
+
+    Các nguồn dữ liệu là thư viện đồng bộ (urllib, camoufox) không nhận huỷ giữa
+    chừng, nên ngân sách được áp bằng hai lớp: (1) cắt timeout truyền xuống tầng
+    I/O theo thời gian còn lại, (2) kiểm tra trước mỗi bước để không bắt đầu một
+    bước chắc chắn không kịp.
+    """
+
+    def __init__(self, tong_giay: float | None = None) -> None:
+        self.tong_giay = _job_budget_s() if tong_giay is None else max(1.0, tong_giay)
+        self._ket_thuc = time.monotonic() + self.tong_giay
+
+    @property
+    def con_lai_s(self) -> float:
+        return self._ket_thuc - time.monotonic()
+
+    def het_han(self, toi_thieu_s: float = 0.0) -> bool:
+        return self.con_lai_s <= toi_thieu_s
+
+    def ep_het_han(self) -> None:
+        """Đánh dấu ngân sách đã cạn (dùng cho test tất định)."""
+        self._ket_thuc = time.monotonic() - 1.0
+
+    def con(self, mac_dinh_s: float) -> float:
+        """Thời gian còn lại, hoặc `mac_dinh_s` khi ngân sách đã cạn."""
+        con_lai = self.con_lai_s
+        return mac_dinh_s if con_lai <= 0 else min(mac_dinh_s, con_lai)
 
 
 class SurveyExecutionError(Exception):
@@ -126,6 +173,15 @@ def _bump_failure(code: SurveyErrorCode) -> None:
     with _METRICS_LOCK:
         bucket = _METRICS["failures_by_code"]
         bucket[code.value] = bucket.get(code.value, 0) + 1
+
+
+def _kiem_tra_han(deadline: _JobDeadline, buoc: str) -> None:
+    """Dừng job khi đã cạn ngân sách thời gian — không bắt đầu bước chắc chắn trễ."""
+    if deadline.het_han():
+        raise SurveyExecutionError(
+            SurveyErrorCode.SOURCE_BLOCKED,
+            f"het_thoi_gian_cho_phep sau bước {buoc} (ngân sách {deadline.tong_giay:.0f}s)",
+        )
 
 
 # ── Log có cấu trúc (plan mục 9) ─────────────────────────────────────────────
@@ -233,7 +289,8 @@ class SurveyOrchestrator:
     def execute_job(self, job_id: str) -> SurveyJob:
         """Chạy job đến COMPLETED / NEEDS_REVIEW / FAILED (blocking).
 
-        Gọi từ background task của ca_api; KHÔNG gọi trực tiếp trong request handler.
+        Luôn kết thúc ở một trạng thái cuối trong hạn `_JOB_BUDGET_S`; hết hạn thì
+        `FAILED` với `SOURCE_BLOCKED` thay vì để job nằm im ở trạng thái trung gian.
         """
         job = self.job_store.get_job(job_id)
         if job is None:
@@ -244,12 +301,16 @@ class SurveyOrchestrator:
                 f"job {job_id} đang ở trạng thái {job.status.value}, không thể chạy lại",
             )
 
+        deadline = _JobDeadline()
+        _log_job(job_id, "job_started", ngan_sach_giay=round(deadline.tong_giay, 1))
+
         try:
             self._advance(job, SurveyJobStatus.SCRAPING_ONLINE)
-            online_raw = self._scrape_online(job.request)
+            online_raw = self._scrape_online(job.request, deadline)
 
+            _kiem_tra_han(deadline, "quet_kenh_delivery")
             self._advance(job, SurveyJobStatus.SCRAPING_DINEIN)
-            dinein_raw = self._scrape_dinein(job.request)
+            dinein_raw = self._scrape_dinein(job.request, deadline)
 
             online_records = self._to_records(
                 online_raw, job.request, ChannelMode.DELIVERY_PLATFORM
@@ -258,6 +319,7 @@ class SurveyOrchestrator:
                 dinein_raw, job.request, ChannelMode.DINE_IN_VISION
             )
 
+            _kiem_tra_han(deadline, "quet_quan_tai_cho")
             self._advance(job, SurveyJobStatus.OCR_PROCESSING)
             snapshots, pending = self._process_ocr(dinein_raw, dinein_records, job.request)
             self._attach_dinein_items(dinein_records, snapshots)
@@ -403,7 +465,11 @@ class SurveyOrchestrator:
 
     # ── Scraping ─────────────────────────────────────────────────────────────
 
-    def _scrape_online(self, request: CatchmentSurveyRequest) -> list[StoreCandidate]:
+    def _scrape_online(
+        self,
+        request: CatchmentSurveyRequest,
+        deadline: _JobDeadline,
+    ) -> list[StoreCandidate]:
         if request.channel_mode == ChannelMode.DINE_IN_VISION:
             return []
         _bump("proxy_requests")
@@ -412,9 +478,14 @@ class SurveyOrchestrator:
             request.longitude,
             request.core_category,
             radius_km=request.radius_profile.delivery_km,
+            deadline_s=deadline.con_lai_s,
         )
 
-    def _scrape_dinein(self, request: CatchmentSurveyRequest) -> list[StoreCandidate]:
+    def _scrape_dinein(
+        self,
+        request: CatchmentSurveyRequest,
+        deadline: _JobDeadline,
+    ) -> list[StoreCandidate]:
         if request.channel_mode == ChannelMode.DELIVERY_PLATFORM:
             return []
         _bump("proxy_requests")
@@ -424,6 +495,7 @@ class SurveyOrchestrator:
             request.core_category,
             radius_km=request.radius_profile.dine_in_km,
             max_images=request.max_menu_images_per_store,
+            deadline_s=deadline.con_lai_s,
         )
 
     def _to_records(

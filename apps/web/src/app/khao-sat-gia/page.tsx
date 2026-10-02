@@ -184,8 +184,14 @@ const COST_PLUS_CANH_BAO =
 
 const POLL_MS = 3000;
 
-/** Trạng thái job còn đang chạy — phải tiếp tục poll. */
-const DANG_CHAY = new Set(["queued", "scraping_online", "scraping_dinein", "ocr_processing", "aggregating"]);
+/** Trạng thái job còn đang chạy — phải tiếp tục poll (khớp `_DANG_CHAY` ở API). */
+const DANG_CHAY = new Set([
+  "queued",
+  "scraping_online",
+  "scraping_dinein",
+  "ocr_processing",
+  "aggregating",
+]);
 
 type ManHinh = "nhap" | "chay" | "review" | "ket-qua";
 
@@ -404,6 +410,19 @@ export default function KhaoSatGiaPage() {
     return res.data;
   }, []);
 
+  /**
+   * Chạy bước kế tiếp của job rồi trả trạng thái mới.
+   *
+   * Không dùng `docTrangThai` để "đẩy" job: snapshot trạng thái ghi xuống KV phải
+   * do chính worker đang chạy job thực hiện, nếu không `GET` sẽ đọc snapshot cũ và
+   * job trông như treo vĩnh viễn (sự cố 2026-10-02). Vì vậy nơi nào CẦN job tiến
+   * lên thì gọi endpoint `POST .../run`; nơi chỉ cần đọc thì dùng `GET`.
+   */
+  const dayJob = useCallback(async (id: string): Promise<JobStatus | null> => {
+    const res = await apiSend<Envelope<JobStatus>>(`/api/v1/market/catchment-survey/${id}/run`, {});
+    return res.data;
+  }, []);
+
   const docKetQua = useCallback(async (id: string): Promise<void> => {
     const res = await apiGet<Envelope<KetQua>>(`/api/v1/market/catchment-survey/${id}/result`);
     setKetQua(res.data);
@@ -457,11 +476,21 @@ export default function KhaoSatGiaPage() {
         if (huy || !job) return;
         consecutiveErrors = 0;
         setError(null);
-        if (!DANG_CHAY.has(job.status)) {
-          void dongBoManHinh(jobId, job);
-        } else {
+        // Job còn ở trạng thái trung gian nghĩa là chưa ai chạy nó (ví dụ tab vừa
+        // mở lại bằng URL cũ) — gọi `/run` để đẩy tiếp thay vì chỉ đứng nhìn.
+        if (DANG_CHAY.has(job.status)) {
+          void dayJob(jobId)
+            .then((moi) => {
+              if (huy || !moi) return;
+              void dongBoManHinh(jobId, moi);
+            })
+            .catch((e) => {
+              if (!huy) setError(loiKhaoSat(e, "theo dõi được khảo sát"));
+            });
           setStatus(job);
+          return;
         }
+        void dongBoManHinh(jobId, job);
       })
       .catch((e) => {
         if (huy) return;
@@ -472,9 +501,9 @@ export default function KhaoSatGiaPage() {
       });
 
     const timer = setInterval(() => {
-      // Tab ẩn thì dừng gọi: job vẫn chạy ở máy chủ, không cần đốt request.
+      // Tab ẩn thì dừng gọi: job vẫn chờ ở máy chủ, không cần đốt request.
       if (document.hidden) return;
-      void docTrangThai(jobId)
+      void dayJob(jobId)
         .then((job) => {
           if (huy || !job) return;
           consecutiveErrors = 0;
@@ -500,7 +529,7 @@ export default function KhaoSatGiaPage() {
       huy = true;
       clearInterval(timer);
     };
-  }, [token, manHinh, jobId, docTrangThai, dongBoManHinh, pollRetryTrigger]);
+  }, [token, manHinh, jobId, dayJob, dongBoManHinh, pollRetryTrigger]);
 
   /* ── Màn 1: nhập liệu ── */
 
@@ -589,7 +618,9 @@ export default function KhaoSatGiaPage() {
       setJobId(id);
       setKetQua(null);
       setMsg(res.data.idempotent_replay ? "Đang mở lại khảo sát bạn vừa tạo." : null);
-      const job = await docTrangThai(id);
+      // `POST /run` chạy job ngay tại worker này rồi trả trạng thái vừa ghi — nhờ
+      // vậy lần poll đầu tiên đã thấy đúng tiến trình, không phải chờ worker khác.
+      const job = await dayJob(id);
       if (job) await dongBoManHinh(id, job);
     } catch (err) {
       setError(loiKhaoSat(err, "tạo được khảo sát"));

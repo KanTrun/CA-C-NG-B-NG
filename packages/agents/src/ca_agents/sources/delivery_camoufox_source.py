@@ -480,8 +480,13 @@ def scrape_delivery_stores_camoufox(
     longitude: float,
     keyword: str,
     radius_km: float = 5.0,
+    deadline_s: float | None = None,
 ) -> list[StoreCandidate]:
-    """Hàm điều phối cào danh sách quán qua Camoufox có cache."""
+    """Hàm điều phối cào danh sách quán qua Camoufox có cache.
+
+    `deadline_s` là thời gian còn lại của job khảo sát: hết hạn thì dừng lấy menu
+    để nhường thời gian cho các bước sau, thay vì treo tới khi worker bị restart.
+    """
     cache_k = _cache_key(latitude, longitude, keyword, radius_km)
     cached = _cache_get(cache_k)
     if cached is not None:
@@ -498,8 +503,9 @@ def scrape_delivery_stores_camoufox(
         )
 
     target_url = f"https://shopeefood.vn/search?keyword={quote(keyword)}"
+    timeout_s = None if deadline_s is None else max(5, int(deadline_s))
     try:
-        result_json = scrape_page(target_url, _extractor)
+        result_json = scrape_page(target_url, _extractor, timeout_s=timeout_s)
     except CamoufoxUnavailable:
         logger.info("Camoufox không khả dụng cho delivery scraping")
         raise
@@ -512,9 +518,14 @@ def scrape_delivery_stores_camoufox(
         # Lấy menu cho từng quán (chỉ lấy tối đa 5 quán đầu để tránh quá chậm).
         # Bọc try/except: menu lỗi KHÔNG được làm mất danh sách quán.
         for store in stores[:5]:
+            if deadline_s is not None and deadline_s <= 0:
+                logger.info("Hết ngân sách thời gian — bỏ qua menu delivery còn lại")
+                break
             if store.url:
                 try:
-                    menu = scrape_delivery_menu_camoufox(store.url, latitude, longitude)
+                    menu = scrape_delivery_menu_camoufox(
+                        store.url, latitude, longitude, deadline_s=deadline_s
+                    )
                     if menu:
                         store.dishes = menu
                 except Exception as exc:  # noqa: BLE001
@@ -527,6 +538,7 @@ def scrape_delivery_menu_camoufox(
     store_url: str,
     latitude: float,
     longitude: float,
+    deadline_s: float | None = None,
 ) -> list[DishItem]:
     """Cào menu của một quán ShopeeFood qua Camoufox (endpoint `get_delivery_dishes`)."""
     if not store_url:
@@ -540,8 +552,9 @@ def scrape_delivery_menu_camoufox(
             lng=longitude,
         )
 
+    timeout_s = None if deadline_s is None else max(5, int(deadline_s))
     try:
-        result_json = scrape_page(store_url, _extractor)
+        result_json = scrape_page(store_url, _extractor, timeout_s=timeout_s)
     except CamoufoxUnavailable:
         logger.info("Camoufox không khả dụng cho delivery menu scraping")
         return []
