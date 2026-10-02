@@ -285,10 +285,9 @@ export default function CauHinhQuanPage() {
     if (profile.hotline.trim()) score += 10;
     if (profile.gio_mo_cua.trim()) score += 10;
 
-    // Địa chỉ chuẩn hóa theo API (15 điểm)
-    if (profile.tinh.trim()) score += 5;
-    if (profile.quan_huyen.trim()) score += 5;
-    if (profile.phuong_xa.trim()) score += 5;
+    // Địa chỉ chuẩn hóa theo API (15 điểm) — chính quyền 2 cấp, không còn quận/huyện
+    if (profile.tinh.trim()) score += 7;
+    if (profile.phuong_xa.trim()) score += 8;
 
     // Kênh truyền thông & Liên hệ (15 điểm)
     if (profile.email.trim()) score += 5;
@@ -312,7 +311,7 @@ export default function CauHinhQuanPage() {
     const list: { label: string; tab: ConfigTab }[] = [];
     if (!profile.ten_quan.trim()) list.push({ label: "Tên quán", tab: "general" });
     if (!profile.dia_chi.trim()) list.push({ label: "Địa chỉ", tab: "address" });
-    if (!profile.tinh.trim() || !profile.quan_huyen.trim()) list.push({ label: "Chuẩn hóa Tỉnh/Quận", tab: "address" });
+    if (!profile.tinh.trim() || !profile.phuong_xa.trim()) list.push({ label: "Chuẩn hóa Tỉnh/Phường", tab: "address" });
     if (!profile.hotline.trim()) list.push({ label: "Hotline", tab: "contact" });
     if (!profile.gio_mo_cua.trim()) list.push({ label: "Giờ mở cửa", tab: "operations" });
     if (!profile.stk_ngan_hang.trim()) list.push({ label: "STK ngân hàng", tab: "operations" });
@@ -354,7 +353,7 @@ export default function CauHinhQuanPage() {
         quan_huyen_code: profile.quan_huyen_code.trim(),
         tinh: profile.tinh.trim(),
         tinh_code: profile.tinh_code.trim(),
-        thanh_pho: (profile.quan_huyen || profile.tinh || profile.thanh_pho).trim(),
+        thanh_pho: (profile.tinh || profile.thanh_pho).trim(),
         toa_do_lat: profile.toa_do_lat.trim(),
         toa_do_lon: profile.toa_do_lon.trim(),
         google_maps_url: profile.google_maps_url.trim(),
@@ -485,12 +484,11 @@ export default function CauHinhQuanPage() {
     const fullAddress = [
       profile.dia_chi_chi_tiet?.trim(),
       profile.phuong_xa?.trim(),
-      profile.quan_huyen?.trim(),
       profile.tinh?.trim(),
     ].filter(Boolean).join(", ") || profile.dia_chi?.trim();
 
     if (!fullAddress) {
-      setGpsMsg("Vui lòng nhập địa chỉ quán (hoặc chọn Tỉnh/Quận/Phường) trước khi lấy toạ độ.");
+      setGpsMsg("Vui lòng nhập địa chỉ quán (hoặc chọn Tỉnh/Phường) trước khi lấy toạ độ.");
       return;
     }
 
@@ -501,7 +499,6 @@ export default function CauHinhQuanPage() {
       const queryParams = new URLSearchParams({
         address: fullAddress,
         phuong_xa: profile.phuong_xa?.trim() || "",
-        quan_huyen: profile.quan_huyen?.trim() || "",
         tinh: profile.tinh?.trim() || "",
       });
       const res = await apiGet<{ found?: boolean; lat?: number; lon?: number; display_name?: string }>(
@@ -515,8 +512,7 @@ export default function CauHinhQuanPage() {
       if (lat == null || lon == null) {
         const candidates = [
           fullAddress,
-          [profile.phuong_xa?.trim(), profile.quan_huyen?.trim(), profile.tinh?.trim()].filter(Boolean).join(", "),
-          [profile.quan_huyen?.trim(), profile.tinh?.trim()].filter(Boolean).join(", "),
+          [profile.phuong_xa?.trim(), profile.tinh?.trim()].filter(Boolean).join(", "),
           profile.tinh?.trim(),
         ].filter(Boolean);
 
@@ -551,7 +547,7 @@ export default function CauHinhQuanPage() {
         }));
         setGpsMsg(`Đã lấy toạ độ từ địa chỉ quán: ${latNum}, ${lonNum}. Bấm Lưu thông tin quán để áp dụng.`);
       } else {
-        setGpsMsg("Không tìm thấy toạ độ cho địa chỉ này. Hãy kiểm tra lại Tỉnh/Thành hoặc Quận/Huyện.");
+        setGpsMsg("Không tìm thấy toạ độ cho địa chỉ này. Hãy kiểm tra lại Tỉnh/Thành hoặc Phường/Xã.");
       }
     } catch {
       setGpsMsg("Lỗi khi tra cứu toạ độ. Vui lòng thử lại sau.");
@@ -760,7 +756,7 @@ export default function CauHinhQuanPage() {
               Địa chỉ & Định vị hành chính
             </h2>
             <p className="text-xs text-[var(--nq-muted)] mt-1">
-              Tích hợp danh mục địa chính Việt Nam (Tỉnh/Thành → Quận/Huyện → Phường/Xã) giúp chuẩn hóa địa chỉ, hỗ trợ tính năng định vị thời tiết và chỉ đường cho khách.
+              Tích hợp danh mục địa chính Việt Nam (Tỉnh/Thành → Phường/Xã, theo đợt sáp nhập 2025) giúp chuẩn hóa địa chỉ, hỗ trợ tính năng định vị thời tiết và chỉ đường cho khách.
             </p>
           </div>
 

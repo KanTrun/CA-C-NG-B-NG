@@ -1,4 +1,7 @@
-"""API danh mục địa chính Việt Nam (Tỉnh/Thành, Quận/Huyện, Phường/Xã) cho hồ sơ quán."""
+"""API danh mục địa chính Việt Nam 2 cấp (Tỉnh/Thành, Phường/Xã) cho hồ sơ quán.
+
+Cấp Quận/Huyện bị bỏ theo Nghị quyết 202/2025/QH15 (chính quyền 2 cấp từ 07/2025).
+"""
 
 from __future__ import annotations
 
@@ -9,7 +12,6 @@ from fastapi import APIRouter, Header, Query
 from ca_api.interfaces.http.sprint3 import _require_role
 from ca_api.services.dia_chi_service import (
     geocode_address,
-    get_districts,
     get_provinces,
     get_wards,
 )
@@ -21,29 +23,19 @@ router = APIRouter(tags=["dia_chi"])
 def api_get_provinces(
     authorization: Annotated[str | None, Header()] = None,
 ) -> list[dict[str, Any]]:
-    """Danh sách 63 tỉnh/thành phố trực thuộc TW tại Việt Nam."""
+    """Danh sách 34 tỉnh/thành phố trực thuộc TW tại Việt Nam."""
     _require_role(authorization)
     return get_provinces()
 
 
-@router.get("/api/v1/geo/districts/{province_code}")
-def api_get_districts(
+@router.get("/api/v1/geo/wards/{province_code}")
+def api_get_wards(
     province_code: int,
     authorization: Annotated[str | None, Header()] = None,
 ) -> list[dict[str, Any]]:
-    """Danh sách quận/huyện theo mã tỉnh/thành."""
+    """Danh sách phường/xã theo mã tỉnh/thành (không còn cấp quận/huyện)."""
     _require_role(authorization)
-    return get_districts(province_code)
-
-
-@router.get("/api/v1/geo/wards/{district_code}")
-def api_get_wards(
-    district_code: int,
-    authorization: Annotated[str | None, Header()] = None,
-) -> list[dict[str, Any]]:
-    """Danh sách phường/xã theo mã quận/huyện."""
-    _require_role(authorization)
-    return get_wards(district_code)
+    return get_wards(province_code)
 
 
 @router.get("/api/v1/geo/geocode")

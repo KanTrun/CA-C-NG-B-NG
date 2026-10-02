@@ -1,4 +1,9 @@
-"""Dịch vụ tra cứu danh mục địa chính Việt Nam (Tỉnh/Thành phố, Quận/Huyện, Phường/Xã).
+"""Dịch vụ tra cứu danh mục địa chính Việt Nam (2 cấp: Tỉnh/Thành phố -> Phường/Xã).
+
+Theo Nghị quyết 202/2025/QH15 hiệu lực 12/6/2025, cả nước còn 34 đơn vị cấp tỉnh và
+chính quyền 2 cấp, nên cấp Quận/Huyện đã bị bỏ (3.321 xã/phường). Nguồn
+provinces.open-api.vn/api/v2 là bản sau sáp nhập 07/2025; bản v1 `/api/` là bản cũ
+63 tỉnh, KHÔNG dùng nữa. Nạp lại fallback: python scripts/refresh_dia_chi.py
 
 Hỗ trợ chuẩn hóa địa chỉ cho thông tin quán (/cau-hinh-quan) và tính toán thời tiết,
 giao hàng, hiển thị bản đồ.
@@ -20,11 +25,13 @@ log = logging.getLogger(__name__)
 
 _DIR = Path(__file__).resolve().parent
 _PROVINCES_FALLBACK_FILE = _DIR / "vietnam_provinces.json"
-_DISTRICTS_FALLBACK_FILE = _DIR / "vietnam_districts_fallback.json"
+_WARDS_FALLBACK_FILE = _DIR / "vietnam_wards_fallback.json"
+
+_API_BASE = "https://provinces.open-api.vn/api/v2"
 
 # In-memory caches
 _PROVINCES_CACHE: list[dict[str, Any]] | None = None
-_DISTRICTS_CACHE: dict[int, list[dict[str, Any]]] = {}
+# Khoá theo mã TỈNH (chính quyền 2 cấp, không còn cấp quận/huyện)
 _WARDS_CACHE: dict[int, list[dict[str, Any]]] = {}
 
 
@@ -39,24 +46,24 @@ def _load_provinces_fallback() -> list[dict[str, Any]]:
     return []
 
 
-def _load_districts_fallback() -> dict[str, list[dict[str, Any]]]:
-    if _DISTRICTS_FALLBACK_FILE.exists():
+def _load_wards_fallback() -> dict[str, list[dict[str, Any]]]:
+    if _WARDS_FALLBACK_FILE.exists():
         try:
-            with open(_DISTRICTS_FALLBACK_FILE, encoding="utf-8") as f:
+            with open(_WARDS_FALLBACK_FILE, encoding="utf-8") as f:
                 raw = json.load(f)
                 return cast(dict[str, list[dict[str, Any]]], raw)
         except Exception as e:
-            log.warning("Khong the doc vietnam_districts_fallback.json: %s", e)
+            log.warning("Khong the doc vietnam_wards_fallback.json: %s", e)
     return {}
 
 
 def get_provinces() -> list[dict[str, Any]]:
-    """Lấy danh sách 63 tỉnh/thành phố trực thuộc TW tại Việt Nam."""
+    """Lấy danh sách 34 tỉnh/thành phố trực thuộc TW tại Việt Nam (bản sau sáp nhập 2025)."""
     global _PROVINCES_CACHE
     if _PROVINCES_CACHE is not None:
         return _PROVINCES_CACHE
 
-    url = "https://provinces.open-api.vn/api/p/"
+    url = f"{_API_BASE}/"
     try:
         req = urllib.request.Request(url, headers={"User-Agent": "NhipQuan-StoreConfig/1.0"})
         with urllib.request.urlopen(req, timeout=3.5) as resp:
@@ -83,46 +90,12 @@ def get_provinces() -> list[dict[str, Any]]:
     return []
 
 
-def get_districts(province_code: int) -> list[dict[str, Any]]:
-    """Lấy danh sách quận/huyện/thị xã theo mã tỉnh/thành."""
-    if province_code in _DISTRICTS_CACHE:
-        return _DISTRICTS_CACHE[province_code]
+def get_wards(province_code: int) -> list[dict[str, Any]]:
+    """Lấy danh sách phường/xã/thị trấn/đặc khu theo mã TỈNH (chính quyền 2 cấp)."""
+    if province_code in _WARDS_CACHE:
+        return _WARDS_CACHE[province_code]
 
-    url = f"https://provinces.open-api.vn/api/p/{province_code}?depth=2"
-    try:
-        req = urllib.request.Request(url, headers={"User-Agent": "NhipQuan-StoreConfig/1.0"})
-        with urllib.request.urlopen(req, timeout=3.5) as resp:
-            data = json.loads(resp.read().decode("utf-8"))
-            districts = data.get("districts") or []
-            simplified = [
-                {
-                    "code": int(d["code"]),
-                    "name": str(d["name"]).strip(),
-                    "province_code": province_code,
-                    "division_type": str(d.get("division_type") or "").strip(),
-                }
-                for d in districts
-                if "code" in d and "name" in d
-            ]
-            if simplified:
-                _DISTRICTS_CACHE[province_code] = simplified
-                return simplified
-    except Exception as e:
-        log.info("Khong the goi open-api.vn cho quan huyen (code=%s): %s", province_code, e)
-
-    fallback_dict = _load_districts_fallback()
-    res = fallback_dict.get(str(province_code)) or []
-    if res:
-        _DISTRICTS_CACHE[province_code] = res
-    return res
-
-
-def get_wards(district_code: int) -> list[dict[str, Any]]:
-    """Lấy danh sách phường/xã/thị trấn theo mã quận/huyện."""
-    if district_code in _WARDS_CACHE:
-        return _WARDS_CACHE[district_code]
-
-    url = f"https://provinces.open-api.vn/api/d/{district_code}?depth=2"
+    url = f"{_API_BASE}/p/{province_code}?depth=2"
     try:
         req = urllib.request.Request(url, headers={"User-Agent": "NhipQuan-StoreConfig/1.0"})
         with urllib.request.urlopen(req, timeout=3.5) as resp:
@@ -132,18 +105,22 @@ def get_wards(district_code: int) -> list[dict[str, Any]]:
                 {
                     "code": int(w["code"]),
                     "name": str(w["name"]).strip(),
-                    "district_code": district_code,
+                    "province_code": province_code,
                     "division_type": str(w.get("division_type") or "").strip(),
                 }
                 for w in wards
                 if "code" in w and "name" in w
             ]
-            _WARDS_CACHE[district_code] = simplified
-            return simplified
+            if simplified:
+                _WARDS_CACHE[province_code] = simplified
+                return simplified
     except Exception as e:
-        log.info("Khong the goi open-api.vn cho phuong xa (code=%s): %s", district_code, e)
+        log.info("Khong the goi open-api.vn cho phuong xa (tinh=%s): %s", province_code, e)
 
-    return []
+    res = _load_wards_fallback().get(str(province_code)) or []
+    if res:
+        _WARDS_CACHE[province_code] = res
+    return res
 
 
 def geocode_address(
@@ -159,7 +136,8 @@ def geocode_address(
     if addr_clean:
         candidates.append(addr_clean)
 
-    # Tổ hợp các cấp hành chính
+    # Tổ hợp các cấp hành chính. `quan_huyen` là dư liệu cũ (hết cấp quận/huyện
+    # từ 07/2025) — vẫn nhận để không phá caller cũ, nhưng hồ sơ mới để trống.
     parts_full = [p.strip() for p in (phuong_xa, quan_huyen, tinh) if p and p.strip()]
     if parts_full:
         c_full = ", ".join(parts_full)

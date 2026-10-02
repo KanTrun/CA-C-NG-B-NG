@@ -19,8 +19,7 @@ export type AddressData = {
 };
 
 type Province = { code: number; name: string; division_type?: string };
-type District = { code: number; name: string; province_code: number; division_type?: string };
-type Ward = { code: number; name: string; district_code: number; division_type?: string };
+type Ward = { code: number; name: string; province_code: number; division_type?: string };
 
 interface AddressSelectorProps {
   data: AddressData;
@@ -29,16 +28,14 @@ interface AddressSelectorProps {
 
 export function AddressSelector({ data, onChange }: AddressSelectorProps) {
   const [provinces, setProvinces] = useState<Province[]>([]);
-  const [districts, setDistricts] = useState<District[]>([]);
   const [wards, setWards] = useState<Ward[]>([]);
 
   const [loadingProvinces, setLoadingProvinces] = useState(false);
-  const [loadingDistricts, setLoadingDistricts] = useState(false);
   const [loadingWards, setLoadingWards] = useState(false);
   const [fetchError, setFetchError] = useState("");
   const [copied, setCopied] = useState(false);
 
-  // Tải danh sách 63 tỉnh/thành phố từ Address API
+  // Tải danh sách 34 tỉnh/thành phố từ Address API
   useEffect(() => {
     let active = true;
     setLoadingProvinces(true);
@@ -61,40 +58,15 @@ export function AddressSelector({ data, onChange }: AddressSelectorProps) {
     };
   }, []);
 
-  // Tải quận/huyện khi tinh_code thay đổi
+  // Tải phường/xã khi tinh_code thay đổi (chính quyền 2 cấp, không còn quận/huyện)
   useEffect(() => {
     if (!data.tinh_code) {
-      setDistricts([]);
-      return;
-    }
-    let active = true;
-    setLoadingDistricts(true);
-    apiGet<District[]>(`/api/v1/geo/districts/${data.tinh_code}`)
-      .then((res) => {
-        if (active && Array.isArray(res)) {
-          setDistricts(res);
-        }
-      })
-      .catch(() => {
-        if (active) setDistricts([]);
-      })
-      .finally(() => {
-        if (active) setLoadingDistricts(false);
-      });
-    return () => {
-      active = false;
-    };
-  }, [data.tinh_code]);
-
-  // Tải phường/xã khi quan_huyen_code thay đổi
-  useEffect(() => {
-    if (!data.quan_huyen_code) {
       setWards([]);
       return;
     }
     let active = true;
     setLoadingWards(true);
-    apiGet<Ward[]>(`/api/v1/geo/wards/${data.quan_huyen_code}`)
+    apiGet<Ward[]>(`/api/v1/geo/wards/${data.tinh_code}`)
       .then((res) => {
         if (active && Array.isArray(res)) {
           setWards(res);
@@ -109,18 +81,17 @@ export function AddressSelector({ data, onChange }: AddressSelectorProps) {
     return () => {
       active = false;
     };
-  }, [data.quan_huyen_code]);
+  }, [data.tinh_code]);
 
   // Sinh chuỗi địa chỉ đầy đủ chuẩn hóa
   const generatedAddress = useMemo(() => {
     const parts = [
       data.dia_chi_chi_tiet?.trim(),
       data.phuong_xa?.trim(),
-      data.quan_huyen?.trim(),
       data.tinh?.trim(),
     ].filter(Boolean);
     return parts.join(", ");
-  }, [data.dia_chi_chi_tiet, data.phuong_xa, data.quan_huyen, data.tinh]);
+  }, [data.dia_chi_chi_tiet, data.phuong_xa, data.tinh]);
 
   function handleProvinceChange(codeStr: string) {
     const code = Number(codeStr);
@@ -129,6 +100,7 @@ export function AddressSelector({ data, onChange }: AddressSelectorProps) {
     const patch: Partial<AddressData> = {
       tinh: name,
       tinh_code: codeStr,
+      // quan_huyen là trường cũ (hết cấp quận/huyện từ 07/2025) — xoá để hồ sơ mới sạch
       quan_huyen: "",
       quan_huyen_code: "",
       phuong_xa: "",
@@ -138,25 +110,6 @@ export function AddressSelector({ data, onChange }: AddressSelectorProps) {
 
     // Tự động cập nhật dia_chi
     const parts = [data.dia_chi_chi_tiet?.trim(), name].filter(Boolean);
-    if (parts.length > 0) {
-      patch.dia_chi = parts.join(", ");
-    }
-    onChange(patch);
-  }
-
-  function handleDistrictChange(codeStr: string) {
-    const code = Number(codeStr);
-    const sel = districts.find((d) => d.code === code);
-    const name = sel ? sel.name : "";
-    const patch: Partial<AddressData> = {
-      quan_huyen: name,
-      quan_huyen_code: codeStr,
-      phuong_xa: "",
-      phuong_xa_code: "",
-      thanh_pho: name || data.tinh,
-    };
-
-    const parts = [data.dia_chi_chi_tiet?.trim(), name, data.tinh?.trim()].filter(Boolean);
     if (parts.length > 0) {
       patch.dia_chi = parts.join(", ");
     }
@@ -175,7 +128,6 @@ export function AddressSelector({ data, onChange }: AddressSelectorProps) {
     const parts = [
       data.dia_chi_chi_tiet?.trim(),
       name,
-      data.quan_huyen?.trim(),
       data.tinh?.trim(),
     ].filter(Boolean);
     if (parts.length > 0) {
@@ -185,7 +137,7 @@ export function AddressSelector({ data, onChange }: AddressSelectorProps) {
   }
 
   function handleDetailChange(val: string) {
-    const parts = [val.trim(), data.phuong_xa?.trim(), data.quan_huyen?.trim(), data.tinh?.trim()].filter(Boolean);
+    const parts = [val.trim(), data.phuong_xa?.trim(), data.tinh?.trim()].filter(Boolean);
     onChange({
       dia_chi_chi_tiet: val,
       dia_chi: parts.length > 0 ? parts.join(", ") : val,
@@ -212,11 +164,11 @@ export function AddressSelector({ data, onChange }: AddressSelectorProps) {
         </Alert>
       )}
 
-      {/* Bộ chọn 3 cấp hành chính Việt Nam */}
-      <div className="grid gap-4 sm:grid-cols-3">
+      {/* Bộ chọn 2 cấp hành chính Việt Nam (không còn cấp quận/huyện từ 07/2025) */}
+      <div className="grid gap-4 sm:grid-cols-2">
         <Field
           label="Tỉnh / Thành phố"
-          hint={loadingProvinces ? "Đang tải danh mục…" : "Chuẩn 63 tỉnh thành Việt Nam"}
+          hint={loadingProvinces ? "Đang tải danh mục…" : "Chuẩn 34 tỉnh thành Việt Nam (sau sáp nhập 2025)"}
         >
           <Select
             value={data.tinh_code || ""}
@@ -233,43 +185,19 @@ export function AddressSelector({ data, onChange }: AddressSelectorProps) {
         </Field>
 
         <Field
-          label="Quận / Huyện / Thị xã"
-          hint={
-            loadingDistricts
-              ? "Đang tải quận/huyện…"
-              : !data.tinh_code
-                ? "Vui lòng chọn Tỉnh/TP trước"
-                : "Quận/huyện thuộc tỉnh"
-          }
-        >
-          <Select
-            value={data.quan_huyen_code || ""}
-            onChange={(e) => handleDistrictChange(e.target.value)}
-            disabled={!data.tinh_code || loadingDistricts}
-          >
-            <option value="">-- Chọn Quận / Huyện --</option>
-            {districts.map((d) => (
-              <option key={d.code} value={String(d.code)}>
-                {d.name}
-              </option>
-            ))}
-          </Select>
-        </Field>
-
-        <Field
-          label="Phường / Xã / Thị trấn"
+          label="Phường / Xã / Thị trấn / Đặc khu"
           hint={
             loadingWards
               ? "Đang tải phường/xã…"
-              : !data.quan_huyen_code
-                ? "Vui lòng chọn Quận/Huyện trước"
-                : "Phường/xã trực thuộc"
+              : !data.tinh_code
+                ? "Vui lòng chọn Tỉnh/TP trước"
+                : "Trực thuộc tỉnh đã chọn"
           }
         >
           <Select
             value={data.phuong_xa_code || ""}
             onChange={(e) => handleWardChange(e.target.value)}
-            disabled={!data.quan_huyen_code || loadingWards}
+            disabled={!data.tinh_code || loadingWards}
           >
             <option value="">-- Chọn Phường / Xã --</option>
             {wards.map((w) => (
@@ -315,7 +243,7 @@ export function AddressSelector({ data, onChange }: AddressSelectorProps) {
           <Input
             value={data.dia_chi || ""}
             onChange={(e) => onChange({ dia_chi: e.target.value })}
-            placeholder="VD: 45 Nguyễn Huệ, Phường Bến Nghé, Quận 1, Thành phố Hồ Chí Minh"
+            placeholder="VD: 45 Nguyễn Huệ, Phường Bến Thành, Thành phố Hồ Chí Minh"
           />
           <div className="flex flex-wrap items-center justify-between gap-2 pt-1 text-xs">
             <div className="flex items-center gap-2 text-[var(--nq-muted)]">
