@@ -71,6 +71,8 @@ export function CopilotPane({ open, onClose }: Props = {}) {
   const [state, setState] = useState<PaneState>({ size: 0, w: 430, h: 640 });
   const [hydrated, setHydrated] = useState(false);
   const [isMobile, setIsMobile] = useState(false);
+  // Bong bóng chào (Image 1): hiện 3s rồi tự tắt để khỏi che màn hình.
+  const [showGreeting, setShowGreeting] = useState(true);
 
   useEffect(() => {
     const checkMobile = () => setIsMobile(typeof window !== "undefined" && window.innerWidth < 640);
@@ -93,6 +95,15 @@ export function CopilotPane({ open, onClose }: Props = {}) {
       setState((current) => current.size === 0 ? { ...current, size: 1 } : current);
     }
   }, [isControlled, open]);
+
+  // Bong bóng chào chỉ hiện 3s mỗi khi thu nhỏ về Tinh Linh, rồi tự tắt.
+  // Hover vào Tinh Linh vẫn hiện lại nhờ group-hover (CSS), không cần JS.
+  useEffect(() => {
+    if (state.size !== 0) return;
+    setShowGreeting(true);
+    const t = setTimeout(() => setShowGreeting(false), 3000);
+    return () => clearTimeout(t);
+  }, [state.size]);
 
   const closePane = useCallback(() => {
     if (isControlled) {
@@ -206,7 +217,11 @@ export function CopilotPane({ open, onClose }: Props = {}) {
         className="relative group select-none"
       >
         {/* Bong bóng chào mời tương tác phong cách nhân vật ảo */}
-        <div className="absolute right-0 bottom-full mb-3 flex flex-col items-end pointer-events-none transition-all duration-300 group-hover:scale-105 animate-in fade-in slide-in-from-bottom-2">
+        <div
+          className={`absolute right-0 bottom-full mb-3 flex flex-col items-end pointer-events-none transition-all duration-500 group-hover:scale-105 group-hover:opacity-100 group-hover:translate-y-0 animate-in fade-in slide-in-from-bottom-2 ${
+            showGreeting ? "opacity-100 translate-y-0" : "opacity-0 translate-y-2"
+          }`}
+        >
           <div className="relative w-64 max-w-[calc(100vw-2.5rem)] rounded-2xl border border-amber-400/40 bg-slate-950/95 px-4 py-2.5 text-xs text-amber-200 shadow-2xl backdrop-blur-md">
             <div className="flex items-center justify-between gap-1.5 font-bold text-amber-300 mb-1">
               <div className="flex items-center gap-1.5 whitespace-nowrap">
