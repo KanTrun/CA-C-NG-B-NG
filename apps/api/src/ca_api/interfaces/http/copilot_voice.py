@@ -34,7 +34,9 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["copilot-voice"])
 
 AUTH_TIMEOUT_SECONDS = 5.0
-VOICE_IDLE_TIMEOUT_SECONDS = float(os.environ.get("VOICE_IDLE_TIMEOUT_SECONDS", "60.0"))
+# 60s quá ngắn cho phiên voice: user đọc tin nhắn rồi quay lại là bị ngắt
+# (4005). Nâng lên 180s; watchdog vẫn không ngắt khi copilot đang xử lý.
+VOICE_IDLE_TIMEOUT_SECONDS = float(os.environ.get("VOICE_IDLE_TIMEOUT_SECONDS", "180.0"))
 VOICE_SESSION_MAX_SECONDS = float(os.environ.get("VOICE_SESSION_MAX_SECONDS", "300.0"))
 MAX_TEXT_LENGTH = 2000
 MAX_AUDIO_CHUNK_BYTES = 65536  # 64 KB per PCM chunk
@@ -71,15 +73,32 @@ class TokenBucket:
 
 
 class ActivityTracker:
-    """Track last user audio/text activity for idle timeout watchdog."""
+    """Track last user audio/text activity for idle timeout watchdog.
+
+    Chỉ tính hoạt động của người dùng. `busy` dùng để đếm thêm các lượt copilot
+    đang xử lý: `run_copilot()` có thể gọi LLM mất hàng chục giây, mà lúc đó
+    user im lặng — nếu watchdog chỉ nhìn input của user thì phiên bị ngắt
+    (`4005 idle_timeout`) ngay giữa lúc copilot đang trả lời.
+    """
 
     def __init__(self) -> None:
         self.last_activity = time.monotonic()
+        self._busy = 0
 
     def touch(self) -> None:
         self.last_activity = time.monotonic()
 
+    def enter_busy(self) -> None:
+        self._busy += 1
+        self.touch()
+
+    def exit_busy(self) -> None:
+        self._busy = max(0, self._busy - 1)
+        self.touch()
+
     def idle_seconds(self) -> float:
+        if self._busy > 0:
+            return 0.0
         return time.monotonic() - self.last_activity
 
 
@@ -102,7 +121,9 @@ async def _authenticate(websocket: WebSocket) -> VerifiedVoiceContext | None:
     try:
         raw = await asyncio.wait_for(websocket.receive_text(), timeout=AUTH_TIMEOUT_SECONDS)
         message = json.loads(raw)
-    except (TimeoutError, WebSocketDisconnect, json.JSONDecodeError, RuntimeError, Exception):
+    except (TimeoutError, WebSocketDisconnect, json.JSONDecodeError, RuntimeError, KeyError):
+        # KeyError: client gửi frame nhị phân thay vì JSON text → starlette
+        # ném KeyError('text'). Phải bắt để đóng phiên sạch (4001) thay vì 500.
         return None
     if not isinstance(message, dict):
         return None
@@ -247,6 +268,7 @@ async def _serve_pipeline_call(
     context: VerifiedVoiceContext,
     call_id: str,
     message: str,
+    tracker: ActivityTracker | None = None,
 ) -> None:
     """Chạy pipeline nghiệp vụ cho MỘT tool call rồi trả kết quả về Gemini + client."""
     if not call_id:
@@ -261,6 +283,9 @@ async def _serve_pipeline_call(
         )
         return
 
+    # Đánh dấu đang bận: watchdog không được ngắt phiên trong lúc pipeline chạy.
+    if tracker is not None:
+        tracker.enter_busy()
     try:
         # Lịch sử lượt trong phiên voice: copilot hỏi "lý do xin nghỉ là gì ạ?"
         # rồi NV trả lời ở lượt sau. Không truyền `recent_messages`/`cho_phep_noi_ly_do`
@@ -290,6 +315,9 @@ async def _serve_pipeline_call(
         # Ghi log: nuốt lỗi im lặng từng khiến sự cố voice không có dấu vết nào.
         logger.exception("voice: run_copilot that bai cho call_id=%s", call_id)
         response = None
+    finally:
+        if tracker is not None:
+            tracker.exit_busy()
 
     if response is None:
         await live.send_function_response(
@@ -349,6 +377,7 @@ async def _receive_upstream(
     websocket: WebSocket,
     live: GeminiLiveSession,
     context: VerifiedVoiceContext,
+    tracker: ActivityTracker,
 ) -> None:
     cancelled: set[str] = set()
     while True:
@@ -363,7 +392,7 @@ async def _receive_upstream(
         for call_id, message in _extract_pipeline_calls(event):
             if call_id and call_id in cancelled:
                 continue
-            await _serve_pipeline_call(websocket, live, context, call_id, message)
+            await _serve_pipeline_call(websocket, live, context, call_id, message, tracker)
 
 
 async def _idle_watchdog(websocket: WebSocket, tracker: ActivityTracker) -> None:
@@ -447,7 +476,7 @@ async def copilot_voice_websocket(websocket: WebSocket) -> None:
                 _receive_client(websocket, live, tracker, limiter)
             )
             upstream_task = asyncio.create_task(
-                _receive_upstream(websocket, live, context)
+                _receive_upstream(websocket, live, context, tracker)
             )
             watchdog_task = asyncio.create_task(_idle_watchdog(websocket, tracker))
             stop_task = asyncio.create_task(stop_event.wait())

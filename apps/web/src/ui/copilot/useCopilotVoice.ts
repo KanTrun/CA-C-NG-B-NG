@@ -45,7 +45,14 @@ export interface UseCopilotVoiceOptions {
   onAudioLevel?: (level: number) => void;
 }
 
-export const DEFAULT_NOISE_FLOOR = 0.01;
+// Ngưỡng cũ (0.01) bỏ luôn cả tiếng nói nhỏ/xa mic: frame dưới ngưỡng bị
+// drop hoàn toàn nên Gemini nhận khoảng lặng nhân tạo giữa câu và tưởng user
+// đã nói xong. Hạ xuống 0.004 — vẫn cắt được hum/rumble nhưng không cắt giọng.
+export const DEFAULT_NOISE_FLOOR = 0.004;
+
+// Sau khi có tiếng nói, vẫn gửi audio trong khoảng này kể cả dưới ngưỡng.
+// Nhờ vậy đuôi câu và khoảng nghỉ ngắn giữa các từ không bị cắt vụn.
+const GATE_HOLD_MS = 700;
 
 function voiceUrl(): string {
   return `${API_BASE.replace(/^http/, "ws")}/api/v1/copilot/voice`;
@@ -101,13 +108,27 @@ async function enumerateMics(): Promise<MicDeviceInfo[]> {
 }
 
 function pcm16AtRate(input: Float32Array, sourceRate: number, targetRate: number): ArrayBuffer {
+  if (sourceRate === targetRate) {
+    const direct = new ArrayBuffer(input.length * 2);
+    const directView = new DataView(direct);
+    for (let i = 0; i < input.length; i += 1) {
+      const sample = Math.max(-1, Math.min(1, input[i] ?? 0));
+      directView.setInt16(i * 2, sample < 0 ? sample * 0x8000 : sample * 0x7fff, true);
+    }
+    return direct;
+  }
+  // Lấy mẫu theo tỉ lệ + trung bình cộng các mẫu nguồn trong khoảng tương ứng.
+  // Cách cũ (nearest-neighbor) gây aliasing → Gemini nghe méo, nhận dạng sai.
   const ratio = sourceRate / targetRate;
   const length = Math.max(1, Math.round(input.length / ratio));
   const output = new ArrayBuffer(length * 2);
   const view = new DataView(output);
   for (let index = 0; index < length; index += 1) {
-    const sourceIndex = Math.min(input.length - 1, Math.floor(index * ratio));
-    const sample = Math.max(-1, Math.min(1, input[sourceIndex] ?? 0));
+    const start = Math.floor(index * ratio);
+    const end = Math.min(input.length, Math.max(start + 1, Math.floor((index + 1) * ratio)));
+    let sum = 0;
+    for (let i = start; i < end; i += 1) sum += input[i] ?? 0;
+    const sample = Math.max(-1, Math.min(1, sum / (end - start)));
     view.setInt16(index * 2, sample < 0 ? sample * 0x8000 : sample * 0x7fff, true);
   }
   return output;
@@ -183,13 +204,17 @@ export function useCopilotVoice(options?: UseCopilotVoiceOptions) {
   const failedRef = useRef(false);
   const userStoppedRef = useRef(false);
   const tabHiddenRef = useRef(false);
+  // Mốc thời gian frame cuối có tiếng nói — dùng cho noise gate "hold".
+  const lastVoiceAtRef = useRef(0);
   // Lip-sync: AnalyserNode đo amplitude audio trợ lý đang phát.
   const analyserRef = useRef<AnalyserNode | null>(null);
   const audioLevelRef = useRef(0);
   const levelTimerRef = useRef<number | null>(null);
   const [audioLevel, setAudioLevel] = useState(0);
 
-  // Pause audio sending when tab is hidden for > 15s to save quota
+  // Pause audio sending when tab is hidden for > 15s to save quota.
+  // Khi quay lại tab, hạ cờ NGAY và bỏ hẳn frame đang dở — nếu không thì
+  // đoạn hội thoại đầu tiên sau khi quay lại bị mất im lặng.
   useEffect(() => {
     let hideTimer: ReturnType<typeof setTimeout> | null = null;
     const handleVisibilityChange = () => {
@@ -200,6 +225,8 @@ export function useCopilotVoice(options?: UseCopilotVoiceOptions) {
       } else {
         if (hideTimer) clearTimeout(hideTimer);
         tabHiddenRef.current = false;
+        // Mốc gate cũ đã lỗi thời sau khi tab ẩn → tránh gửi nhầm frame cũ.
+        lastVoiceAtRef.current = 0;
       }
     };
     document.addEventListener("visibilitychange", handleVisibilityChange);
@@ -452,8 +479,14 @@ export function useCopilotVoice(options?: UseCopilotVoiceOptions) {
           return;
         }
         const channelData = event.inputBuffer.getChannelData(0);
-        // Noise gate: skip near-silent / background hum frames
-        if (rms(channelData) < noiseFloorRef.current) {
+        // Noise gate có "hold": khi đang có tiếng nói thì vẫn gửi audio thêm
+        // GATE_HOLD_MS kể cả frame yên tĩnh, để không cắt vụn đuôi câu và
+        // khoảng nghỉ ngắn giữa các từ.
+        const now = performance.now();
+        if (rms(channelData) >= noiseFloorRef.current) {
+          lastVoiceAtRef.current = now;
+        }
+        if (now - lastVoiceAtRef.current > GATE_HOLD_MS) {
           return;
         }
         socket.send(pcm16AtRate(channelData, inputContext.sampleRate, INPUT_RATE));

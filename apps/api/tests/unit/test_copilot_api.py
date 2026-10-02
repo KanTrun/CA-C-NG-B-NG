@@ -50,6 +50,44 @@ def _login_staff() -> str:
     return res["token"]
 
 
+def test_activity_tracker_does_not_idle_while_busy() -> None:
+    """Watchdog không được ngắt phiên trong lúc copilot đang xử lý.
+
+    run_copilot() có thể mất hàng chục giây; user im lặng suốt thời gian đó nên
+    nếu chỉ nhìn input của user thì phiên bị đóng 4005 giữa lượt trả lời.
+    """
+    from ca_api.interfaces.http import copilot_voice as voice_module
+
+    tracker = voice_module.ActivityTracker()
+    tracker.last_activity = time.monotonic() - 10_000.0
+    assert tracker.idle_seconds() > 1000.0
+
+    # Đang bận: dù mốc hoạt động đã cũ, watchdog vẫn phải coi là chưa idle.
+    tracker.enter_busy()
+    tracker.last_activity = time.monotonic() - 10_000.0
+    assert tracker.idle_seconds() == 0.0
+
+    # Hết bận: đồng hồ idle chạy lại từ mốc mới nhất.
+    tracker.exit_busy()
+    tracker.last_activity = time.monotonic() - 10_000.0
+    assert tracker.idle_seconds() > 1000.0
+
+
+def test_activity_tracker_busy_is_reentrant() -> None:
+    """Nhiều tool call chồng nhau: chỉ hết bận khi lượt cuối kết thúc."""
+    from ca_api.interfaces.http import copilot_voice as voice_module
+
+    tracker = voice_module.ActivityTracker()
+    tracker.enter_busy()
+    tracker.enter_busy()
+    tracker.exit_busy()
+    tracker.last_activity = time.monotonic() - 10_000.0
+    assert tracker.idle_seconds() == 0.0
+    tracker.exit_busy()
+    tracker.last_activity = time.monotonic() - 10_000.0
+    assert tracker.idle_seconds() > 1000.0
+
+
 def test_copilot_voice_replay_fails_closed_without_network() -> None:
     token = _login_manager()
     with client.websocket_connect("/api/v1/copilot/voice") as websocket:
