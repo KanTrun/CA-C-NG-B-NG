@@ -5,28 +5,13 @@
     "division_type": "thành phố trung ương"
   },
   {
-    "code": 2,
-    "name": "Tỉnh Hà Giang",
-    "division_type": "tỉnh"
-  },
-  {
     "code": 4,
     "name": "Tỉnh Cao Bằng",
     "division_type": "tỉnh"
   },
   {
-    "code": 6,
-    "name": "Tỉnh Bắc Kạn",
-    "division_type": "tỉnh"
-  },
-  {
     "code": 8,
     "name": "Tỉnh Tuyên Quang",
-    "division_type": "tỉnh"
-  },
-  {
-    "code": 10,
-    "name": "Tỉnh Lào Cai",
     "division_type": "tỉnh"
   },
   {
@@ -46,12 +31,7 @@
   },
   {
     "code": 15,
-    "name": "Tỉnh Yên Bái",
-    "division_type": "tỉnh"
-  },
-  {
-    "code": 17,
-    "name": "Tỉnh Hoà Bình",
+    "name": "Tỉnh Lào Cai",
     "division_type": "tỉnh"
   },
   {
@@ -66,32 +46,17 @@
   },
   {
     "code": 22,
-    "name": "Tỉnh Quảng Ninh",
-    "division_type": "tỉnh"
+    "name": "Thành phố Quảng Ninh",
+    "division_type": "thành phố trung ương"
   },
   {
     "code": 24,
-    "name": "Tỉnh Bắc Giang",
-    "division_type": "tỉnh"
+    "name": "Thành phố Bắc Ninh",
+    "division_type": "thành phố trung ương"
   },
   {
     "code": 25,
     "name": "Tỉnh Phú Thọ",
-    "division_type": "tỉnh"
-  },
-  {
-    "code": 26,
-    "name": "Tỉnh Vĩnh Phúc",
-    "division_type": "tỉnh"
-  },
-  {
-    "code": 27,
-    "name": "Tỉnh Bắc Ninh",
-    "division_type": "tỉnh"
-  },
-  {
-    "code": 30,
-    "name": "Tỉnh Hải Dương",
     "division_type": "tỉnh"
   },
   {
@@ -102,21 +67,6 @@
   {
     "code": 33,
     "name": "Tỉnh Hưng Yên",
-    "division_type": "tỉnh"
-  },
-  {
-    "code": 34,
-    "name": "Tỉnh Thái Bình",
-    "division_type": "tỉnh"
-  },
-  {
-    "code": 35,
-    "name": "Tỉnh Hà Nam",
-    "division_type": "tỉnh"
-  },
-  {
-    "code": 36,
-    "name": "Tỉnh Nam Định",
     "division_type": "tỉnh"
   },
   {
@@ -141,11 +91,6 @@
   },
   {
     "code": 44,
-    "name": "Tỉnh Quảng Bình",
-    "division_type": "tỉnh"
-  },
-  {
-    "code": 45,
     "name": "Tỉnh Quảng Trị",
     "division_type": "tỉnh"
   },
@@ -160,23 +105,13 @@
     "division_type": "thành phố trung ương"
   },
   {
-    "code": 49,
-    "name": "Tỉnh Quảng Nam",
-    "division_type": "tỉnh"
-  },
-  {
     "code": 51,
     "name": "Tỉnh Quảng Ngãi",
     "division_type": "tỉnh"
   },
   {
     "code": 52,
-    "name": "Tỉnh Bình Định",
-    "division_type": "tỉnh"
-  },
-  {
-    "code": 54,
-    "name": "Tỉnh Phú Yên",
+    "name": "Tỉnh Gia Lai",
     "division_type": "tỉnh"
   },
   {
@@ -185,33 +120,8 @@
     "division_type": "tỉnh"
   },
   {
-    "code": 58,
-    "name": "Tỉnh Ninh Thuận",
-    "division_type": "tỉnh"
-  },
-  {
-    "code": 60,
-    "name": "Tỉnh Bình Thuận",
-    "division_type": "tỉnh"
-  },
-  {
-    "code": 62,
-    "name": "Tỉnh Kon Tum",
-    "division_type": "tỉnh"
-  },
-  {
-    "code": 64,
-    "name": "Tỉnh Gia Lai",
-    "division_type": "tỉnh"
-  },
-  {
     "code": 66,
     "name": "Tỉnh Đắk Lắk",
-    "division_type": "tỉnh"
-  },
-  {
-    "code": 67,
-    "name": "Tỉnh Đắk Nông",
     "division_type": "tỉnh"
   },
   {
@@ -220,29 +130,9 @@
     "division_type": "tỉnh"
   },
   {
-    "code": 70,
-    "name": "Tỉnh Bình Phước",
-    "division_type": "tỉnh"
-  },
-  {
-    "code": 72,
-    "name": "Tỉnh Tây Ninh",
-    "division_type": "tỉnh"
-  },
-  {
-    "code": 74,
-    "name": "Tỉnh Bình Dương",
-    "division_type": "tỉnh"
-  },
-  {
     "code": 75,
-    "name": "Tỉnh Đồng Nai",
-    "division_type": "tỉnh"
-  },
-  {
-    "code": 77,
-    "name": "Tỉnh Bà Rịa - Vũng Tàu",
-    "division_type": "tỉnh"
+    "name": "Thành phố Đồng Nai",
+    "division_type": "thành phố trung ương"
   },
   {
     "code": 79,
@@ -251,22 +141,12 @@
   },
   {
     "code": 80,
-    "name": "Tỉnh Long An",
+    "name": "Tỉnh Tây Ninh",
     "division_type": "tỉnh"
   },
   {
     "code": 82,
-    "name": "Tỉnh Tiền Giang",
-    "division_type": "tỉnh"
-  },
-  {
-    "code": 83,
-    "name": "Tỉnh Bến Tre",
-    "division_type": "tỉnh"
-  },
-  {
-    "code": 84,
-    "name": "Tỉnh Trà Vinh",
+    "name": "Tỉnh Đồng Tháp",
     "division_type": "tỉnh"
   },
   {
@@ -275,39 +155,14 @@
     "division_type": "tỉnh"
   },
   {
-    "code": 87,
-    "name": "Tỉnh Đồng Tháp",
-    "division_type": "tỉnh"
-  },
-  {
-    "code": 89,
-    "name": "Tỉnh An Giang",
-    "division_type": "tỉnh"
-  },
-  {
     "code": 91,
-    "name": "Tỉnh Kiên Giang",
+    "name": "Tỉnh An Giang",
     "division_type": "tỉnh"
   },
   {
     "code": 92,
     "name": "Thành phố Cần Thơ",
     "division_type": "thành phố trung ương"
-  },
-  {
-    "code": 93,
-    "name": "Tỉnh Hậu Giang",
-    "division_type": "tỉnh"
-  },
-  {
-    "code": 94,
-    "name": "Tỉnh Sóc Trăng",
-    "division_type": "tỉnh"
-  },
-  {
-    "code": 95,
-    "name": "Tỉnh Bạc Liêu",
-    "division_type": "tỉnh"
   },
   {
     "code": 96,
