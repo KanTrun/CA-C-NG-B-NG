@@ -394,16 +394,35 @@ export function useCopilotVoice(options?: UseCopilotVoiceOptions) {
 
             const isTurnComplete = Boolean(serverContent.turnComplete);
 
-            // User speech transcript from Gemini Live
-            const inputTranscription = serverContent.inputAudioTranscription?.text;
+            // User speech transcript from Gemini Live.
+            // Live API dùng `inputTranscription`; giữ `inputAudioTranscription`
+            // làm dự phòng cho các bản preview cũ. Dùng `||` (không phải `??`) để
+            // fallback cả khi bản mới gửi object rỗng `{}` — `??` chỉ bắt null/undefined.
+            const inputTranscription =
+              serverContent.inputTranscription?.text ||
+              serverContent.inputAudioTranscription?.text;
             if (inputTranscription && optionsRef.current?.onTranscript) {
-              optionsRef.current.onTranscript("user", inputTranscription, isTurnComplete);
+              optionsRef.current.onTranscript(
+                "user",
+                inputTranscription,
+                isTurnComplete
+              );
             }
 
-            // Assistant speech transcript
-            const outputTranscription = serverContent.outputAudioTranscription?.text;
+            // Assistant speech transcript.
+            // Live API đã đổi tên trường: `outputAudioTranscription` (cũ, deprecated)
+            // → `outputTranscription`. Chỉ đọc tên cũ thì phụ đề câu trả lời KHÔNG
+            // bao giờ hiện, khiến người dùng tưởng Live Copilot im lặng/không trả lời.
+            // Dùng `||` để fallback cả khi trường mới là object rỗng `{}`.
+            const outputTranscription =
+              serverContent.outputTranscription?.text ||
+              serverContent.outputAudioTranscription?.text;
             if (outputTranscription && optionsRef.current?.onTranscript) {
-              optionsRef.current.onTranscript("copilot", outputTranscription, isTurnComplete);
+              optionsRef.current.onTranscript(
+                "copilot",
+                outputTranscription,
+                isTurnComplete
+              );
             }
 
             const status =
