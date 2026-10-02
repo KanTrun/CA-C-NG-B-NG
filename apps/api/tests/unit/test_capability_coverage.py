@@ -107,9 +107,7 @@ EXCLUDED_ROUTES: dict[str, str] = {
     "/api/v1/store/promotions": "R3: promotions qua UI /page-quan",
     # ── Danh mục địa chính — hỗ trợ chọn địa chỉ hồ sơ quán qua UI /cau-hinh-quan ──
     "/api/v1/geo/provinces": "danh mục địa chính — danh sách tỉnh/thành cho UI /cau-hinh-quan",
-    "/api/v1/geo/districts/{province_code}": "danh mục địa chính — danh sách quận/huyện theo tỉnh cho UI /cau-hinh-quan",
     "/api/v1/geo/wards/{province_code}": "danh mục địa chính — danh sách phường/xã theo tỉnh cho UI /cau-hinh-quan",
-    "/api/v1/geo/wards/{district_code}": "danh mục địa chính — danh sách phường/xã theo quận/huyện cho UI /cau-hinh-quan",
     "/api/v1/geo/geocode": "tra cứu toạ độ GPS — phụ trợ cho UI /cau-hinh-quan và /khao-sat-gia",
     "/api/v1/page/status": "PR12: GET_PAGE_STATUS đã phủ qua chat",
     "/api/v1/page/sync": "PR12: PROPOSE_PAGE_SYNC đã phủ qua chat",

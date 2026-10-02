@@ -10,6 +10,7 @@ from ca_agents.ag_copilot.voice_session import (
     GeminiLiveSession,
     VerifiedVoiceContext,
     VoiceSessionUnavailable,
+    build_setup_message,
 )
 
 
@@ -157,3 +158,35 @@ def test_live_session_forwards_audio_text_and_upstream_events(
     assert act_end == {"realtimeInput": {"activityEnd": {}}}
     assert event == {"serverContent": {"turnComplete": True}}
     assert connection.closed is True
+
+
+def test_setup_message_buoc_goi_tool_cho_cau_hoi_ca_nhan() -> None:
+    """Prompt Live phải buộc gọi tool cho câu hỏi ca/lịch của chính người dùng.
+
+    Không có chỉ dẫn này, Live đáp câu xã giao ("em có thể hỗ trợ...") và người
+    dùng tưởng trợ lý không trả lời được — trong khi chat text vẫn chạy pipeline.
+    """
+    setup = json.loads(build_setup_message(_context()))
+    instruction = setup["setup"]["systemInstruction"]["parts"][0]["text"]
+
+    assert "BẮT BUỘC gọi tool run_copilot_pipeline" in instruction
+    assert "lịch hôm nay của tôi" in instruction
+    assert "hôm nay tôi có ca không" in instruction
+    # Không được cho phép model tự bịa kết quả hay từ chối tra cứu.
+    assert "không tự suy đoán kết quả" in instruction
+    assert "không có thông tin lịch cá nhân" in instruction
+    # Danh tính phải do server chèn, client không thấy.
+    assert "nv_01" in instruction
+
+
+def test_setup_message_khai_bao_tool_va_model_dung() -> None:
+    """Setup frame phải khai tool pipeline và đúng model extended thinking."""
+    setup = json.loads(build_setup_message(_context()))["setup"]
+
+    assert setup["model"] == f"models/{GEMINI_LIVE_MODEL}"
+    assert setup["generationConfig"]["responseModalities"] == ["AUDIO"]
+    # Model extended-thinking bắt buộc có thinkingLevel, thiếu là WS đóng.
+    assert setup["generationConfig"]["thinkingConfig"] == {"thinkingLevel": "LOW"}
+    declarations = setup["tools"][0]["functionDeclarations"]
+    assert declarations[0]["name"] == "run_copilot_pipeline"
+    assert declarations[0]["parameters"]["required"] == ["message"]

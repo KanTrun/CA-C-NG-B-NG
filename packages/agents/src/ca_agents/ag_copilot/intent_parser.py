@@ -170,6 +170,8 @@ _INTENT_KEYWORDS: list[tuple[str, list[str], float]] = [
         QUERY_AUDIT,
         [
             "nhật ký", "nhat ky", "nhật kí", "nhat ki",
+            "audit log", "audit trail", "nhật ký hệ thống", "nhat ky he thong",
+            "lịch sử thao tác", "lich su thao tac", "lịch sử hệ thống", "lich su he thong",
             "vết hệ thống", "vet he thong", "vết audit", "vet audit",
             "lịch sử thay đổi", "lich su thay doi", "lịch sử đổi ca", "lich su doi ca",
             "lịch sử xuất nhập kho", "lich su xuat nhap kho", "xuất nhập kho", "xuat nhap kho",
@@ -230,6 +232,9 @@ _INTENT_KEYWORDS: list[tuple[str, list[str], float]] = [
         [
             "báo cáo công bằng", "bao cao cong bang",
             "công bằng lịch ca", "cong bang lich ca",
+            "ai bị thiệt ca", "ai bi thiet ca",
+            "ai bị thiệt", "ai bi thiet",
+            "phân bổ ca có đều không", "phan bo ca co deu khong",
             "ai làm nhiều nhất", "ai lam nhieu nhat",
             "ai làm ít nhất", "ai lam it nhat",
             "so sánh giờ làm", "so sanh gio lam",
@@ -244,6 +249,10 @@ _INTENT_KEYWORDS: list[tuple[str, list[str], float]] = [
         [
             "checklist của tôi", "checklist cua toi",
             "phiếu của tôi", "phieu cua toi",
+            "việc của tôi hôm nay", "viec cua toi hom nay",
+            "việc của tôi", "viec cua toi",
+            "checklist hôm nay", "checklist hom nay",
+            "đầu việc hôm nay", "dau viec hom nay",
             "việc ca này của tôi", "viec ca nay cua toi",
             "đầu việc của tôi", "dau viec cua toi",
             "checklist ca", "checklist ca",
@@ -258,6 +267,7 @@ _INTENT_KEYWORDS: list[tuple[str, list[str], float]] = [
         [
             "xu hướng", "xu huong",
             "xu hướng f&b", "xu huong f&b",
+            "trend món mới", "trend mon moi", "trend f&b", "xu hướng món mới", "xu huong mon moi",
             "món hot", "mon hot",
             "món trending", "mon trending",
             "trend đồ uống", "trend do uong",
@@ -309,6 +319,10 @@ _INTENT_KEYWORDS: list[tuple[str, list[str], float]] = [
         [
             "gợi ý vận hành", "goi y van hanh",
             "đề xuất tối ưu", "de xuat toi uu",
+            "dự báo tuần tới", "du bao tuan toi",
+            "dự báo tuần sau", "du bao tuan sau",
+            "dự đoán tuần tới", "du doan tuan toi",
+            "cần chú ý gì tuần tới", "can chu y gi tuan toi",
             "dự báo vận hành", "du bao van hanh",
             "playbook vận hành", "playbook van hanh",
             "luật tích cực", "luat tich cuc",
@@ -368,6 +382,11 @@ _INTENT_KEYWORDS: list[tuple[str, list[str], float]] = [
         [
             "danh sách nhân sự", "danh sach nhan su",
             "danh sách nhân viên", "danh sach nhan vien",
+            "có bao nhiêu nhân viên", "co bao nhieu nhan vien",
+            "quán có bao nhiêu nhân viên", "quan co bao nhieu nhan vien",
+            "bao nhiêu nhân sự", "bao nhieu nhan su",
+            "tổng số nhân viên", "tong so nhan vien",
+            "liệt kê nhân viên", "liet ke nhan vien",
             "danh sách nhân", "danh sach nhan",
             "nhân sự hôm nay", "nhan su hom nay",
             "nhân sự của quán", "nhan su cua quan",
@@ -462,7 +481,108 @@ _INTENT_KEYWORDS: list[tuple[str, list[str], float]] = [
     # bên dưới sẽ sửa thành SCHEDULE_SOLVE khi có động từ hành động ("xếp lịch").
     (
         GET_MY_SHIFTS,
-        ["lịch của tôi", "lich cua toi", "ca của tôi", "ca cua toi", "lịch làm việc của tôi", "lich lam viec cua toi", "ca của mình", "ca cua minh", "lịch tôi", "lich toi", "lịch của em", "lich cua em", "ca tôi làm", "ca toi lam"],
+        [
+            "lịch của tôi", "lich cua toi", "ca của tôi", "ca cua toi",
+            "lịch làm việc của tôi", "lich lam viec cua toi",
+            "ca của mình", "ca cua minh", "lịch tôi", "lich toi",
+            "lịch của em", "lich cua em", "ca tôi làm", "ca toi lam",
+            # Khẩu ngữ văn nói (voice): người dùng chèn trạng từ thời gian vào
+            # GIỮA cụm ("lịch hôm nay của tôi") nên các cụm cố định ở trên trượt.
+            # Thiếu nhóm này, câu nói qua mic rơi vào OUT_OF_SCOPE và Live
+            # Copilot không gọi tool tra cứu lịch — chỉ đáp câu xã giao.
+            "lịch hôm nay của tôi", "lich hom nay cua toi",
+            "lịch hnay của tôi", "lich hnay cua toi",
+            "lịch hnay của t", "lich hnay cua t",
+            "lịch hôm nay của t", "lich hom nay cua t",
+            "lịch hôm nay của em", "lich hom nay cua em",
+            "lịch hôm nay của mình", "lich hom nay cua minh",
+            "lịch làm việc hôm nay của tôi", "lich lam viec hom nay cua toi",
+            "lịch làm việc hôm nay của t", "lich lam viec hom nay cua t",
+            "ca hôm nay của tôi", "ca hom nay cua toi",
+            "ca hôm nay của t", "ca hom nay cua t",
+            "ca hôm nay của em", "ca hom nay cua em",
+            "ca của tôi hôm nay", "ca cua toi hom nay",
+            "ca của t hôm nay", "ca cua t hom nay",
+            "lịch của tôi hôm nay", "lich cua toi hom nay",
+            "hôm nay tôi có ca không", "hom nay toi co ca khong",
+            "hnay toi co ca khong", "hnay t co ca khong",
+            "hnay toi co ca k", "hnay t co ca k",
+            "hôm nay t có ca không", "hom nay t co ca khong",
+            "hôm nay em có ca không", "hom nay em co ca khong",
+            "hôm nay tôi có lịch không", "hom nay toi co lich khong",
+            "hôm nay tôi có đi làm không", "hom nay toi co di lam khong",
+            "hôm nay t có đi làm không", "hom nay t co di lam khong",
+            "hôm nay tôi làm ca gì", "hom nay toi lam ca gi",
+            "hôm nay tôi làm ca mấy", "hom nay toi lam ca may",
+            "hôm nay t làm ca gì", "hom nay t lam ca gi",
+            "hôm nay tôi làm gì", "hom nay toi lam gi",
+            "hôm nay tôi có phải đi làm", "hom nay toi co phai di lam",
+            "mai tôi có ca không", "mai toi co ca khong",
+            "mai t có ca không", "mai t co ca khong",
+            "ngày mai tôi có ca không", "ngay mai toi co ca khong",
+            "tuần này tôi có ca không", "tuan nay toi co ca khong",
+            "tuần này tôi có mấy ca", "tuan nay toi co may ca",
+            "lịch ngày mai của tôi", "lich ngay mai cua toi",
+            "lịch ngày mai của t", "lich ngay mai cua t",
+            "lịch mai của tôi", "lich mai cua toi",
+            "lịch mai của t", "lich mai cua t",
+            "ca ngày mai của tôi", "ca ngay mai cua toi",
+            "ngày mai tôi có ca không", "ngay mai toi co ca khong",
+            "thứ hai tôi có ca không", "thu hai toi co ca khong",
+            "thứ bảy tôi có ca không", "thu bay toi co ca khong",
+            "lịch thứ hai của tôi", "lich thu hai cua toi",
+            "lịch thứ ba của tôi", "lich thu ba cua toi",
+            "lịch thứ tư của tôi", "lich thu tu cua toi",
+            "lịch thứ năm của tôi", "lich thu nam cua toi",
+            "lịch thứ sáu của tôi", "lich thu sau cua toi",
+            "lịch thứ bảy của tôi", "lich thu bay cua toi",
+            "lịch chủ nhật của tôi", "lich chu nhat cua toi",
+            "lịch tuần sau của tôi", "lich tuan sau cua toi",
+            "lịch tuần trước của tôi", "lich tuan truoc cua toi",
+            "lịch tháng sau của tôi", "lich thang sau cua toi",
+            "lịch tháng trước của tôi", "lich thang truoc cua toi",
+            "lịch tuần này của tôi", "lich tuan nay cua toi",
+            "lịch tháng này của tôi", "lich thang nay cua toi",
+            "lịch tháng này của t", "lich thang nay cua t",
+            "lịch tuần sau của t", "lich tuan sau cua t",
+            "lịch chủ nhật này của tôi", "lich chu nhat nay cua toi",
+            "tôi có ca thứ hai không", "toi co ca thu hai khong",
+            "ca thứ hai của tôi", "ca thu hai cua toi",
+            "tôi có ca không", "toi co ca khong",
+            "em có ca không", "em co ca khong",
+            "tôi có lịch không", "toi co lich khong",
+            "tôi có ca chứ", "toi co ca chu",
+            "tôi có ca hôm nay không", "toi co ca hom nay khong",
+            "tôi có ca hôm nay chứ", "toi co ca hom nay chu",
+            "em có ca hôm nay không", "em co ca hom nay khong",
+            "tôi có lịch hôm nay không", "toi co lich hom nay khong",
+            "ca thứ ba của tôi", "ca thu ba cua toi",
+            "ca thứ tư của tôi", "ca thu tu cua toi",
+            "ca thứ năm của tôi", "ca thu nam cua toi",
+            "ca thứ sáu của tôi", "ca thu sau cua toi",
+            "ca thứ bảy của tôi", "ca thu bay cua toi",
+            "ca chủ nhật của tôi", "ca chu nhat cua toi",
+            "tôi làm ca nào hôm nay", "toi lam ca nao hom nay",
+            "ca làm việc hôm nay của tôi", "ca lam viec hom nay cua toi",
+            "ca tối nay của tôi", "ca toi nay cua toi",
+            "ca sáng nay của tôi", "ca sang nay cua toi",
+            "ca chiều nay của tôi", "ca chieu nay cua toi",
+            "tối nay tôi có ca không", "toi nay toi co ca khong",
+            "sáng nay tôi có ca không", "sang nay toi co ca khong",
+            "lịch tháng này của tôi", "lich thang nay cua toi",
+            "lịch tuần này của tôi", "lich tuan nay cua toi",
+            "tuần này tôi làm ca gì", "tuan nay toi lam ca gi",
+            "tôi có ca mấy giờ", "toi co ca may gio",
+            "ca của tôi mấy giờ", "ca cua toi may gio",
+            "lịch làm việc tuần này của tôi", "lich lam viec tuan nay cua toi",
+            "lịch làm việc tuần này của t", "lich lam viec tuan nay cua t",
+            "lịch làm việc tháng này của tôi", "lich lam viec thang nay cua toi",
+            "lịch làm việc của tôi", "lich lam viec cua toi",
+            "lịch làm việc của t", "lich lam viec cua t",
+            "lịch làm việc của em", "lich lam viec cua em",
+            "tôi làm ca nào tuần này", "toi lam ca nao tuan nay",
+            "tuần này tôi có ca nào", "tuan nay toi co ca nao",
+        ],
         0.9,
     ),
     (
@@ -592,8 +712,8 @@ _INTENT_KEYWORDS: list[tuple[str, list[str], float]] = [
     (
         GENERATE_DAILY_BRIEF,
         [
-            "bản tin", "ban tin", "tin sáng", "tóm tắt đầu ngày",
-            "tình hình hôm nay", "tình hình ca sáng",
+            "bản tin", "ban tin", "tin sáng", "tin sang", "tóm tắt đầu ngày", "tom tat dau ngay",
+            "tình hình hôm nay", "tinh hinh hom nay", "tình hình ca sáng", "tinh hinh ca sang",
             "quán hôm nay thế nào", "quan hom nay the nao",
             "tình hình quán", "tinh hinh quan",
             "tổng kết hôm nay", "tong ket hom nay",
@@ -604,8 +724,9 @@ _INTENT_KEYWORDS: list[tuple[str, list[str], float]] = [
     (
         QUERY_SOP,
         [
-            "quy trình", "quy trinh", "cẩm nang", "hướng dẫn", "mở quán", "đóng quán",
-            "vệ sinh", "cách làm", "sop",
+            "quy trình", "quy trinh", "cẩm nang", "cam nang", "hướng dẫn", "huong dan",
+            "mở quán", "mo quan", "đóng quán", "dong quan",
+            "vệ sinh", "ve sinh", "cách làm", "cach lam", "sop",
             "cách pha", "cach pha", "công thức", "cong thuc",
             "hướng dẫn pha", "huong dan pha", "quy trình pha", "quy trinh pha",
             "cách nấu", "cach nau", "pha chế", "pha che",
@@ -616,7 +737,8 @@ _INTENT_KEYWORDS: list[tuple[str, list[str], float]] = [
         ANALYZE_WASTE,
         [
             # Cụm gốc — giữ nguyên để không đổi hành vi cũ.
-            "hao hụt", "hao hut", "hàng hủy", "lãng phí", "sữa hỏng", "đổ bọt", "báo cáo hủy",
+            "hao hụt", "hao hut", "hàng hủy", "hang huy", "lãng phí", "lang phi",
+            "sữa hỏng", "sua hong", "đổ bọt", "do bot", "báo cáo hủy", "bao cao huy",
             # Cụm của câu hỏi định lượng: người quán hỏi "hao bao nhiêu", "nguyên liệu
             # nào hao", "lệch kiểm kê" chứ không chỉ nói "hao hụt". Không thêm thì
             # những câu đó rơi vào OUT_OF_SCOPE dù đúng thẩm quyền của intent này.
@@ -635,7 +757,15 @@ _INTENT_KEYWORDS: list[tuple[str, list[str], float]] = [
     ),
     (
         CREATE_RULE_PROPOSAL,
-        ["đề xuất luật", "luật mới", "cẩm nang sống", "tạo luật", "học luật", "thêm quy tắc"],
+        [
+            "đề xuất luật", "de xuat luat",
+            "đề xuất luật mới", "de xuat luat moi",
+            "luật mới", "luat moi",
+            "cẩm nang sống", "cam nang song",
+            "tạo luật", "tao luat",
+            "học luật", "hoc luat",
+            "thêm quy tắc", "them quy tac",
+        ],
         0.90,
     ),
     # GET_INVENTORY (đọc tồn kho) đặt TRƯỚC INVENTORY_RESTOCK_CHECK: "xem tồn kho"
@@ -646,7 +776,10 @@ _INTENT_KEYWORDS: list[tuple[str, list[str], float]] = [
         GET_INVENTORY,
         [
             "xem tồn kho", "xem ton kho",
+            "danh sách tồn kho", "danh sach ton kho",
             "tồn kho còn", "ton kho con",
+            "còn bao nhiêu hàng", "con bao nhieu hang",
+            "hàng còn trong kho", "hang con trong kho",
             "kho còn bao nhiêu", "kho con bao nhieu",
             "trong kho còn", "trong kho con",
             "tồn kho hiện tại", "ton kho hien tai",
@@ -659,7 +792,13 @@ _INTENT_KEYWORDS: list[tuple[str, list[str], float]] = [
     ),
     (
         INVENTORY_RESTOCK_CHECK,
-        ["kiểm kho", "tồn kho", "sắp hết hàng", "hết sữa", "đặt hàng", "nhập hàng", "ngưỡng tồn", "restock"],
+        ["kiểm kho", "kiem kho", "tồn kho", "ton kho", "sắp hết hàng", "sap het hang", "hết sữa", "het sua",
+         "đặt hàng", "dat hang", "nhập hàng", "nhap hang", "ngưỡng tồn", "nguong ton", "restock",
+         "cần nhập thêm gì", "can nhap them gi", "cần nhập gì", "can nhap gi",
+         "nhập thêm gì", "nhap them gi", "mua thêm gì", "mua them gi",
+         "nguyên liệu nào sắp hết", "nguyen lieu nao sap het",
+         "cần đặt thêm gì", "can dat them gi",
+        ],
         0.90,
     ),
     (
@@ -685,11 +824,15 @@ _INTENT_KEYWORDS: list[tuple[str, list[str], float]] = [
             "gửi mail",
             "gui mail",
             "gửi email",
+            "gui email",
             "gửi gmail",
+            "gui gmail",
             "email cho",
             "mail cho",
             "nhắn qua email",
+            "nhan qua email",
             "gửi thông báo qua email",
+            "gui thong bao qua email",
             "soạn mail",
             "soan mail",
             "soạn email",
@@ -703,7 +846,9 @@ _INTENT_KEYWORDS: list[tuple[str, list[str], float]] = [
             "viết gmail",
             "viet gmail",
             "nhờ soạn mail",
+            "nho soan mail",
             "nhờ viết mail",
+            "nho viet mail",
         ],
         0.92,
     ),
@@ -1098,6 +1243,75 @@ def _cau_hoi_lam_ro(intent: str, params: dict[str, Any]) -> tuple[str, str] | No
     return None
 
 
+# Viết tắt chat/teencode phổ biến → dạng đầy đủ để khớp bảng từ khoá.
+# Chỉ thay thế theo ranh giới từ (\b) để không phá các từ chứa chuỗi con:
+# "t" phải khớp riêng, không được biến "tôi" hay "tháng" thành "toii"/"tháng".
+_VIET_TAT: dict[str, str] = {
+    "hnay": "hôm nay",
+    "h.nay": "hôm nay",
+    "hnya": "hôm nay",
+    "hum nay": "hôm nay",
+    "hôm qua": "hôm qua",
+    "mai": "mai",
+    "ngmai": "ngày mai",
+    "ngay mai": "ngày mai",
+    "t2": "thứ hai",
+    "t3": "thứ ba",
+    "t4": "thứ tư",
+    "t5": "thứ năm",
+    "t6": "thứ sáu",
+    "t7": "thứ bảy",
+    "cn": "chủ nhật",
+    "tuan": "tuần",
+    "thang": "tháng",
+}
+
+# "t" / "k" / "ko" / "hok" chỉ thay khi đứng riêng như một từ.
+_VIET_TAT_DON: dict[str, str] = {
+    "t": "tôi",
+    "k": "không",
+    "ko": "không",
+    "hok": "không",
+    "mn": "mọi người",
+    "nv": "nhân viên",
+    "dc": "được",
+    "đc": "được",
+    "vs": "với",
+    "ck": "chị",
+    "a": "anh",
+    "e": "em",
+}
+
+
+def _chuan_hoa_viet_tat(text: str) -> str:
+    """Chuẩn hoá viết tắt để câu chat/nói lệch từ vẫn khớp được.
+
+    Chỉ áp dụng khi từ xuất hiện nguyên vẹn (ranh giới từ), nên "t" trong "tôi"
+    hay "tháng" không bị thay. Trả nguyên văn nếu không có gì để đổi.
+
+    Giữ nguyên văn bản KHÔNG DẤU: bảng từ khoá có cả bản không dấu, và nếu ta
+    "dịch" `hnay` → `hôm nay` (có dấu) thì bản không dấu `hnay` sẽ hết khớp.
+    Chỉ chuẩn hoá khi câu gốc có dấu tiếng Việt.
+    """
+    if not text:
+        return text
+    if not _co_dau_tieng_viet(text):
+        return text
+    ket_qua = text
+    for tat, day_du in _VIET_TAT.items():
+        if tat in ket_qua:
+            ket_qua = re.sub(rf"(?<!\w){re.escape(tat)}(?!\w)", day_du, ket_qua)
+    for tat, day_du in _VIET_TAT_DON.items():
+        if f" {tat} " in f" {ket_qua} ":
+            ket_qua = re.sub(rf"(?<!\w){re.escape(tat)}(?!\w)", day_du, ket_qua)
+    return ket_qua
+
+
+def _co_dau_tieng_viet(text: str) -> bool:
+    """True nếu `text` còn ký tự có dấu tiếng Việt."""
+    return any(ch in "ăâđêôơưáàảãạấầẩẫậắằẳẵặéèẻẽẹếềểễệíìỉĩịóòỏõọốồổỗộớờởỡợúùủũụứừửữựýỳỷỹỵ" for ch in text)
+
+
 # Gộp lý do giữa hai lượt khi NV trả lời câu hỏi làm rõ.
 def _trich_ly_do_time_off(text: str, recent_text: str) -> str:
     """Lý do nghỉ của lượt này, có tính tới lượt trước khi NV chỉ trả lời.
@@ -1143,6 +1357,10 @@ def parse_intent(message: str, context: dict[str, Any] | None = None) -> IntentP
 
     # 2. Check for vague / ambiguous input unless recent context supplies intent.
     lower = text.lower()
+    # Chuẩn hoá viết tắt chat/teencode TRƯỚC khi khớp từ khoá. Người dùng gõ
+    # "lịch hnay của t" hoặc nói "hnay t có ca k" — không chuẩn hoá thì trượt
+    # hết vì bảng từ khoá chỉ có dạng đầy đủ.
+    lower = _chuan_hoa_viet_tat(lower)
     if lower in ("xếp lịch", "xep lich", "xếp lịch đi", "lên lịch đi") and not any(
         keyword in recent_text for _, keywords, _ in _INTENT_KEYWORDS for keyword in keywords
     ):
@@ -1171,15 +1389,60 @@ def parse_intent(message: str, context: dict[str, Any] | None = None) -> IntentP
     # Post-match override: GET_SCHEDULE có thể match trước do substring ("chưa dc xếp lịch"
     # chứa "xếp lịch"), nhưng nếu câu có động từ hành động rõ ràng và KHÔNG có từ phủ định
     # thì phải override thành SCHEDULE_SOLVE.
-    if matched_intent == GET_SCHEDULE:
-        action_verbs = ["xếp lịch", "xep lich", "lên lịch", "len lich", "tạo lịch", "tao lich", 
+    #
+    # GET_MY_SHIFTS cũng phải bị soát: nhóm từ khóa văn nói ("lịch hôm nay của tôi")
+    # khớp cả câu mang ý ĐỔI/HỦY ca ("hủy ca hôm nay của tôi"). Trả về GET_MY_SHIFTS
+    # cho một yêu cầu ghi là sai — người dùng xin hủy ca mà nhận bảng lịch.
+    if matched_intent in (GET_SCHEDULE, GET_MY_SHIFTS):
+        original_intent = matched_intent
+        action_verbs = ["xếp lịch", "xep lich", "lên lịch", "len lich", "tạo lịch", "tao lich",
                        "chia ca", "phân công ca", "phan cong ca", "lập lịch", "lap lich"]
-        negation_words = ["chưa", "chua", "không", "khong", "ai chưa", "ai chua", "chưa dc", "chua dc"]
+        # "hủy/bỏ/xóa ca" không có intent ghi tương ứng trong CopilotIntent, và baseline
+        # để OUT_OF_SCOPE. Ép về GET_MY_SHIFTS sẽ biến yêu cầu hủy ca thành lượt tra cứu.
+        destructive_words = ["hủy", "huy", "bỏ ca", "bo ca", "xóa ca", "xoa ca", "xóa lịch", "xoa lich"]
+        # "đổi ca" thuộc luồng trao đổi ca riêng (GET_SHIFT_SWAPS/PROPOSE_SWAP_CONSENT).
+        # Câu "đổi ca hôm nay của tôi" khớp nhóm từ khóa văn nói mới nên sẽ bị nhận
+        # nhầm thành tra cứu ca; baseline để OUT_OF_SCOPE và giữ nguyên như vậy.
+        swap_words = ["đổi ca", "doi ca", "hoán ca", "hoan ca", "đổi lịch", "doi lich"]
+        # "không/khong" chỉ là PHỦ ĐỊNH khi đi kèm "có/chưa" ở thế khẳng định phía
+        # sau ("không có ca", "chưa có ca"). Còn "hôm nay tôi có ca không" là CÂU HỎI —
+        # chữ "không" nằm cuối câu, không phải phủ định. Dùng regex thay vì `in`.
+        #
+        # LƯU Ý: phải có cả dạng ĐÃ CHUẨN HOÁ ("chưa được") lẫn dạng gốc ("chua dc"),
+        # vì `_chuan_hoa_viet_tat` đổi `dc` → `được` trước khi tới đây.
+        negation_words = [
+            "ai chưa", "ai chua",
+            "chưa dc", "chua dc",
+            "chưa được", "chua duoc",
+            "chưa đc", "chua đc",
+        ]
+        negation_regex = re.compile(
+            r"(?:không|khong|chưa|chua)\s+(?:có|co)\s*(?:ca|ca làm|lich|lịch)?"
+            r"|(?:không|khong)\s+(?:được|duoc|có|co)"
+        )
         has_action = any(verb in lower for verb in action_verbs)
-        has_negation = any(neg in lower for neg in negation_words)
+        has_destructive = any(word in lower for word in destructive_words)
+        has_swap = any(word in lower for word in swap_words)
+        has_negation = (
+            any(neg in lower for neg in negation_words)
+            or negation_regex.search(lower) is not None
+        )
         if has_action and not has_negation:
             matched_intent = SCHEDULE_SOLVE
             matched_conf = 0.92
+        elif has_destructive or has_swap:
+            # Giữ fail-closed: không map bừa sang intent đọc.
+            matched_intent = OUT_OF_SCOPE
+            matched_conf = 0.85
+        elif has_negation and original_intent == GET_MY_SHIFTS:
+            # "lịch hôm nay của tôi không có ca" là câu hỏi về trạng thái chưa xếp ca,
+            # không phải tra ca cá nhân đã có → fail-closed.
+            #
+            # CHỈ áp cho GET_MY_SHIFTS. Câu "…nhân viên nào chưa dc xếp lịch" khớp
+            # GET_SCHEDULE từ trước và phải GIỮ NGUYÊN — đó là tra cứu lịch toàn quán,
+            # không được hạ xuống OUT_OF_SCOPE (đã gây hồi quy ở test_pr13).
+            matched_intent = OUT_OF_SCOPE
+            matched_conf = 0.85
 
     # Nếu câu hỏi mang tính chất xin lời khuyên / tư vấn / hỏi ý kiến mở:
     # KHÔNG ép vào các intent mutating (sửa DB/thêm món/xếp lịch) mà để LLM trò chuyện & tư vấn.

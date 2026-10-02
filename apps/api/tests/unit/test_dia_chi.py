@@ -18,8 +18,7 @@ def client() -> TestClient:
 def test_dia_chi_chan_nguoi_chua_dang_nhap(client: TestClient) -> None:
     """Các endpoint địa lý yêu cầu đăng nhập."""
     assert client.get("/api/v1/geo/provinces").status_code == 401
-    assert client.get("/api/v1/geo/districts/79").status_code == 401
-    assert client.get("/api/v1/geo/wards/760").status_code == 401
+    assert client.get("/api/v1/geo/wards/79").status_code == 401
 
 
 def test_lay_danh_sach_tinh_thanh(client: TestClient) -> None:
@@ -29,30 +28,36 @@ def test_lay_danh_sach_tinh_thanh(client: TestClient) -> None:
     assert r.status_code == 200, r.text
     items = r.json()
     assert isinstance(items, list)
-    assert len(items) >= 63
+    # Bản sau sáp nhập 07/2025 (Nghị quyết 202/2025/QH15): đúng 34 đơn vị cấp tỉnh.
+    # Số 63 nghĩa là đang trỏ nhầm sang bản v1 cũ của provinces.open-api.vn.
+    assert len(items) == 34
     codes = [p["code"] for p in items]
     names = [p["name"] for p in items]
     # TP HCM và Hà Nội phải có trong danh sách
     assert 79 in codes or any("Hồ Chí Minh" in n for n in names)
     assert 1 in codes or any("Hà Nội" in n for n in names)
+    # Các đơn vị đã sáp nhập không còn tồn tại ở cấp tỉnh
+    assert not any("Bình Dương" in n for n in names)
+    assert not any("Long An" in n for n in names)
 
 
-def test_lay_quan_huyen_va_phuong_xa(client: TestClient) -> None:
-    """Lấy danh sách quận/huyện và phường/xã hợp lệ."""
+def test_lay_phuong_xa_theo_tinh(client: TestClient) -> None:
+    """Cấp quận/huyện đã bỏ — phường/xã lấy thẳng theo mã tỉnh (chính quyền 2 cấp)."""
     ql = headers(client, "lan")
-    # Lấy quận huyện của TP HCM (mã 79)
-    r = client.get("/api/v1/geo/districts/79", headers=ql)
-    assert r.status_code == 200, r.text
-    districts = r.json()
-    assert isinstance(districts, list)
-    assert len(districts) > 0
-    assert any("Quận 1" in d["name"] for d in districts)
 
-    # Lấy phường xã của Quận 1 (mã 760)
-    r_wards = client.get("/api/v1/geo/wards/760", headers=ql)
-    assert r_wards.status_code == 200, r_wards.text
-    wards = r_wards.json()
+    # Endpoint cấp quận/huyện không còn nữa
+    assert client.get("/api/v1/geo/districts/79", headers=ql).status_code == 404
+
+    r = client.get("/api/v1/geo/wards/79", headers=ql)
+    assert r.status_code == 200, r.text
+    wards = r.json()
     assert isinstance(wards, list)
+    assert len(wards) > 100
+    assert all(w["province_code"] == 79 for w in wards)
+    # Chứng minh là dữ liệu SAU sáp nhập: TP.HCM gộp Bình Dương nên có phường Thủ Dầu Một,
+    # và không còn "Quận 1" kiểu cũ.
+    assert any("Thủ Dầu Một" in w["name"] for w in wards)
+    assert not any(w["name"] == "Quận 1" for w in wards)
 
 
 def test_store_profile_luu_thong_tin_dia_chi_va_tien_ich_mo_rong(client: TestClient) -> None:
@@ -62,13 +67,15 @@ def test_store_profile_luu_thong_tin_dia_chi_va_tien_ich_mo_rong(client: TestCli
         "ten_quan": "Nhịp Quán Specialty Coffee",
         "slogan": "Cà phê mộc, không gian làm việc tĩnh lặng",
         "dia_chi_chi_tiet": "45 Nguyễn Huệ",
-        "phuong_xa": "Phường Bến Nghé",
-        "phuong_xa_code": "26734",
-        "quan_huyen": "Quận 1",
-        "quan_huyen_code": "760",
+        "phuong_xa": "Phường Bến Thành",
+        "phuong_xa_code": "26743",
+        # Cấp quận/huyện hết hiệu lực từ 07/2025 — trường cũ giữ lại để không phá
+        # dữ liệu/nhà gọi cũ, hồ sơ mới để trống.
+        "quan_huyen": "",
+        "quan_huyen_code": "",
         "tinh": "Thành phố Hồ Chí Minh",
         "tinh_code": "79",
-        "dia_chi": "45 Nguyễn Huệ, Phường Bến Nghé, Quận 1, Thành phố Hồ Chí Minh",
+        "dia_chi": "45 Nguyễn Huệ, Phường Bến Thành, Thành phố Hồ Chí Minh",
         "hotline": "0901234567",
         "hotline_phu": "0909888999",
         "email": "contact@nhipquan.vn",
@@ -92,8 +99,8 @@ def test_store_profile_luu_thong_tin_dia_chi_va_tien_ich_mo_rong(client: TestCli
     assert got["ngan_hang"] == "Vietcombank"
     assert got["stk_ngan_hang"] == "0071001234567"
     assert got["chu_tai_khoan"] == "TRAN VAN HUNG"
-    assert got["phuong_xa"] == "Phường Bến Nghé"
-    assert got["quan_huyen"] == "Quận 1"
+    assert got["phuong_xa"] == "Phường Bến Thành"
+    assert got["quan_huyen"] == ""
 
     from ca_api.services.store_public_context import format_public_context_for_prompt
 
