@@ -155,6 +155,8 @@ không deploy nếu CI đỏ hoặc phát hiện bất kỳ cờ demo/fixture n�
 | Let's Encrypt fail | Chờ 1-2 phút sau lần request đầu; kiểm DuckDNS trỏ đúng IP; port 80/443 mở SG |
 | Không SSH được | SG rule SSH source = IP nhà bạn (đổi IP thì update rule); đúng key file, `chmod 400` trên Linux |
 | Deploy đỏ `no space left on device` (containerd) | Ổ 20GB cạn do dở dang layer pull hoặc image cũ tích lũy: SSH vào chạy `sudo rm -rf /var/lib/containerd/io.containerd.content.v1.content/ingest/* && sudo docker image prune -a -f`. Khuyến nghị: tăng EBS lên 30GB trên AWS Console (EC2 → Volumes → Modify Volume → 30 GiB, không cần reboot). |
+| Khảo sát giá `/khao-sat-gia` đứng mãi ở "Đang quét kênh giao hàng" | API chạy `--workers 2`; nếu bước ghi snapshot rơi vào worker khác với worker chạy job thì `GET /catchment-survey/{job_id}` đọc bản cũ. Đã sửa: UI gọi `POST /catchment-survey/{job_id}/run` để chính worker phục vụ request chạy job và trả snapshot vừa ghi. Kiểm tra nhanh bằng mắt: `updated_at` trong response phải đổi sau mỗi lần gọi `POST .../run`. Nếu vẫn đứng, xem `docker compose logs api -f | grep job_id` để biết job dừng ở bước nào. |
+| Job khảo sát báo `SOURCE_BLOCKED` kèm `het_thoi_gian_cho_phep` | Job vượt ngân sách `CA_SURVEY_JOB_BUDGET_S` (mặc định 300 giây) — nguồn ngoài phản hồi quá chậm. Tăng biến này trong `.env` nếu server yếu, hoặc chấp nhận kết quả rỗng và thử lại vào giờ khác. |
 
 ## 10. Pham vi AWS production
 

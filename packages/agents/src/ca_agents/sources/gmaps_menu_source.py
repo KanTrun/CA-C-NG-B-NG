@@ -305,8 +305,13 @@ def scrape_gmaps_menu_images_camoufox(
     keyword: str,
     radius_km: float = 3.0,
     max_images: int = 3,
+    deadline_s: float | None = None,
 ) -> list[StoreCandidate]:
-    """Điều phối cào ảnh menu Google Maps bằng Camoufox có cache + SOURCE_BLOCKED retry."""
+    """Điều phối cào ảnh menu Google Maps bằng Camoufox có cache + SOURCE_BLOCKED retry.
+
+    `deadline_s` là thời gian còn lại của job khảo sát: không retry khi đã cạn
+    ngân sách (mỗi lần retry là một lượt proxy tính tiền thật).
+    """
     cache_k = _cache_key(latitude, longitude, keyword, radius_km)
     cached = _cache_get(cache_k)
     if cached is not None:
@@ -326,8 +331,9 @@ def scrape_gmaps_menu_images_camoufox(
                 max_images=max_images,
             )
 
+        timeout_s = None if deadline_s is None else max(5, int(deadline_s))
         try:
-            result_json = scrape_page(target_url, _extractor)
+            result_json = scrape_page(target_url, _extractor, timeout_s=timeout_s)
         except CamoufoxUnavailable:
             logger.info("Camoufox không khả dụng cho Google Maps menu scraping")
             raise
@@ -337,7 +343,7 @@ def scrape_gmaps_menu_images_camoufox(
 
         # Check SOURCE_BLOCKED
         if result_json.get("error_code") == SurveyErrorCode.SOURCE_BLOCKED:
-            if attempt < _MAX_BLOCK_RETRIES:
+            if attempt < _MAX_BLOCK_RETRIES and (deadline_s is None or deadline_s > 0):
                 delay = _backoff_delay(attempt)
                 logger.info(
                     "SOURCE_BLOCKED retry %d/%d, waiting %.1fs",

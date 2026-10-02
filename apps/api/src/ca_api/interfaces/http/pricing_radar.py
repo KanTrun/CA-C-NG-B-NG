@@ -11,11 +11,19 @@ Plan `260913-1455-khao-sat-gia-fb-online-dinein-substitutes` mục 5:
 
 ADR-008: `NEEDS_REVIEW` là điểm dừng thật — chỉ `POST .../{job_id}/review` do
 người dùng gọi mới đưa job sang tổng hợp. Không có auto-approve.
+
+Ghi chú kiến trúc (sự cố 2026-10-02 — job kẹt ở `scraping_online`):
+`JobStore` là cache trong tiến trình; snapshot bền vững nằm ở KV. Nếu job chạy
+trên worker này mà bước ghi KV lại do worker khác thực hiện, `GET .../{job_id}`
+sẽ đọc phải snapshot cũ và job trông như treo vĩnh viễn dù thực tế đã chạy xong.
+Vì vậy **mọi bước chuyển trạng thái job được thực hiện bởi chính request gọi
+`POST .../{job_id}/run`**, và worker đó trả về snapshot cuối cùng vừa ghi.
 """
 
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 import threading
 import time
@@ -48,6 +56,8 @@ from ca_api.persist import session as auth_session
 
 router = APIRouter(prefix="/api/v1/market", tags=["market"])
 system_router = APIRouter(prefix="/api/system", tags=["system"])
+
+logger = logging.getLogger(__name__)
 
 # ── Rate limiting + idempotency (plan mục 5.2) ───────────────────────────────
 
@@ -311,6 +321,39 @@ def _get_job_or_404(job_id: str) -> SurveyJob:
     return job
 
 
+def _refresh_job(job_id: str) -> SurveyJob:
+    """Đọc lại job từ nguồn bền vững nhất rồi đồng bộ cache trong tiến trình.
+
+    JobStore là bản sao theo tiến trình; KV là bản ghi dùng chung. Sau khi job
+    chạy ở worker khác, cache cục bộ có thể đang giữ trạng thái cũ hơn KV — luôn
+    lấy bản mới hơn theo `updated_at` để `GET /{job_id}` không kể chuyện cũ.
+    """
+    cached = get_job_store().get_job(job_id)
+    stored = _load_survey_job_kv(job_id)
+    if cached is None:
+        chosen = stored
+    elif stored is None or stored.updated_at <= cached.updated_at:
+        chosen = cached
+    else:
+        chosen = stored
+        get_job_store().update_job(chosen)
+    if chosen is None:
+        raise HTTPException(status_code=404, detail="job_khong_ton_tai")
+    return chosen
+
+
+#: Trạng thái job còn phải chạy tiếp — dùng chung với vòng poll của UI.
+_DANG_CHAY: frozenset[SurveyJobStatus] = frozenset(
+    {
+        SurveyJobStatus.QUEUED,
+        SurveyJobStatus.SCRAPING_ONLINE,
+        SurveyJobStatus.SCRAPING_DINEIN,
+        SurveyJobStatus.OCR_PROCESSING,
+        SurveyJobStatus.AGGREGATING,
+    }
+)
+
+
 _PROGRESS: dict[SurveyJobStatus, tuple[int, str]] = {
     SurveyJobStatus.QUEUED: (0, "Đang xếp hàng"),
     SurveyJobStatus.SCRAPING_ONLINE: (1, "Đang quét kênh delivery"),
@@ -362,11 +405,12 @@ def _run_job_safely(job_id: str) -> None:
     try:
         _orchestrator().execute_job(job_id)
     except Exception:  # noqa: BLE001 — background task không được ném ra Starlette
-        pass
+        logger.exception("Job khảo sát %s lỗi ở background task", job_id)
     finally:
-        job = get_job_store().get_job(job_id)
-        if job is not None:
-            _save_survey_job_kv(job)
+        try:
+            _save_survey_job_kv(_refresh_job(job_id))
+        except Exception:  # noqa: BLE001 — không được để lỗi lưu làm hỏng task
+            logger.exception("Không lưu được snapshot job khảo sát %s", job_id)
 
 
 # ── 5.1 Endpoints ────────────────────────────────────────────────────────────
@@ -459,7 +503,37 @@ async def get_catchment_survey_status(
 ) -> dict[str, Any]:
     """Trạng thái job theo State Machine (plan mục 2.4) — UI poll mỗi 3 giây."""
     _require_manager(_require_auth(authorization))
-    return {"ok": True, "data": _job_status_payload(_get_job_or_404(job_id))}
+    return {"ok": True, "data": _job_status_payload(_refresh_job(job_id))}
+
+
+@router.post("/catchment-survey/{job_id}/run")
+async def run_catchment_survey(
+    job_id: str,
+    authorization: Annotated[str | None, Header()] = None,
+) -> dict[str, Any]:
+    """Chạy bước kế tiếp của job ngay trong request này rồi trả snapshot vừa ghi.
+
+    Vì sao không dùng `BackgroundTasks`: snapshot trạng thái nằm ở KV nên bước ghi
+    phải do CHÍNH worker đang chạy job thực hiện. Đẩy job sang background task của
+    một worker khác (uvicorn nhiều worker / nhiều replica) làm `GET /{job_id}`
+    đọc snapshot cũ và job trông như treo vĩnh viễn — đúng sự cố đang gặp.
+
+    `execute_job` chỉ chạy khi job còn `queued` nên client poll lặp lại là vô hại.
+    """
+    user = _require_auth(authorization)
+    _require_manager(user)
+    job = _get_job_or_404(job_id)
+
+    if job.status in _DANG_CHAY or job.status == SurveyJobStatus.NEEDS_REVIEW:
+        orch = _orchestrator()
+        try:
+            await asyncio.to_thread(orch.execute_job, job_id)
+        except Exception:  # noqa: BLE001 — orchestrator đã tự đưa job về FAILED
+            logger.exception("Job khảo sát %s lỗi khi chạy", job_id)
+        finally:
+            _save_survey_job_kv(_refresh_job(job_id))
+
+    return {"ok": True, "data": _job_status_payload(_refresh_job(job_id))}
 
 
 @router.get("/catchment-survey/{job_id}/result")

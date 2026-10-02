@@ -2,8 +2,10 @@
 """Kiểm thử API v2 cho Catchment Price Radar (async job, plan mục 5).
 
 `TestClient` của Starlette chạy `BackgroundTasks` ĐỒNG BỘ sau khi trả response,
-nên mỗi test dưới đây thấy job đã ở trạng thái cuối ngay khi đọc `GET status` —
-không cần sleep/poll thật.
+nên khi job được tạo qua `POST /catchment-survey` thì `GET status` đã thấy trạng
+thái cuối. Trên production (uvicorn nhiều worker) điều đó KHÔNG còn đúng — xem
+nhóm test `POST .../{job_id}/run`, nơi trạng thái được đọc lại tại chính worker
+đang chạy job.
 """
 
 from __future__ import annotations
@@ -13,14 +15,16 @@ from typing import Any
 from unittest.mock import patch
 
 import pytest
+from ca_agents.ag_pricing import orchestrator_v2
+from ca_agents.ag_pricing.vision_menu_extractor import VisionExtractionResult
 from ca_api.interfaces.http.main import app
 from ca_api.interfaces.http.pricing_radar import reset_survey_runtime
 from ca_contracts.catchment_survey import DishItem, StoreCandidate
 from ca_contracts.catchment_survey_v2 import (
     ChannelMode,
     MenuSnapshotV2,
+    SurveyErrorCode,
 )
-from ca_agents.ag_pricing.vision_menu_extractor import VisionExtractionResult
 from fastapi.testclient import TestClient
 
 SURVEY_URL = "/api/v1/market/catchment-survey"
@@ -205,6 +209,109 @@ def test_status_then_result_flow(client: TestClient, auth_headers: dict[str, str
 def test_unknown_job_is_404(client: TestClient, auth_headers: dict[str, str]) -> None:
     assert client.get(f"{SURVEY_URL}/khong-co", headers=auth_headers).status_code == 404
     assert client.get(f"{SURVEY_URL}/khong-co/result", headers=auth_headers).status_code == 404
+
+
+# ── Chạy job tại chính worker đang phục vụ request (sự cố 2026-10-02) ────────
+#
+# Sự cố: `POST /catchment-survey` đẩy job sang background task; mọi bước chuyển
+# trạng thái lại do worker khác thực hiện nên `GET /{job_id}` đọc snapshot cũ và
+# job nằm im ở `scraping_online` vĩnh viễn dù đã chạy xong. Bộ test dưới đây khoá
+# lại hợp đồng: `POST .../{job_id}/run` PHẢI trả về trạng thái cuối cùng.
+
+
+def test_run_endpoint_drives_job_to_terminal_status(
+    client: TestClient, auth_headers: dict[str, str]
+) -> None:
+    with patch(_ONLINE, return_value=_online_stores()):
+        job_id = _post(client, auth_headers, _payload()).json()["data"]["job_id"]
+        res = client.post(f"{SURVEY_URL}/{job_id}/run", headers=auth_headers)
+
+    assert res.status_code == 200
+    data = res.json()["data"]
+    assert data["status"] == "completed"
+    assert data["progress"] == {"step": 5, "total": 5, "label": "Hoàn tất"}
+
+    # Snapshot đã ghi phải đọc lại được bằng `GET` mà không cần chạy thêm.
+    status = client.get(f"{SURVEY_URL}/{job_id}", headers=auth_headers).json()["data"]
+    assert status["status"] == "completed"
+
+
+def test_run_endpoint_does_not_rerun_finished_job(
+    client: TestClient, auth_headers: dict[str, str]
+) -> None:
+    """Job đã kết thúc gọi lại `/run` là vô hại — không chạy lại, không đổi kết quả."""
+    with patch(_ONLINE, return_value=_online_stores()) as online:
+        job_id = _post(client, auth_headers, _payload()).json()["data"]["job_id"]
+        client.post(f"{SURVEY_URL}/{job_id}/run", headers=auth_headers)
+        so_lan_dau = online.call_count
+        res = client.post(f"{SURVEY_URL}/{job_id}/run", headers=auth_headers)
+
+    assert res.status_code == 200
+    assert res.json()["data"]["status"] == "completed"
+    assert online.call_count == so_lan_dau
+
+
+def test_run_endpoint_resumes_needs_review_job(
+    client: TestClient, auth_headers: dict[str, str]
+) -> None:
+    """`NEEDS_REVIEW` là điểm dừng THẬT: `/run` không được tự duyệt thay (ADR-008)."""
+    with (
+        patch(_ONLINE, return_value=[]),
+        patch(_DINEIN, return_value=_dinein_stores()),
+        patch(_DOWNLOAD, return_value=b"x" * 512),
+        patch(_VISION, return_value=_vision_with_review()),
+    ):
+        job_id = _post(
+            client, auth_headers, _payload(channel_mode=ChannelMode.DINE_IN_VISION.value)
+        ).json()["data"]["job_id"]
+        res = client.post(f"{SURVEY_URL}/{job_id}/run", headers=auth_headers)
+
+    assert res.status_code == 200
+    assert res.json()["data"]["status"] == "needs_review"
+
+
+def test_run_endpoint_requires_manager(client: TestClient) -> None:
+    staff = _login(client, "minh")
+    res = client.post(f"{SURVEY_URL}/bat-ky/run", headers=staff)
+    assert res.status_code == 403
+
+
+def test_run_endpoint_unknown_job_is_404(client: TestClient, auth_headers: dict[str, str]) -> None:
+    assert client.post(f"{SURVEY_URL}/khong-co/run", headers=auth_headers).status_code == 404
+
+
+def test_run_endpoint_requires_auth(client: TestClient) -> None:
+    assert client.post(f"{SURVEY_URL}/bat-ky/run").status_code == 401
+
+
+def test_run_endpoint_times_out_instead_of_hanging(
+    client: TestClient, auth_headers: dict[str, str], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Cào nguồn treo quá ngân sách → job PHẢI kết thúc ở FAILED, không nằm im.
+
+    Ngân sách ép về 1 giây (giá trị nhỏ nhất `_JobDeadline` chấp nhận): đủ để
+    `_JobDeadline` hết hạn trước khi bước cào đầu tiên kịp bắt đầu.
+    """
+    monkeypatch.setenv("CA_SURVEY_JOB_BUDGET_S", "1")
+    with (
+        patch("ca_agents.ag_pricing.orchestrator_v2._JobDeadline", _DeadlineHetHan),
+        patch(_ONLINE, return_value=_online_stores()),
+    ):
+        job_id = _post(client, auth_headers, _payload()).json()["data"]["job_id"]
+        res = client.post(f"{SURVEY_URL}/{job_id}/run", headers=auth_headers)
+
+    assert res.status_code == 200
+    data = res.json()["data"]
+    assert data["status"] == "failed"
+    assert data["error_code"] == SurveyErrorCode.SOURCE_BLOCKED.value
+
+
+class _DeadlineHetHan(orchestrator_v2._JobDeadline):  # noqa: SLF001 — test cố ý
+    """Deadline đã cạn ngay khi được tạo, để test hết hạn mà không phải chờ."""
+
+    def __init__(self, tong_giay: float | None = None) -> None:
+        super().__init__(tong_giay)
+        self.ep_het_han()
 
 
 def test_result_before_completion_is_409(client: TestClient, auth_headers: dict[str, str]) -> None:

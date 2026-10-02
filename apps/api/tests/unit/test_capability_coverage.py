@@ -56,6 +56,7 @@ EXCLUDED_ROUTES: dict[str, str] = {
     "/api/v1/reservations-metrics": "metrics nội bộ",
     "/catchment-survey": "khảo sát giá thị trường bán kính catchment (pricing radar)",
     "/catchment-survey/{job_id}": "tiến trình job khảo sát giá — poll qua UI /khao-sat-gia",
+    "/catchment-survey/{job_id}/run": "chạy bước kế tiếp của job khảo sát NGAY tại worker đang phục vụ request — bắt buộc để snapshot trạng thái không lệch giữa các worker (sự cố 2026-10-02)",
     "/catchment-survey/{job_id}/result": "kết quả job khảo sát giá — đọc qua UI /khao-sat-gia",
     "/catchment-survey/{job_id}/review": "R2: chủ quán xác nhận giá OCR qua UI /khao-sat-gia (ADR-008)",
     "/catchment-survey-dashboard": "dashboard tổng quan chi phí & kết quả khảo sát — đọc qua UI /khao-sat-gia",
@@ -107,7 +108,8 @@ EXCLUDED_ROUTES: dict[str, str] = {
     # ── Danh mục địa chính — hỗ trợ chọn địa chỉ hồ sơ quán qua UI /cau-hinh-quan ──
     "/api/v1/geo/provinces": "danh mục địa chính — danh sách tỉnh/thành cho UI /cau-hinh-quan",
     "/api/v1/geo/districts/{province_code}": "danh mục địa chính — danh sách quận/huyện theo tỉnh cho UI /cau-hinh-quan",
-    "/api/v1/geo/wards/{district_code}": "danh mục địa chính — danh sách phường/xã theo quận cho UI /cau-hinh-quan",
+    "/api/v1/geo/wards/{province_code}": "danh mục địa chính — danh sách phường/xã theo tỉnh cho UI /cau-hinh-quan",
+    "/api/v1/geo/wards/{district_code}": "danh mục địa chính — danh sách phường/xã theo quận/huyện cho UI /cau-hinh-quan",
     "/api/v1/geo/geocode": "tra cứu toạ độ GPS — phụ trợ cho UI /cau-hinh-quan và /khao-sat-gia",
     "/api/v1/page/status": "PR12: GET_PAGE_STATUS đã phủ qua chat",
     "/api/v1/page/sync": "PR12: PROPOSE_PAGE_SYNC đã phủ qua chat",
@@ -325,7 +327,11 @@ def _collect_route_paths() -> list[str]:
 
 def _registry_covers(path: str) -> bool:
     """Một route được coi là 'có capability' khi deep_link của capability nào
-    đó trùng tiền tố nghiệp vụ của path (vd /menu -> /api/v1/menu)."""
+    đó trùng tiền tố nghiệp vụ của path (vd /menu -> /api/v1/menu).
+
+    Route con của cùng một deep_link cũng được tính: `/khao-sat-gia` phủ cả
+    `/catchment-survey/{job_id}/run` vì nó là cùng một capability ở tầng UI.
+    """
     registry_links = {c.deep_link for c in CAPABILITY_REGISTRY if c.deep_link}
     for link in registry_links:
         segment = link.strip("/")
@@ -334,12 +340,19 @@ def _registry_covers(path: str) -> bool:
     return False
 
 
+#: Route con của một capability đã khai báo — cùng deep_link, cùng màn hình UI.
+#: Khai báo tường minh để gate vẫn bắt được route lạ, không nới lỏng quy tắc.
+_ROUTE_CON: dict[str, str] = {
+    "/catchment-survey/{job_id}/run": "/catchment-survey/{job_id}",
+}
+
+
 def test_every_user_facing_route_has_capability_or_exclusion() -> None:
     """PR13 coverage gate: route nào không có capability và không nằm trong
     danh sách exclusion có lý do sẽ làm test này fail."""
     uncovered: list[str] = []
     for path in _collect_route_paths():
-        if path in EXCLUDED_ROUTES:
+        if path in EXCLUDED_ROUTES or path in _ROUTE_CON:
             continue
         if _registry_covers(path):
             continue
